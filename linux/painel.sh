@@ -16,13 +16,16 @@
 #   painel.sh adicionar-time            stdin: nome na 1ª linha; depois o export do Showdown
 #                                       ou um link do pokepast.es
 #   painel.sh remover-time <nome>
+#   painel.sh desafiar [partidas]       stdin: o usuário do Showdown a desafiar (1 a 10 partidas;
+#                                       termina a partida do ladder antes e volta a ele depois)
+#   painel.sh cancelar-desafio
 #   painel.sh log [linhas]
 #   painel.sh manter-vivo               segura o WSL ligado enquanto o bot roda
 #   painel.sh atualizar                 baixa a versão nova do GitHub e reinstala
 set -euo pipefail
 
 BOT_ID="${LOR_BOT:-bot}"
-ETC=/etc/lor-bots
+ETC="${LOR_ETC:-/etc/lor-bots}"  # LOR_ETC e LOR_RUN: só para os testes
 CONF="$ETC/$BOT_ID.conf"
 SENHA="$ETC/$BOT_ID.senha"
 ENV="$ETC/$BOT_ID.env"
@@ -36,6 +39,13 @@ PADRAO="MC371 MC196"
 # Adaptação no Bo3 (desligada no bot.sh): depois de perder um jogo, abre com outra dupla; no
 # turno 1 dos jogos 2 e 3, a busca conta com o adversário respondendo ao nosso turno 1 anterior.
 ADAPTA="--change-after-loss --counter-t1 0.5"
+# Um desafio roda numa unit à parte, que troca o lor-bot@<bot> para --challenge e depois volta.
+# O que ela precisa saber fica em $DESAFIO_DIR: alvo, partidas, fase (esperando = a partida do
+# ladder terminar, aguardando = o adversário aceitar, jogando, cancelando), voltar (1 = religar o
+# ladder no fim) e cancelado.
+DESAFIO="lor-desafio-$BOT_ID"
+DESAFIO_DIR="${LOR_RUN:-/run}/$DESAFIO"
+ESPERA_ACEITE=300 # segundos para aceitar; depois disso o desafio é cancelado
 
 [ "$(id -u)" -eq 0 ] || { echo "erro=rode como root" >&2; exit 1; }
 
@@ -49,12 +59,14 @@ conf_set() {
 	chmod 640 "$CONF"
 }
 
+# Sem argumentos, o ladder; com "<alvo> <partidas>", um desafio a essa conta.
 gerar_env() {
 	local conta formato time modo
 	conta="$(conf_get conta)"
 	formato="$(conf_get formato)"
 	time="$(conf_get time)"
 	modo="--ladder"
+	[ $# -eq 2 ] && modo="--challenge $1 $2 --challenge-wait $ESPERA_ACEITE"
 	[ "$formato" = bo1 ] && modo+=" --bo1"
 	if [ -n "$time" ] && [ "$time" != top3 ] && [ -f "$TIMES/LOR-$time.txt" ]; then
 		modo+=" --use LOR-$time"
@@ -89,6 +101,13 @@ cancelar_reinicio() {
 
 nome_valido() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; }
 
+# O id do Showdown: só letras minúsculas e números ("Sier VGC" -> siervgc).
+id_showdown() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'; }
+
+desafio_ativo() { [[ "$(estado_unit "$DESAFIO")" =~ ^(active|activating|deactivating)$ ]]; }
+desafio_get() { cat "$DESAFIO_DIR/$1" 2>/dev/null || true; }
+desafio_set() { [ -d "$DESAFIO_DIR" ] && echo "$2" >"$DESAFIO_DIR/$1" || true; }
+
 cmd="${1:-estado}"
 shift || true
 case "$cmd" in
@@ -113,9 +132,22 @@ estado)
 			| awk '/^watch: /{p=$2} /^(win|loss|tie) vs /{p=""} END{print p}')"
 	fi
 	echo "partida=$p"
+	if desafio_ativo; then
+		echo "desafio=$(desafio_get alvo)"
+		echo "desafio_fase=$(desafio_get fase)"
+	else
+		echo "desafio="
+		echo "desafio_fase="
+	fi
 	;;
 ligar)
 	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
+	if desafio_ativo; then
+		# O bot está no desafio: o ladder liga quando ele acabar.
+		desafio_set voltar 1
+		echo ok=depois-do-desafio
+		exit 0
+	fi
 	gerar_env
 	systemctl start "$UNIT"
 	[ -s "$ETC/coleta.env" ] && systemctl enable --now lor-envio >/dev/null 2>&1 || true
@@ -124,11 +156,22 @@ ligar)
 desligar)
 	# Termina a partida/série atual e para (pode levar até ~40 min numa série Bo3 longa).
 	cancelar_reinicio || true
+	# Num desafio: não começa (se ainda esperava o ladder) nem volta ao ladder no fim.
+	if desafio_ativo; then
+		desafio_set voltar 0
+		desafio_set cancelado 1
+	fi
 	systemctl stop --no-block "$UNIT"
 	echo ok=desligando
 	;;
 agora)
 	cancelar_reinicio || true
+	if desafio_ativo; then
+		desafio_set voltar 0
+		desafio_set cancelado 1
+		systemctl stop --no-block "$DESAFIO" 2>/dev/null || true
+		[ -f "$CONF" ] && gerar_env
+	fi
 	systemctl kill -s SIGKILL "$UNIT" 2>/dev/null || true
 	systemctl stop --no-block "$UNIT"
 	echo ok=desligado
@@ -136,7 +179,11 @@ agora)
 reiniciar)
 	# Aplica conta/formato/time novos: termina a partida atual e volta (via systemd, para não
 	# depender desta chamada continuar viva). Bots sem .conf (configurados à mão num servidor)
-	# mantêm o .env deles.
+	# mantêm o .env deles. Num desafio, o que mudou vale quando ele voltar ao ladder.
+	if desafio_ativo; then
+		echo ok=depois-do-desafio
+		exit 0
+	fi
 	[ -f "$CONF" ] && gerar_env
 	# Um "Aplicar" novo substitui o que ainda esperava (e liga de volta no fim, como ele faria).
 	if cancelar_reinicio || [ "$(estado_unit "$UNIT")" = active ]; then
@@ -238,8 +285,80 @@ remover-time)
 	fi
 	echo ok=time-removido
 	;;
+desafiar)
+	IFS= read -r alvo || true
+	alvo="$(id_showdown "${alvo%$'\r'}")"
+	n="${1:-1}"
+	[[ "$alvo" =~ ^[a-z0-9]{1,18}$ ]] || { echo "erro=usuário do Showdown inválido"; exit 1; }
+	[[ "$n" =~ ^([1-9]|10)$ ]] || { echo "erro=partidas: de 1 a 10"; exit 1; }
+	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
+	[ "$alvo" != "$(id_showdown "$(conf_get conta)")" ] || { echo "erro=essa é a conta do próprio bot"; exit 1; }
+	desafio_ativo && { echo "erro=já tem um desafio em andamento (contra $(desafio_get alvo))"; exit 1; }
+	cancelar_reinicio || true
+	rm -rf "$DESAFIO_DIR"
+	mkdir -p "$DESAFIO_DIR"
+	echo "$alvo" >"$DESAFIO_DIR/alvo"
+	echo "$n" >"$DESAFIO_DIR/partidas"
+	echo esperando >"$DESAFIO_DIR/fase"
+	# Volta ao ladder no fim só se ele estava ligado (e não parando a pedido).
+	[[ "$(estado_unit "$UNIT")" =~ ^(active|activating)$ ]] && echo 1 >"$DESAFIO_DIR/voltar" || echo 0 >"$DESAFIO_DIR/voltar"
+	systemd-run --quiet --collect --unit "$DESAFIO" --description "Desafio do bot LoR ($BOT_ID)" \
+		-E LOR_BOT="$BOT_ID" "$(readlink -f "$0")" _desafio
+	echo ok=desafiando
+	;;
+cancelar-desafio)
+	desafio_ativo || { echo "erro=nenhum desafio em andamento"; exit 1; }
+	desafio_set cancelado 1
+	# Já desafiando: a parada do bot cancela o desafio não aceito, ou termina a partida dele.
+	[[ "$(desafio_get fase)" =~ ^(aguardando|jogando)$ ]] && systemctl stop --no-block "$UNIT"
+	echo ok=cancelando
+	;;
+_desafio)
+	# Interno: o corpo da unit lor-desafio-<bot>, lançada pelo "desafiar".
+	alvo="$(desafio_get alvo)"
+	n="$(desafio_get partidas)"
+	terminar() {
+		# Sempre devolve o .env do ladder (um "ligar" depois não pode cair no desafio).
+		[ -f "$CONF" ] && gerar_env
+		if [ "$(desafio_get voltar)" = 1 ]; then
+			echo "Voltando ao ladder"
+			systemctl start "$UNIT" || true
+		fi
+		rm -rf "$DESAFIO_DIR"
+	}
+	trap terminar EXIT
+	trap 'exit 0' INT TERM
+	if [[ "$(estado_unit "$UNIT")" =~ ^(active|activating|deactivating)$ ]]; then
+		echo "Desafio a $alvo: esperando a partida do ladder terminar"
+		systemctl stop "$UNIT"
+	fi
+	[ -n "$(desafio_get cancelado)" ] && { echo "Desafio a $alvo cancelado"; exit 0; }
+	gerar_env "$alvo" "$n"
+	inicio=$(date +%s)
+	desafio_set fase aguardando
+	systemctl start "$UNIT"
+	sleep 5
+	while [[ "$(estado_unit "$UNIT")" =~ ^(active|activating|deactivating)$ ]]; do
+		fase="$(desafio_get fase)"
+		if [ -n "$(desafio_get cancelado)" ] && [ "$fase" != cancelando ]; then
+			echo "Desafio a $alvo cancelado"
+			desafio_set fase cancelando
+			systemctl stop --no-block "$UNIT"
+		elif [ "$fase" = aguardando ]; then
+			if journalctl -u "$UNIT" --since "@$inicio" -o cat --no-pager 2>/dev/null | grep -q '^watch: '; then
+				desafio_set fase jogando
+			elif (($(date +%s) - inicio > ESPERA_ACEITE)); then
+				echo "$alvo não aceitou o desafio em $((ESPERA_ACEITE / 60)) min: cancelado"
+				desafio_set fase cancelando
+				systemctl stop --no-block "$UNIT"
+			fi
+		fi
+		sleep 5
+	done
+	echo "Desafio a $alvo terminado"
+	;;
 log)
-	journalctl -u "$UNIT" -n "${1:-15}" -o cat --no-pager 2>/dev/null || true
+	journalctl -u "$UNIT" -u "$DESAFIO" -n "${1:-15}" -o cat --no-pager 2>/dev/null || true
 	;;
 manter-vivo)
 	# O WSL desliga a distribuição quando nenhum programa do Windows a usa, mesmo com serviços
@@ -249,7 +368,7 @@ manter-vivo)
 	sleep 20
 	while :; do
 		case "$(estado_unit "$UNIT")" in
-		inactive | failed) break ;;
+		inactive | failed) desafio_ativo || break ;; # um desafio religa o bot daqui a pouco
 		esac
 		sleep 30
 	done

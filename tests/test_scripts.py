@@ -98,7 +98,7 @@ SYSTEMCTL_FALSO = r'''#!/usr/bin/env bash
 echo "systemctl $*" >>"$LOG"
 case "$1" in
   list-units) [ -f "$PENDENTE" ] && echo "lor-reinicio-bot-1700000000.service loaded active running x" ;;
-  show) echo "${ESTADO:-active}" ;;
+  show) [[ "$*" == *lor-desafio-* ]] && echo "${ESTADO_DESAFIO:-inactive}" || echo "${ESTADO:-active}" ;;
   stop) [[ "$2" == lor-reinicio-* ]] && rm -f "$PENDENTE" ;;
 esac
 exit 0
@@ -156,6 +156,107 @@ class TestPainelReinicio(unittest.TestCase):
     def test_aplicar_com_bot_desligando_por_pedido_nao_religa(self):
         saida = self.painel("reiniciar", ESTADO="deactivating")  # Desligar, sem Aplicar pendente
         self.assertIn("ok=parado", saida)
+
+
+# O bot "joga" enquanto $D/jogos > 0: cada "show" do lor-bot@bot gasta um; stop/start mudam o estado.
+SYSTEMCTL_DESAFIO = r'''#!/usr/bin/env bash
+echo "systemctl $*" >>"$D/log"
+case "$1" in
+  show)
+    if [[ "$*" == *lor-desafio-* ]]; then echo "${ESTADO_DESAFIO:-inactive}"; exit 0; fi
+    estado=$(cat "$D/estado")
+    if [ "$estado" = active ] && [ -f "$D/jogos" ]; then
+      j=$(cat "$D/jogos"); echo $((j - 1)) >"$D/jogos"; ((j > 0)) || estado=inactive
+    fi
+    echo "$estado" ;;
+  start) echo active >"$D/estado"; cp "$D/bot.env" "$D/env-no-start-$(date +%s%N)" ;;
+  stop) [[ "$*" == *lor-bot@* ]] && echo inactive >"$D/estado" ;;
+esac
+exit 0
+'''
+
+
+class TestPainelDesafio(unittest.TestCase):
+    """Desafiar: valida, lança a unit lor-desafio-*, e o corpo dela troca o bot e volta ao ladder."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        falsos = {"systemctl": SYSTEMCTL_DESAFIO, "id": "#!/bin/sh\necho 0\n", "chown": "#!/bin/sh\n",
+                  "sleep": "#!/bin/sh\n", "journalctl": '#!/bin/sh\n[ -f "$D/aceito" ] && echo "watch: x"\nexit 0\n',
+                  "systemd-run": '#!/bin/sh\necho "systemd-run $*" >>"$D/log"\n'}
+        for nome, corpo in falsos.items():
+            (d / nome).write_text(corpo)
+            (d / nome).chmod(0o755)
+        (d / "bot.conf").write_text("conta=LoR Bot1\nformato=bo3\n")
+        (d / "bot.senha").write_text("x")
+        (d / "estado").write_text("active")
+        self.d = d
+        self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "D": str(d),
+                    "LOR_ETC": str(d), "LOR_RUN": str(d)}
+        self.dir = d / "lor-desafio-bot"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def painel(self, *args, entrada="", ok=True, **env) -> str:
+        r = subprocess.run(["bash", str(RAIZ_REPO / "linux" / "painel.sh"), *args], input=entrada,
+                           env={**self.env, **env}, capture_output=True, text=True)
+        if ok:
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout
+
+    def chamadas(self) -> list[str]:
+        log = self.d / "log"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def test_desafiar_valida_e_lanca(self):
+        self.assertIn("erro=", self.painel("desafiar", entrada="\n", ok=False))
+        self.assertIn("erro=partidas", self.painel("desafiar", "11", entrada="fulano\n", ok=False))
+        self.assertIn("próprio bot", self.painel("desafiar", entrada="lorbot1\n", ok=False))
+        self.assertIn("erro=já tem", self.painel("desafiar", entrada="fulano\n", ok=False, ESTADO_DESAFIO="active"))
+        self.assertIn("ok=desafiando", self.painel("desafiar", "3", entrada="Sier VGC\r\n"))
+        self.assertEqual((self.dir / "alvo").read_text().strip(), "siervgc")
+        self.assertEqual((self.dir / "partidas").read_text().strip(), "3")
+        self.assertEqual((self.dir / "voltar").read_text().strip(), "1")  # o ladder estava ligado
+        self.assertTrue(any(x.startswith("systemd-run") and "lor-desafio-bot" in x and "_desafio" in x
+                            for x in self.chamadas()))
+
+    def test_durante_o_desafio(self):
+        self.painel("desafiar", entrada="fulano\n")
+        self.assertIn("ok=depois-do-desafio", self.painel("reiniciar", ESTADO_DESAFIO="active"))
+        self.assertFalse(any(x.startswith("systemd-run") and "lor-reinicio" in x for x in self.chamadas()))
+        estado = self.painel("estado", ESTADO_DESAFIO="active")
+        self.assertIn("desafio=fulano", estado)
+        self.assertIn("desafio_fase=esperando", estado)
+        self.painel("desligar", ESTADO_DESAFIO="active")
+        self.assertEqual((self.dir / "voltar").read_text().strip(), "0")
+        self.assertTrue((self.dir / "cancelado").exists())
+
+    def test_corpo_desafia_e_volta_ao_ladder(self):
+        self.painel("desafiar", "2", entrada="fulano\n")
+        (self.d / "aceito").touch()
+        (self.d / "jogos").write_text("3")
+        saida = self.painel("_desafio")
+        c = self.chamadas()
+        parou = c.index("systemctl stop lor-bot@bot")  # esperou a partida do ladder
+        starts = [i for i, x in enumerate(c) if x == "systemctl start lor-bot@bot"]
+        self.assertEqual(len(starts), 2, c)  # o desafio, e a volta ao ladder
+        self.assertLess(parou, starts[0])
+        envs = sorted(self.d.glob("env-no-start-*"))
+        self.assertIn("--challenge fulano 2 --challenge-wait 300", envs[0].read_text())
+        self.assertIn("--ladder", envs[1].read_text())
+        self.assertIn("--ladder", (self.d / "bot.env").read_text())
+        self.assertFalse(self.dir.exists())
+        self.assertIn("Voltando ao ladder", saida)
+
+    def test_corpo_cancelado_antes_de_comecar(self):
+        self.painel("desafiar", entrada="fulano\n")
+        (self.dir / "cancelado").write_text("1")
+        (self.dir / "voltar").write_text("0")  # o que o "desligar" deixa
+        self.painel("_desafio")
+        self.assertNotIn("systemctl start lor-bot@bot", self.chamadas())
+        self.assertIn("--ladder", (self.d / "bot.env").read_text())
 
 
 if __name__ == "__main__":
