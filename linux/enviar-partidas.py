@@ -21,7 +21,8 @@ from pathlib import Path
 
 URL = os.environ.get("COLETA_URL", "https://showdown.sierverso.com.br/coleta/partidas")
 POLL = 30  # segundos entre leituras
-LOTE = 3 * 1024 * 1024  # bytes por envio (a coleta aceita até 4 MB)
+LOTE = 3 * 1024 * 1024  # bytes por envio, juntando várias partidas
+LIMITE = 4 * 1024 * 1024  # o máximo que a coleta aceita por envio: uma partida maior vai para a quarentena
 
 
 def enviar(codigo: str, corpo: bytes) -> dict:
@@ -44,41 +45,111 @@ def main() -> None:
         print("primeira execução: enviando também as partidas que já existiam", flush=True)
         estado = {"desde": time.strftime("%Y-%m-%d %H:%M:%S"), "enviados": {}}
         _gravar(estado_arq, estado)
+    while True:
+        ciclo(codigo, raiz, estado_arq, estado)
+        time.sleep(POLL)
+
+
+def ciclo(codigo: str, raiz: Path, estado_arq: Path, estado: dict) -> None:
+    """Uma leitura: manda o que houver de novo em cada games.jsonl."""
     # Partidas de antes da instalação vão para o treino, mas não para o Discord.
     desde: str = estado["desde"]
     enviados: dict[str, int] = estado["enviados"]
-
-    while True:
-        for jsonl in sorted(raiz.glob("*/games.jsonl")):
-            chave = str(jsonl.relative_to(raiz))
-            pos = enviados.get(chave, 0)
-            tamanho = jsonl.stat().st_size
-            if tamanho <= pos:
-                enviados[chave] = min(pos, tamanho)
-                continue
-            # Um lote de até LOTE bytes por vez (só linhas completas), sem ler o resto do arquivo:
-            # a posição só avança depois que a coleta aceita o lote.
-            with open(jsonl, "rb") as f:
-                while pos < tamanho:
-                    f.seek(pos)
-                    bloco = f.read(LOTE)
-                    fim = bloco.rfind(b"\n") + 1
-                    if not fim:
-                        if len(bloco) < LOTE:
-                            break  # a última linha ainda está sendo escrita
-                        f.seek(pos)
-                        pulada = len(f.readline())  # uma partida maior que o lote: a coleta recusaria
-                        print(f"{chave}: partida de {pulada} bytes, grande demais para enviar; pulando", flush=True)
-                        pos += pulada
-                    else:
-                        lote = [m for linha in bloco[:fim].splitlines(keepends=True)
-                                if linha.strip() and (m := _marcar(linha, desde, chave))]
-                        if lote and not _mandar(codigo, lote):
-                            break
-                        pos += fim
+    for jsonl in sorted(raiz.glob("*/games.jsonl")):
+        chave = str(jsonl.relative_to(raiz))
+        pos = enviados.get(chave, 0)
+        tamanho = jsonl.stat().st_size
+        if tamanho <= pos:
+            enviados[chave] = min(pos, tamanho)
+            continue
+        # Lê no máximo LIMITE bytes por vez (só linhas completas), sem carregar o resto do
+        # arquivo; a posição só avança depois que a coleta aceita cada lote.
+        with open(jsonl, "rb") as f:
+            while pos < tamanho:
+                f.seek(pos)
+                bloco = f.read(LIMITE)
+                fim = bloco.rfind(b"\n") + 1
+                if not fim:
+                    if len(bloco) < LIMITE:
+                        break  # a última partida ainda está sendo escrita
+                    fim_linha = _fim_da_linha(f, pos + LIMITE)
+                    if fim_linha is None:
+                        break  # uma partida enorme ainda sendo escrita: espera ela terminar
+                    _quarentena_arquivo(raiz, chave, f, pos, fim_linha)
+                    pos = fim_linha
                     enviados[chave] = pos
                     _gravar(estado_arq, estado)
-        time.sleep(POLL)
+                    continue
+                inicio, falhou = pos, False
+                for lote, ate in _lotes(bloco[:fim], desde, chave, raiz, inicio):
+                    if lote:
+                        r = _mandar(codigo, lote)
+                        if r == "grande":
+                            _quarentena(raiz, chave, inicio + ate, lote)
+                        elif r != "ok":
+                            falhou = True
+                            break
+                    pos = inicio + ate
+                    enviados[chave] = pos
+                    _gravar(estado_arq, estado)
+                if falhou:
+                    break
+
+
+def _lotes(bloco: bytes, desde: str, chave: str, raiz: Path, base: int):
+    """Divide as linhas completas de `bloco` em lotes de até LOTE bytes (uma partida maior que
+    LOTE vai sozinha). Devolve (lote, fim): fim é onde o lote termina dentro de `bloco`. Uma
+    partida acima de LIMITE, que a coleta recusaria, vai para a quarentena."""
+    lote: list[bytes] = []
+    soma = desloc = 0
+    for original in bloco.splitlines(keepends=True):
+        linha = _marcar(original, desde, chave) if original.strip() else None
+        if linha is not None and len(linha) > LIMITE:
+            _quarentena(raiz, chave, base + desloc, [original])
+            linha = None
+        if linha is not None and lote and soma + len(linha) > LOTE:
+            yield lote, desloc
+            lote, soma = [], 0
+        desloc += len(original)
+        if linha is not None:
+            lote.append(linha)
+            soma += len(linha)
+    yield lote, desloc
+
+
+def _quarentena(raiz: Path, chave: str, pos: int, linhas: list[bytes]) -> None:
+    # Partidas que a coleta não aceita (grandes demais) ficam guardadas aqui em vez de travar o
+    # envio das outras ou se perderem; dá para mandar à mão depois.
+    pasta = raiz / ".coleta-quarentena"
+    pasta.mkdir(exist_ok=True)
+    arq = pasta / f"{chave.replace('/', '_')}-{pos}"
+    arq.write_bytes(b"".join(linhas))
+    print(f"{chave}: {len(linhas)} partida(s) grande(s) demais para a coleta, guardada(s) em {arq}", flush=True)
+
+
+def _fim_da_linha(f, de: int) -> int | None:
+    """Posição logo depois do próximo fim de linha a partir de `de`, lendo aos pedaços (uma
+    partida enorme não vai inteira para a memória); None se a linha ainda não terminou."""
+    f.seek(de)
+    while pedaco := f.read(1024 * 1024):
+        i = pedaco.find(b"\n")
+        if i >= 0:
+            return f.tell() - len(pedaco) + i + 1
+    return None
+
+
+def _quarentena_arquivo(raiz: Path, chave: str, f, de: int, ate: int) -> None:
+    pasta = raiz / ".coleta-quarentena"
+    pasta.mkdir(exist_ok=True)
+    arq = pasta / f"{chave.replace('/', '_')}-{de}"
+    f.seek(de)
+    with open(arq, "wb") as saida:
+        while de < ate:
+            pedaco = f.read(min(1024 * 1024, ate - de))
+            saida.write(pedaco)
+            de += len(pedaco)
+    print(f"{chave}: partida de {arq.stat().st_size} bytes, grande demais para a coleta, guardada em {arq}",
+          flush=True)
 
 
 def _marcar(linha: bytes, desde: str, chave: str) -> bytes | None:
@@ -121,18 +192,21 @@ def _gravar(arq: Path, estado: dict) -> None:
     os.replace(tmp, arq)
 
 
-def _mandar(codigo: str, lote: list[bytes]) -> bool:
+def _mandar(codigo: str, lote: list[bytes]) -> str:
+    """"ok", "grande" (a coleta recusou pelo tamanho) ou "falha" (tentar de novo depois)."""
     try:
         r = enviar(codigo, b"".join(lote))
         print(f"enviadas {r.get('recebidas')} partidas ({r.get('novas')} novas)", flush=True)
-        return True
+        return "ok"
     except urllib.error.HTTPError as e:
         print(f"coleta recusou: {e.code} {e.read()[:200]!r}", flush=True)
+        if e.code == 413:
+            return "grande"
         if e.code == 401:
             time.sleep(600)  # código errado: não adianta insistir a cada 30 s
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         print(f"coleta fora do ar, tento de novo depois: {e}", flush=True)
-    return False
+    return "falha"
 
 
 if __name__ == "__main__":

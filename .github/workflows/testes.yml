@@ -1,0 +1,53 @@
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: zsh (o bot.sh do Ai-vgc é zsh)
+        run: sudo apt-get update -q && sudo apt-get install -y -q zsh
+
+      - name: Sintaxe dos scripts
+        run: |
+          for f in linux/*.sh; do bash -n "$f"; done
+          python3 -m py_compile linux/enviar-partidas.py
+
+      - name: Testes (envio de partidas, parada do bot, reinício do painel)
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Patch do Ai-vgc aplica no commit fixado
+        run: |
+          commit=$(sed -n 's/^AIVGC_COMMIT=//p' linux/instalar.sh)
+          repo=$(sed -n 's/^AIVGC_REPO=//p' linux/instalar.sh)
+          git init -q /tmp/ai-vgc && cd /tmp/ai-vgc
+          git remote add origin "$repo"
+          git sparse-checkout set src/ai_vgc
+          git fetch -q --depth 1 --filter=blob:none origin "$commit"
+          git checkout -q FETCH_HEAD
+          git apply --check "$GITHUB_WORKSPACE/linux/ai-vgc-lor.patch"
+          git apply "$GITHUB_WORKSPACE/linux/ai-vgc-lor.patch"
+          python3 -m py_compile src/ai_vgc/nn/player.py
+
+      - name: PowerShell do Windows (sintaxe; acentos só com UTF-8 com BOM)
+        shell: pwsh
+        run: |
+          $falhou = $false
+          foreach ($f in Get-ChildItem windows -Filter *.ps1) {
+            $erros = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$erros)
+            foreach ($e in $erros) { Write-Host "$($f.Name):$($e.Extent.StartLineNumber): $($e.Message)"; $falhou = $true }
+            $b = [IO.File]::ReadAllBytes($f.FullName)
+            $bom = $b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF
+            if (-not $bom -and ($b | Where-Object { $_ -gt 0x7F })) {
+              Write-Host "$($f.Name): tem acentos mas não tem BOM (o PowerShell 5 do Windows os leria errado)"; $falhou = $true
+            }
+          }
+          if ($falhou) { exit 1 }
