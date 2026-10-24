@@ -70,6 +70,17 @@ gerar_env() {
 
 estado_unit() { systemctl show -p ActiveState --value "$1" 2>/dev/null || echo desconhecido; }
 
+# Um "Aplicar" agenda parar+ligar numa unit à parte (lor-reinicio-<bot>-*). Desligar, ou um
+# novo Aplicar, cancela o que ainda esperava; a parada já pedida segue. Volta 0 se cancelou algum.
+cancelar_reinicio() {
+	local u achou=1
+	for u in $(systemctl list-units --plain --no-legend "lor-reinicio-$BOT_ID-[0-9]*.service" 2>/dev/null | awk '{print $1}'); do
+		systemctl stop "$u" 2>/dev/null || true
+		achou=0
+	done
+	return $achou
+}
+
 nome_valido() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; }
 
 cmd="${1:-estado}"
@@ -106,10 +117,12 @@ ligar)
 	;;
 desligar)
 	# Termina a partida/série atual e para (pode levar até ~40 min numa série Bo3 longa).
+	cancelar_reinicio || true
 	systemctl stop --no-block "$UNIT"
 	echo ok=desligando
 	;;
 agora)
+	cancelar_reinicio || true
 	systemctl kill -s SIGKILL "$UNIT" 2>/dev/null || true
 	systemctl stop --no-block "$UNIT"
 	echo ok=desligado
@@ -119,7 +132,8 @@ reiniciar)
 	# depender desta chamada continuar viva). Bots sem .conf (configurados à mão num servidor)
 	# mantêm o .env deles.
 	[ -f "$CONF" ] && gerar_env
-	if [ "$(estado_unit "$UNIT")" = active ]; then
+	# Um "Aplicar" novo substitui o que ainda esperava (e liga de volta no fim, como ele faria).
+	if cancelar_reinicio || [ "$(estado_unit "$UNIT")" = active ]; then
 		systemd-run --quiet --collect --unit "lor-reinicio-$BOT_ID-$(date +%s)" \
 			bash -c "systemctl stop $UNIT; systemctl start $UNIT"
 		echo ok=reiniciando

@@ -37,19 +37,35 @@ descendentes() {
 	done
 }
 
+# O Python do bot (descendente deste script): outros bots na mesma máquina seguem jogando.
+python_do_bot() {
+	local p
+	for p in $(descendentes "$filho"); do
+		if tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q 'ai_vgc.nn.player'; then
+			echo "$p"
+		fi
+	done
+}
+
 parando=0
 parar() {
 	# Um pedido só: um segundo SIGINT no Python seria "sair já" e cortaria a partida. Para matar
 	# na hora existe o "Desligar agora" (systemctl kill).
 	((parando)) && return
 	parando=1
-	# Só o Python do bot (descendente deste script): outros bots na mesma máquina seguem jogando.
 	local p
-	for p in $(descendentes "$filho"); do
-		if tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q 'ai_vgc.nn.player'; then
-			kill -INT "$p" 2>/dev/null || true
-		fi
+	for p in $(python_do_bot); do
+		kill -INT "$p" 2>/dev/null || true
 	done
+	# Se não há Python (esperando para reconectar, ou começando) ou se ele cair depois disso, o
+	# bot.sh lançaria outro que nunca recebeu o pedido. Então, enquanto o bot.sh existir, sem
+	# Python do bot não há partida para terminar: encerra o bot.sh antes que ele relance.
+	(
+		while kill -0 "$filho" 2>/dev/null; do
+			[ -n "$(python_do_bot)" ] || kill -TERM -- "-$filho" 2>/dev/null || true
+			sleep 2
+		done
+	) &
 }
 trap parar INT TERM
 
@@ -58,4 +74,5 @@ codigo=0
 while kill -0 "$filho" 2>/dev/null; do
 	wait "$filho" && codigo=0 || codigo=$?
 done
+((parando)) && exit 0  # parada pedida: não é falha (nem motivo para o systemd religar)
 exit "$codigo"
