@@ -66,7 +66,7 @@ gerar_env() {
 	formato="$(conf_get formato)"
 	time="$(conf_get time)"
 	modo="--ladder"
-	[ $# -eq 2 ] && modo="--challenge $1 $2"
+	[ $# -eq 2 ] && modo="--challenge $1 $2 --challenge-wait $ESPERA_ACEITE"
 	[ "$formato" = bo1 ] && modo+=" --bo1"
 	if [ -n "$time" ] && [ "$time" != top3 ] && [ -f "$TIMES/LOR-$time.txt" ]; then
 		modo+=" --use LOR-$time"

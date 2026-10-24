@@ -244,7 +244,7 @@ class TestPainelDesafio(unittest.TestCase):
         self.assertEqual(len(starts), 2, c)  # o desafio, e a volta ao ladder
         self.assertLess(parou, starts[0])
         envs = sorted(self.d.glob("env-no-start-*"))
-        self.assertIn("--challenge fulano 2", envs[0].read_text())
+        self.assertIn("--challenge fulano 2 --challenge-wait 300", envs[0].read_text())
         self.assertIn("--ladder", envs[1].read_text())
         self.assertIn("--ladder", (self.d / "bot.env").read_text())
         self.assertFalse(self.dir.exists())
