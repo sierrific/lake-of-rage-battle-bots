@@ -1037,13 +1037,13 @@ $lAgora.Alinhar = [System.Windows.Forms.TextFormatFlags]'HorizontalCenter, Verti
 
 # Configuração de partidas
 $cJogo = Novo-Cartao 'Configuração de partidas' 'Ladder oficial · Reg M-C' 13 211 595 164
-[void](Novo-Rotulo 'Formato' 20 50 110 20 $cJogo)
-[void](Novo-Rotulo 'Timer' 140 50 104 20 $cJogo)
-[void](Novo-Rotulo 'Time' 261 50 200 20 $cJogo)
-$cFormato = Nova-Lista @('BO3', 'BO1') 20 72 110 36 $cJogo
-$cTimer = Nova-Lista @('Ligado', 'Desligado') 140 72 104 36 $cJogo
-$cTime = Nova-Lista @('Padrão (MC371/MC196)') 261 72 206 36 $cJogo
-$bAplicar = Novo-Botao 'Aplicar' 'Contorno' '' 480 72 96 36 $cJogo
+[void](Novo-Rotulo 'Formato' 20 50 80 20 $cJogo)
+[void](Novo-Rotulo 'Timer' 110 50 124 20 $cJogo)
+[void](Novo-Rotulo 'Time' 244 50 222 20 $cJogo)
+$cFormato = Nova-Lista @('BO3', 'BO1') 20 72 80 36 $cJogo
+$cTimer = Nova-Lista @('Ligado', 'Desligado') 110 72 124 36 $cJogo
+$cTime = Nova-Lista @('Padrão (MC371/MC196)') 244 72 222 36 $cJogo
+$bAplicar = Novo-Botao 'Aplicar' 'Contorno' '' 478 72 98 36 $cJogo
 $sep = New-Object LoR.Divisor
 [void](Pos $sep 20 114 555 4 $cJogo)
 $bAddTime = Novo-Botao 'Adicionar time' 'Contorno' ([string][char]0xE710) 20 124 150 32 $cJogo
