@@ -37,7 +37,12 @@ descendentes() {
 	done
 }
 
+parando=0
 parar() {
+	# Um pedido só: um segundo SIGINT no Python seria "sair já" e cortaria a partida. Para matar
+	# na hora existe o "Desligar agora" (systemctl kill).
+	((parando)) && return
+	parando=1
 	# Só o Python do bot (descendente deste script): outros bots na mesma máquina seguem jogando.
 	local p
 	for p in $(descendentes "$filho"); do
