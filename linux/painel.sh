@@ -88,8 +88,14 @@ estado)
 	echo "time=${t:-top3}"
 	mem=$(systemctl show -p MemoryCurrent --value "$UNIT" 2>/dev/null || true)
 	[[ "$mem" =~ ^[0-9]+$ ]] && echo "memoria_mb=$((mem / 1024 / 1024))" || echo "memoria_mb="
-	# A última batalha anunciada no log ("watch: https://play.pokemonshowdown.com/battle-...").
-	echo "partida=$(journalctl -u "$UNIT" -n 300 -o cat --no-pager 2>/dev/null | sed -n 's/^watch: //p' | tail -1)"
+	# A batalha em andamento: a última anunciada no log ("watch: https://play.pokemonshowdown.com/battle-..."),
+	# se depois dela não veio o resultado ("win vs ...") e o bot está ligado (ou desligando após ela).
+	p=""
+	if [[ "$(estado_unit "$UNIT")" =~ ^(active|deactivating)$ ]]; then
+		p="$(journalctl -u "$UNIT" -n 300 -o cat --no-pager 2>/dev/null \
+			| awk '/^watch: /{p=$2} /^(win|loss|tie) vs /{p=""} END{print p}')"
+	fi
+	echo "partida=$p"
 	;;
 ligar)
 	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
