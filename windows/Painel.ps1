@@ -1046,6 +1046,7 @@ $sep = New-Object LoR.Divisor
 [void](Pos $sep 20 114 555 4 $cJogo)
 $bAddTime = Novo-Botao 'Adicionar time' 'Contorno' ([string][char]0xE710) 20 124 150 32 $cJogo
 $bRemTime = Novo-Botao 'Remover time' 'Neutro' ([string][char]0xE74D) 182 124 150 32 $cJogo
+$bDesafiar = Novo-Botao 'Desafiar jogador' 'Contorno' ([string][char]0xE7C1) 344 124 231 32 $cJogo
 
 # Coleta
 $cColeta = Novo-Cartao 'Coleta de times' 'Código para treino e Discord' 13 385 595 112
@@ -1139,6 +1140,8 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         $txt = $null
         if ($l -match '^Started lor-bot@') { $txt = 'Bot iniciado' }
         elseif ($l -match "^'(.+)' laddering (\S+) at ([^:]+):") { $txt = "Conta $($Matches[1]) conectada · procurando partida no ladder" }
+        elseif ($l -match "^'(.+)' challenging (\S+) to ") { $txt = "Conta $($Matches[1]) conectada · desafio enviado a $($Matches[2]), esperando aceitar" }
+        elseif ($l -match '^(Started|Finished) lor-desafio-|^lor-desafio-') { continue }
         elseif ($l -match '^team: (\S+)') { $txt = "Time da vez: $($Matches[1])" }
         elseif ($l -match '^watch: (\S+)') { $txt = "Partida em andamento · $($Matches[1])"; $tipo = 'partida' }
         elseif ($l -match '^(win|loss|tie) vs (.+) in (\d+) turns') {
@@ -1182,9 +1185,22 @@ function Atualizar-Tela {
     $titulos = @{ active = 'Bot em execução'; activating = 'Ligando…'; deactivating = 'Parando após a partida'
         inactive = 'Bot parado'; failed = 'Bot parou com erro' }
     $lBot.Text = if ($titulos[$bot]) { $titulos[$bot] } else { "Bot: $bot" }
+    $desafio = $e['desafio']
+    if ($desafio -and $bot -eq 'deactivating' -and $e['desafio_fase'] -eq 'esperando') { $lBot.Text = 'Trocando para o desafio' }
     $pBot.CorNome = switch ($bot) { 'active' { 'ponto' } 'failed' { 'vermelho' } { $_ -in 'activating', 'deactivating' } { 'ambar' } default { 'desligado' } }
     $pBot.Invalidate()
-    if ($e['partida']) { $selo.Tipo = 'verde'; $selo.Text = 'Partida em andamento'; $selo.Visible = $true }
+    if ($e['partida']) {
+        $selo.Tipo = 'verde'
+        $selo.Text = if ($desafio -and $e['desafio_fase'] -eq 'jogando') { "Desafio contra $desafio" } else { 'Partida em andamento' }
+        $selo.Visible = $true
+    }
+    elseif ($desafio) {
+        $fases = @{ esperando = "Desafio a $desafio depois da partida"; aguardando = "Esperando $desafio aceitar"
+            jogando = "Desafio contra $desafio"; cancelando = 'Cancelando o desafio' }
+        $selo.Tipo = if ($e['desafio_fase'] -eq 'aguardando') { 'neutra' } else { 'ambar' }
+        $selo.Text = if ($fases[$e['desafio_fase']]) { $fases[$e['desafio_fase']] } else { "Desafio a $desafio" }
+        $selo.Visible = $true
+    }
     elseif ($bot -eq 'active') { $selo.Tipo = 'neutra'; $selo.Text = 'Procurando partida'; $selo.Visible = $true }
     elseif ($bot -eq 'failed') { $selo.Tipo = 'ambar'; $selo.Text = 'Veja a atividade'; $selo.Visible = $true }
     else { $selo.Visible = $false }
@@ -1229,6 +1245,7 @@ function Atualizar-Tela {
     $bDesligar.Enabled = $ligado
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
+    $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
 }
 
 function Carregar-Opcoes {
@@ -1280,6 +1297,7 @@ $bAplicar.Add_Click({
     if (-not (Resultado (Invoke-Painel @('time', $t)) '')) { return }
     $r = Invoke-Painel @('reiniciar')
     if ($r.Saida -match 'reiniciando') { Mensagem 'Salvo. O bot reinicia com isso depois da partida (ou série) atual.' }
+    elseif ($r.Saida -match 'depois-do-desafio') { Mensagem 'Salvo. Vale quando o bot voltar do desafio.' }
     else { Mensagem 'Salvo. Vale na próxima vez que ligar.' }
     Atualizar-Tela
 })
@@ -1329,8 +1347,65 @@ $bRemTime.Add_Click({
     Atualizar-Tela
 })
 
+$bDesafiar.Add_Click({
+    Atualizar-Tela
+    $alvo = $script:estado['desafio']
+    if ($alvo) {
+        if ([System.Windows.Forms.MessageBox]::Show("Cancelar o desafio a $alvo? Se a partida já começou, o bot termina ela antes.",
+            'Painel LoR Bots', 'YesNo') -ne 'Yes') { return }
+        [void](Resultado (Invoke-Painel @('cancelar-desafio')) '')
+        Atualizar-Tela
+        return
+    }
+    if ($script:estado['senha'] -ne 'sim' -or -not $script:estado['conta']) { Mensagem 'Salve a conta e a senha do bot primeiro.'; return }
+    $d = New-Object System.Windows.Forms.Form
+    $d.Text = 'Desafiar jogador'
+    $d.AutoScaleMode = 'None'
+    $d.FormBorderStyle = 'FixedDialog'
+    $d.MaximizeBox = $false
+    $d.MinimizeBox = $false
+    $d.ClientSize = New-Object System.Drawing.Size((S 480), (S 300))
+    $d.StartPosition = 'CenterParent'
+    $d.BackColor = [LoR.Tema]::Atual.Fundo
+    $d.Font = $form.Font
+    [LoR.Janela]::TituloEscuro($d)
+    $r1 = Novo-Rotulo 'Usuário do Showdown' 20 16 300 22 $d
+    $r1.FundoNome = 'fundo'
+    $tAlvo = Novo-Campo 'ex.: Sier' 20 42 300 36 $d
+    $tAlvo.FundoNome = 'fundo'
+    $r2 = Novo-Rotulo 'Partidas' 340 16 120 22 $d
+    $r2.FundoNome = 'fundo'
+    $cPartidas = Nova-Lista @('1', '2', '3', '5', '10') 340 42 120 36 $d
+    $cPartidas.FundoNome = 'fundo'
+    $formato = ([string]$script:estado['formato']).ToUpper()
+    $ajuda = "No formato e com o time escolhidos ($formato). Se o bot estiver no ladder, ele termina a partida " +
+        "(ou série) atual, desafia, e volta ao ladder no fim. Se ninguém aceitar em 5 minutos, o desafio é cancelado."
+    $r3 = Novo-Rotulo $ajuda 20 96 440 120 $d 'suave' 10
+    $r3.FundoNome = 'fundo'
+    $r3.Alinhar = [System.Windows.Forms.TextFormatFlags]'WordBreak'
+    $bOk = Novo-Botao 'Desafiar' 'Primario' '' 252 240 100 38 $d
+    $bOk.FundoNome = 'fundo'
+    $bCancelar = Novo-Botao 'Cancelar' 'Neutro' '' 360 240 100 38 $d
+    $bCancelar.FundoNome = 'fundo'
+    $bCancelar.Add_Click({ $d.Close() })
+    $bOk.Add_Click({
+        if (-not $tAlvo.Caixa.Text.Trim()) { Mensagem 'Coloque o usuário do Showdown.'; return }
+        $r = Invoke-Painel @('desafiar', $cPartidas.Escolhido) ($tAlvo.Caixa.Text.Trim() + "`n")
+        if (Resultado $r 'Desafio agendado. Peça para a pessoa aceitar no Showdown quando chegar.') {
+            Manter-Vivo
+            $d.Close()
+        }
+    })
+    [void]$d.ShowDialog($form)
+    Atualizar-Tela
+})
+
 $bLigar.Add_Click({
-    if (Resultado (Invoke-Painel @('ligar')) '') { Manter-Vivo }
+    $r = Invoke-Painel @('ligar')
+    if (Resultado $r '') {
+        Manter-Vivo
+        if ($r.Saida -match 'depois-do-desafio') { Mensagem 'O bot está num desafio. O ladder liga quando ele acabar.' }
+    }
     Atualizar-Tela
 })
 $bDesligar.Add_Click({ [void](Resultado (Invoke-Painel @('desligar')) ''); Atualizar-Tela })

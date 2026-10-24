@@ -37,6 +37,9 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
 - **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em
   "Adicionar time…" cole um link do pokepast.es ou o export do Showdown; o time é validado antes
   de ser salvo. **Aplicar** passa a valer depois da partida atual.
+- **Desafiar jogador**: o usuário do Showdown e quantas partidas (1 a 10). O bot termina a partida
+  (ou série) atual do ladder, desafia no formato e com o time escolhidos, e volta ao ladder no
+  fim. Se ninguém aceitar em 5 minutos, o desafio é cancelado. O mesmo botão vira **Cancelar desafio**.
 - **Atualizar**: quando sai versão nova aqui no GitHub, o botão fica amarelo. Um clique baixa a
   versão nova do bot e do painel.
 - **Ligar o bot junto com o Windows**.
