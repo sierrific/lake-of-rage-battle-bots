@@ -1085,17 +1085,17 @@ $xAuto = New-Object LoR.Chave
 $lAuto = Novo-Rotulo 'Iniciar com o Windows' 74 652 300 30 $form 'texto' 10
 $lAuto.FundoNome = 'fundo'
 $lAuto.Cursor = 'Hand'
-$lAtualizar = Novo-Rotulo 'Verificar atualização' 830 652 170 30 $form 'ouro' 10
+$lAtualizar = Novo-Rotulo 'Verificar atualização' 790 652 210 30 $form 'ouro' 10
 $lAtualizar.FundoNome = 'fundo'
 $lAtualizar.Sublinhado = $true
 $lAtualizar.Cursor = 'Hand'
 $lAtualizar.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
-$lVersao = Novo-Rotulo 'Versão' 560 652 254 30 $form 'suave' 10
+$lVersao = Novo-Rotulo 'Versão' 520 652 254 30 $form 'suave' 10
 $lVersao.FundoNome = 'fundo'
 $lVersao.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
 $divRodape = New-Object LoR.Divisor
 $divRodape.FundoNome = 'fundo'
-[void](Pos $divRodape 818 656 4 22 $form)
+[void](Pos $divRodape 778 656 4 22 $form)
 
 $Atalho = $AtalhoLigar
 $xAuto.Marcado = Test-Path $Atalho
@@ -1180,6 +1180,64 @@ function Arrumar-Status {
     if ($chip.Visible) { $chip.SetBounds($x, (S 17), $chip.LarguraIdeal(), (S 27)) }
 }
 
+# Placar da partida atual, na linha embaixo do título (no lugar de "conta · formato · time", que
+# também aparece nos cartões de baixo). Cada pedaço é um rótulo com a cor do tema; os rótulos são
+# reaproveitados a cada atualização.
+$script:pecasPlacar = New-Object System.Collections.Generic.List[object]
+function Mostrar-Placar($e) {
+    $pecas = @()
+    if ($e['placar_oponente']) {
+        $sep = @{ t = '·'; c = 'suave' }
+        $pecas += @{ t = 'vs'; c = 'suave' }, @{ t = $e['placar_oponente']; c = 'texto'; n = $true }
+        if ($e['placar_bo3'] -eq 'sim') {
+            $pecas += $sep, @{ t = "Bo3 jogo $($e['placar_jogo'])"; c = 'suave' }
+            $pecas += $sep, @{ t = "$($e['placar_vitorias'])–$($e['placar_derrotas'])"; c = 'ouro'; n = $true; z = 12 }
+        }
+        $pecas += $sep
+        switch ($e['placar_resultado']) {
+            'win' { $pecas += @{ t = 'Vitória'; c = 'verde'; n = $true } }
+            'loss' { $pecas += @{ t = 'Derrota'; c = 'vermelho'; n = $true } }
+            'tie' { $pecas += @{ t = 'Empate'; c = 'ambar'; n = $true } }
+            default {
+                $pecas += if ($e['placar_turno'] -in '', '0') { @{ t = 'prévia de time'; c = 'suave' } } else { @{ t = "turno $($e['placar_turno'])"; c = 'texto' } }
+            }
+        }
+        if ($e['placar_nossos'] -ne '' -and $e['placar_deles'] -ne '' -and $null -ne $e['placar_nossos']) {
+            $pecas += $sep, @{ t = $e['placar_nossos']; c = 'verde'; n = $true; g = 'pk' }, @{ t = '×'; c = 'suave'; g = 'pk' },
+                @{ t = $e['placar_deles']; c = 'vermelho'; n = $true; g = 'pk' }, @{ t = 'Pokémon'; c = 'suave'; g = 'pk' }
+        }
+    }
+    $lInfo.Visible = $pecas.Count -eq 0
+    while ($script:pecasPlacar.Count -lt $pecas.Count) {
+        $r = New-Object LoR.Rotulo
+        [void](Pos $r 56 47 10 24 $cStatus)
+        $script:pecasPlacar.Add($r)
+    }
+    $x = S 56
+    $cabe = $pecas.Count
+    for ($i = 0; $i -lt $script:pecasPlacar.Count; $i++) {
+        $r = $script:pecasPlacar[$i]
+        if ($i -ge $pecas.Count) { $r.Visible = $false; continue }
+        $p = $pecas[$i]
+        $r.CorNome = $p.c
+        $r.Negrito = [bool]$p.n
+        $r.Tamanho = if ($p.z) { $p.z } else { 11 }
+        $r.Text = $p.t
+        $w = $r.LarguraTexto() + (S 2)
+        # Não entra na divisória do cartão: do primeiro pedaço que não cabe em diante, some tudo.
+        if ($i -lt $cabe -and $x + $w -gt (S 592)) { $cabe = $i }
+        $r.SetBounds($x, (S 47), $w, (S 24))
+        $r.Invalidate()
+        $x += $w + (S 5)
+    }
+    # Um grupo (o "3 × 1 Pokémon") aparece inteiro ou some inteiro; e sem "·" sobrando no fim.
+    if ($cabe -lt $pecas.Count -and $pecas[$cabe].g) {
+        while ($cabe -gt 0 -and $pecas[$cabe - 1].g -eq $pecas[$cabe].g) { $cabe-- }
+    }
+    while ($cabe -gt 0 -and $pecas[$cabe - 1].t -eq '·') { $cabe-- }
+    for ($i = 0; $i -lt $pecas.Count; $i++) { $script:pecasPlacar[$i].Visible = $i -lt $cabe }
+}
+
 function Atualizar-Tela {
     $e = Ler-Estado
     $script:estado = $e
@@ -1213,6 +1271,7 @@ function Atualizar-Tela {
     $conta = if ($e['conta']) { $e['conta'] } else { 'sem conta' }
     $time = if ($e['time'] -eq 'top3' -or -not $e['time']) { 'Padrão' } else { $e['time'] }
     $lInfo.Text = "$conta  ·  $(([string]$e['formato']).ToUpper())  ·  $time"
+    Mostrar-Placar $e
     $lVersao.Text = "Versão $($e['versao'])"
     if (Precisa-Atualizar) {
         $lAtualizar.Text = "Atualizar para $($script:versaoNova)"
@@ -1534,7 +1593,7 @@ $lAtualizar.Add_Click({
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 5000
 $timer.Add_Tick({
-    try { Atualizar-Tela } catch { $lBot.Text = 'Sem resposta do WSL'; $lInfo.Text = $_.Exception.Message; $pBot.CorNome = 'vermelho'; Arrumar-Status }
+    try { Atualizar-Tela } catch { $lBot.Text = 'Sem resposta do WSL'; Mostrar-Placar @{}; $lInfo.Text = $_.Exception.Message; $pBot.CorNome = 'vermelho'; Arrumar-Status }
 })
 
 $form.Add_Shown({
@@ -1550,7 +1609,7 @@ $form.Add_Shown({
         Atualizar-Tela
     } catch {
         $lBot.Text = 'Sem resposta do WSL'
-        $lInfo.Text = $_.Exception.Message
+        Mostrar-Placar @{}; $lInfo.Text = $_.Exception.Message
         $pBot.CorNome = 'vermelho'
         Arrumar-Status
     }
