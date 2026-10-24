@@ -157,6 +157,8 @@ codigo)
 	chown root:bots "$ETC/coleta.env.tmp"
 	chmod 640 "$ETC/coleta.env.tmp"
 	mv "$ETC/coleta.env.tmp" "$ETC/coleta.env"
+	# Fica habilitado: depois de reiniciar o Linux, o envio volta sozinho com as partidas pendentes.
+	systemctl enable lor-envio >/dev/null 2>&1 || true
 	systemctl restart lor-envio
 	echo ok=codigo
 	;;

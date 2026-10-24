@@ -57,3 +57,11 @@ Do modelo 1 (o 2 tem o mesmo, com o cartão de status numa linha só):
   (15,42, 969×79), com frases curtas ("Bot iniciado", "Conta conectada", "Partida em andamento").
 - Rodapé: alternância (24,644, 38×18) + "Iniciar com o Windows"; à direita "Versão …" | "Verificar
   atualização" (link dourado).
+
+## Como entram no painel
+
+O `windows/Painel.ps1` traz estes dois JPGs em base64 (variáveis `$CabecalhoDragao` e `$CabecalhoLago`) e os
+componentes da janela em C# (`$CodigoUI`), tudo no mesmo arquivo, que é o que o botão Atualizar baixa. Para
+trocar um cabeçalho, gere o base64 do JPG novo (`[Convert]::ToBase64String([IO.File]::ReadAllBytes('x.jpg'))`)
+e substitua o valor da variável. A escolha de tema de cada PC fica em `%LOCALAPPDATA%\LoRBots\skin.txt`
+(`dragao` ou `lago`); o menu é o ícone de paleta no cabeçalho.
