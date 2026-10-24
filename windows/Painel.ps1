@@ -1040,7 +1040,7 @@ $cJogo = Novo-Cartao 'Configuração de partidas' 'Ladder oficial · Reg M-C' 13
 [void](Novo-Rotulo 'Formato' 20 50 200 20 $cJogo)
 [void](Novo-Rotulo 'Time' 261 50 200 20 $cJogo)
 $cFormato = Nova-Lista @('BO3', 'BO1') 20 72 224 36 $cJogo
-$cTime = Nova-Lista @('Top 3 (padrão)') 261 72 206 36 $cJogo
+$cTime = Nova-Lista @('Padrão (MC371/MC196)') 261 72 206 36 $cJogo
 $bAplicar = Novo-Botao 'Aplicar' 'Contorno' '' 480 72 96 36 $cJogo
 $sep = New-Object LoR.Divisor
 [void](Pos $sep 20 114 555 4 $cJogo)
@@ -1192,7 +1192,7 @@ function Atualizar-Tela {
     $chip.Text = "$($e['memoria_mb']) MB"
     Arrumar-Status
     $conta = if ($e['conta']) { $e['conta'] } else { 'sem conta' }
-    $time = if ($e['time'] -eq 'top3' -or -not $e['time']) { 'Top 3' } else { $e['time'] }
+    $time = if ($e['time'] -eq 'top3' -or -not $e['time']) { 'Padrão' } else { $e['time'] }
     $lInfo.Text = "$conta  ·  $(([string]$e['formato']).ToUpper())  ·  $time"
     $lVersao.Text = "Versão $($e['versao'])"
     if (Precisa-Atualizar) {
@@ -1235,7 +1235,7 @@ function Carregar-Opcoes {
     $e = Ler-Estado
     $cFormato.Indice = if ($e['formato'] -eq 'bo1') { 1 } else { 0 }
     $cTime.Itens.Clear()
-    $cTime.Itens.Add('Top 3 (padrão)')
+    $cTime.Itens.Add('Padrão (MC371/MC196)')
     foreach ($t in ((Invoke-Painel @('times')).Saida -split "`n")) { if ($t.Trim()) { $cTime.Itens.Add($t.Trim()) } }
     $i = if ($e['time'] -and $e['time'] -ne 'top3') { $cTime.Itens.IndexOf($e['time']) } else { 0 }
     $cTime.Indice = [Math]::Max(0, $i)

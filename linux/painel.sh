@@ -11,7 +11,7 @@
 #   painel.sh conta                     stdin: usuário na 1ª linha, senha na 2ª
 #   painel.sh codigo                    stdin: o código da coleta
 #   painel.sh formato bo3|bo1
-#   painel.sh time top3|<nome>
+#   painel.sh time top3|<nome>       top3 = o padrão (MC371 ou MC196)
 #   painel.sh times                     os times salvos (um por linha)
 #   painel.sh adicionar-time            stdin: nome na 1ª linha; depois o export do Showdown
 #                                       ou um link do pokepast.es
@@ -30,6 +30,12 @@ UNIT="lor-bot@$BOT_ID"
 AIVGC=/opt/lor-bots/ai-vgc
 TIMES="$AIVGC/data/teams/reg_mc_top"
 MODELO=data/models/mc-bo3-rnad-v5.pt
+# Times do padrão ("top3", nome antigo da opção): os dois melhores do Bo3 no ladder em 24/10
+# (MC371 20-14, MC196 12-10); o MC147 do antigo --top 3 ficou em 3-7.
+PADRAO="MC371 MC196"
+# Adaptação no Bo3 (desligada no bot.sh): depois de perder um jogo, abre com outra dupla; no
+# turno 1 dos jogos 2 e 3, a busca conta com o adversário respondendo ao nosso turno 1 anterior.
+ADAPTA="--change-after-loss --counter-t1 0.5"
 
 [ "$(id -u)" -eq 0 ] || { echo "erro=rode como root" >&2; exit 1; }
 
@@ -53,9 +59,9 @@ gerar_env() {
 	if [ -n "$time" ] && [ "$time" != top3 ] && [ -f "$TIMES/LOR-$time.txt" ]; then
 		modo+=" --use LOR-$time"
 	else
-		modo+=" --top 3"
+		modo+=" --use $PADRAO"
 	fi
-	modo+=" --model $MODELO"
+	modo+=" --model $MODELO $ADAPTA"
 	{
 		printf 'BOT="%s"\n' "$conta"
 		printf 'SENHA_ARQUIVO=%s\n' "$SENHA"

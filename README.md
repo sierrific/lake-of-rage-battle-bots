@@ -34,7 +34,7 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
 - **Ligar / Desligar (após a partida) / Desligar agora**. "Desligar" espera terminar a partida ou
   a série Bo3 atual, para o bot não perder por W.O.
 - **Conta do Showdown**: usuário e senha do bot. A senha fica só no seu PC.
-- **Formato** (Bo3/Bo1) e **Time**: os 3 melhores times do modelo ou um time seu. Em
+- **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em
   "Adicionar time…" cole um link do pokepast.es ou o export do Showdown; o time é validado antes
   de ser salvo. **Aplicar** passa a valer depois da partida atual.
 - **Atualizar**: quando sai versão nova aqui no GitHub, o botão fica amarelo. Um clique baixa a
