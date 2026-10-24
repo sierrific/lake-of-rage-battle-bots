@@ -1037,11 +1037,13 @@ $lAgora.Alinhar = [System.Windows.Forms.TextFormatFlags]'HorizontalCenter, Verti
 
 # Configuração de partidas
 $cJogo = Novo-Cartao 'Configuração de partidas' 'Ladder oficial · Reg M-C' 13 211 595 164
-[void](Novo-Rotulo 'Formato' 20 50 200 20 $cJogo)
-[void](Novo-Rotulo 'Time' 261 50 200 20 $cJogo)
-$cFormato = Nova-Lista @('BO3', 'BO1') 20 72 224 36 $cJogo
-$cTime = Nova-Lista @('Padrão (MC371/MC196)') 261 72 206 36 $cJogo
-$bAplicar = Novo-Botao 'Aplicar' 'Contorno' '' 480 72 96 36 $cJogo
+[void](Novo-Rotulo 'Formato' 20 50 80 20 $cJogo)
+[void](Novo-Rotulo 'Timer' 110 50 124 20 $cJogo)
+[void](Novo-Rotulo 'Time' 244 50 222 20 $cJogo)
+$cFormato = Nova-Lista @('BO3', 'BO1') 20 72 80 36 $cJogo
+$cTimer = Nova-Lista @('Ligado', 'Desligado') 110 72 124 36 $cJogo
+$cTime = Nova-Lista @('Padrão (MC371/MC196)') 244 72 222 36 $cJogo
+$bAplicar = Novo-Botao 'Aplicar' 'Contorno' '' 478 72 98 36 $cJogo
 $sep = New-Object LoR.Divisor
 [void](Pos $sep 20 114 555 4 $cJogo)
 $bAddTime = Novo-Botao 'Adicionar time' 'Contorno' ([string][char]0xE710) 20 124 150 32 $cJogo
@@ -1313,6 +1315,7 @@ function Atualizar-Tela {
 function Carregar-Opcoes {
     $e = Ler-Estado
     $cFormato.Indice = if ($e['formato'] -eq 'bo1') { 1 } else { 0 }
+    $cTimer.Indice = if ($e['timer'] -eq 'nao') { 1 } else { 0 }
     $cTime.Itens.Clear()
     $cTime.Itens.Add('Padrão (MC371/MC196)')
     foreach ($t in ((Invoke-Painel @('times')).Saida -split "`n")) { if ($t.Trim()) { $cTime.Itens.Add($t.Trim()) } }
@@ -1355,7 +1358,9 @@ $bCodigo.Add_Click({
 $bAplicar.Add_Click({
     $f = if ($cFormato.Indice -eq 1) { 'bo1' } else { 'bo3' }
     $t = if ($cTime.Indice -le 0) { 'top3' } else { $cTime.Escolhido }
+    $tm = if ($cTimer.Indice -eq 1) { 'nao' } else { 'sim' }
     if (-not (Resultado (Invoke-Painel @('formato', $f)) '')) { return }
+    if (-not (Resultado (Invoke-Painel @('timer', $tm)) '')) { return }
     if (-not (Resultado (Invoke-Painel @('time', $t)) '')) { return }
     $r = Invoke-Painel @('reiniciar')
     if ($r.Saida -match 'reiniciando') { Mensagem 'Salvo. O bot reinicia com isso depois da partida (ou série) atual.' }

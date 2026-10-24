@@ -259,10 +259,6 @@ class TestPainelDesafio(unittest.TestCase):
         self.assertIn("--ladder", (self.d / "bot.env").read_text())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestPainelPlacar(TestPainelDesafio):
     """estado: o placar que o bot grava em data/live_games/placar-<conta>.json."""
 
@@ -304,3 +300,22 @@ class TestPainelPlacar(TestPainelDesafio):
         self.assertEqual(self.placar(), {"placar_oponente": ""})
         self.arq.write_text("{quebrado")
         self.assertEqual(self.placar(), {"placar_oponente": ""})
+
+
+class TestPainelTimer(TestPainelDesafio):
+    """timer sim|nao: o bot liga (ou não) o timer em cada partida."""
+
+    def test_timer_liga_por_padrao_e_desliga(self):
+        self.assertIn("timer=sim", self.painel("estado").splitlines())
+        self.painel("formato", "bo3")
+        self.assertNotIn("--no-timer", (self.d / "bot.env").read_text())
+        self.assertIn("ok=timer", self.painel("timer", "nao"))
+        self.assertIn("timer=nao", self.painel("estado").splitlines())
+        self.assertIn("--no-timer", (self.d / "bot.env").read_text())
+        self.painel("timer", "sim")
+        self.assertNotIn("--no-timer", (self.d / "bot.env").read_text())
+        self.assertIn("erro=", self.painel("timer", "talvez", ok=False))
+
+
+if __name__ == "__main__":
+    unittest.main()
