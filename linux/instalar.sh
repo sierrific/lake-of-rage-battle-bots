@@ -51,7 +51,13 @@ if [ ! -d "$DIR/ai-vgc/.git" ]; then
 	as_bots "git init -q $DIR/ai-vgc && git -C $DIR/ai-vgc remote add origin $AIVGC_REPO"
 fi
 # checkout -f desfaz o patch anterior; data/ (partidas, times do painel) não é do git e fica.
-as_bots "git -C $DIR/ai-vgc fetch -q --depth 1 origin $AIVGC_COMMIT && git -C $DIR/ai-vgc checkout -q -f FETCH_HEAD"
+# O download (~300 MB, com os modelos) só acontece quando muda o commit.
+if [ "$(sudo -u bots git -C "$DIR/ai-vgc" rev-parse HEAD 2>/dev/null)" = "$AIVGC_COMMIT" ]; then
+	as_bots "git -C $DIR/ai-vgc checkout -q -f HEAD"
+else
+	echo "    baixando o Ai-vgc com os modelos (~300 MB, pode levar alguns minutos sem mostrar nada)"
+	as_bots "git -C $DIR/ai-vgc fetch -q --depth 1 origin $AIVGC_COMMIT && git -C $DIR/ai-vgc checkout -q -f FETCH_HEAD"
+fi
 install -o bots -g bots -m 644 "$SRC/linux/ai-vgc-lor.patch" "$DIR/ai-vgc-lor.patch"
 as_bots "cd $DIR/ai-vgc && git apply ../ai-vgc-lor.patch"
 
