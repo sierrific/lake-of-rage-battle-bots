@@ -74,9 +74,15 @@ PS="$DIR/ai-vgc/pokemon-showdown-mc"
 if [ ! -d "$PS/.git" ]; then
 	as_bots "git init -q $PS && git -C $PS remote add origin https://github.com/smogon/pokemon-showdown"
 fi
-if [ "$(git -C "$PS" rev-parse HEAD 2>/dev/null)" != "$PS_COMMIT" ] || [ ! -d "$PS/dist" ]; then
+# Só recompila quando muda a versão: o marcador é gravado no fim de uma compilação completa, então
+# uma atualização interrompida no meio (janela fechada) compila de novo na próxima.
+MARCA="$PS/.lor-compilado"
+if [ "$(cat "$MARCA" 2>/dev/null)" != "$PS_COMMIT" ]; then
+	echo "    baixando e compilando o simulador (leva alguns minutos, sem mostrar nada)"
+	rm -f "$MARCA"
 	as_bots "git -C $PS fetch -q --depth 1 origin $PS_COMMIT && git -C $PS checkout -q -f FETCH_HEAD"
 	as_bots "cd $PS && npm ci --no-audit --no-fund --loglevel=error && cp -n config/config-example.js config/config.js && node build"
+	as_bots "echo $PS_COMMIT > $MARCA"
 fi
 # Partes do Ai-vgc procuram a pasta pokemon-showdown/ mesmo quando usam a de Reg M-C.
 as_bots "ln -sfn pokemon-showdown-mc $DIR/ai-vgc/pokemon-showdown"
