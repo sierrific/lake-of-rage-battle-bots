@@ -44,8 +44,8 @@ if ($LASTEXITCODE -ne 0) {
     }
     Passo 'Instalando o WSL (o Windows pode pedir para reiniciar)'
     & wsl.exe --install --no-distribution
-    # Depois de reiniciar, o instalador abre sozinho para continuar.
-    $volta = "irm $Raw/windows/instalar.ps1 | iex"
+    # Depois de reiniciar, o instalador abre sozinho para continuar (na mesma branch, se era um teste).
+    $volta = "`$env:LOR_RAMO='$Ramo'; irm $Raw/windows/instalar.ps1 | iex"
     New-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'LoRBots' -Force `
         -Value "powershell.exe -NoExit -ExecutionPolicy Bypass -Command `"$volta`"" | Out-Null
     Write-Host "`nWSL instalado. REINICIE o computador; o instalador continua sozinho depois." -ForegroundColor Yellow
