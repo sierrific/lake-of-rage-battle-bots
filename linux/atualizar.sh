@@ -5,6 +5,9 @@
 #
 #   sudo /opt/lor-bots/atualizar.sh
 set -euo pipefail
+# Duas atualizações ao mesmo tempo (dois cliques no botão) se atropelariam: a segunda espera.
+exec 8>/run/lor-atualizar.lock
+flock -n 8 || { echo "Já tem uma atualização rodando; esperando ela terminar..."; flock 8; }
 
 REPO=https://github.com/sierrific/lake-of-rage-battle-bots
 RAMO="${LOR_RAMO:-main}"  # outra branch só para testar uma versão antes de ir para a main
