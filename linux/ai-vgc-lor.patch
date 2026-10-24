@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..c387655 100644
+index eb60a97..ec1f9c7 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -31,10 +31,34 @@ index eb60a97..c387655 100644
                  while self._battle_count_queue.full():
                      async with self._battle_end_condition:
                          await self._battle_end_condition.wait()
-@@ -561,6 +563,28 @@ class ChallengeMixin:
+@@ -561,6 +563,52 @@ class ChallengeMixin:
          while self._busy():
              await asyncio.sleep(1)
  
++    async def _send_challenges(self, opponent: str, n_challenges: int, to_wait=None):
++        # poke-env's loop with _ladder's graceful stop: one match at a time, no new challenge
++        # once `stop_after_match` is set (a challenge not yet accepted is cancelled), and the
++        # match in progress (with the rest of its Bo3 series) finishes.
++        await self.ps_client.logged_in.wait()
++        if to_wait is not None:
++            await to_wait.wait()
++        for _ in range(n_challenges):
++            if self.stop_after_match:
++                break
++            await self.ps_client.challenge(opponent, self._format, self.next_team)
++            aceito = False
++            while not aceito and not self.stop_after_match:
++                try:
++                    await asyncio.wait_for(self._battle_semaphore.acquire(), 5)
++                    aceito = True
++                except asyncio.TimeoutError:
++                    pass
++            if not aceito:
++                await self.ps_client.send_message(f"/cancelchallenge {opponent}")
++                break
++            await self._battle_count_queue.join()  # this game, or the whole Bo3 series
++        await self._battle_count_queue.join()
++
 +    SEARCH_RETRY = 10 * 60  # no match after this long: the search was probably dropped, search again
 +
 +    async def _search_until_match(self) -> bool:
@@ -60,7 +84,7 @@ index eb60a97..c387655 100644
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
          opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
-@@ -645,6 +669,12 @@ class ChallengeMixin:
+@@ -645,6 +693,12 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
@@ -73,7 +97,7 @@ index eb60a97..c387655 100644
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -674,8 +704,12 @@ class ChallengeMixin:
+@@ -674,8 +728,12 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -86,7 +110,7 @@ index eb60a97..c387655 100644
                     # Team file the pool last handed out (ladder plays one match at a time).
                     "team": getattr(self._team, "last_name", None),
                     "model": getattr(self, "model_name", None),
-@@ -725,8 +759,19 @@ class ChallengeMixin:
+@@ -725,8 +783,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -107,7 +131,7 @@ index eb60a97..c387655 100644
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -791,6 +836,13 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -791,6 +860,13 @@ def _public_login(player: Player, password: str | None) -> None:
      client.log_in = log_in
  
  
@@ -121,7 +145,7 @@ index eb60a97..c387655 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +870,12 @@ def main() -> None:
+@@ -818,6 +894,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -134,7 +158,7 @@ index eb60a97..c387655 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -913,9 +971,10 @@ def main() -> None:
+@@ -913,9 +995,10 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -147,7 +171,7 @@ index eb60a97..c387655 100644
      # The sim bridge (search) still needs the local Showdown checkout, but not a local server.
      proc = None if public else ensure_server(args.port, args.showdown)
      common = dict(
-@@ -923,7 +982,8 @@ def main() -> None:
+@@ -923,7 +1006,8 @@ def main() -> None:
          ping_interval=20.0, ping_timeout=60.0,
          battle_format=args.format, max_concurrent_battles=args.concurrency,
          accept_open_team_sheet=not args.closed_sheets,
@@ -157,7 +181,7 @@ index eb60a97..c387655 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -967,8 +1027,11 @@ def main() -> None:
+@@ -967,8 +1051,11 @@ def main() -> None:
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
              bot.logs_dir = args.logs_dir
@@ -170,46 +194,54 @@ index eb60a97..c387655 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -986,23 +1049,17 @@ def main() -> None:
+@@ -986,8 +1073,25 @@ def main() -> None:
                  threading.Thread(target=watchdog, daemon=True).start()
              if args.from_:
                  bot.allowed = {to_id_str(u) for u in args.from_}
 -            where = "play.pokemonshowdown.com" if public else f"http://localhost:{args.port}"
 +            where = args.server_url or ("play.pokemonshowdown.com" if public else f"http://localhost:{args.port}")
              who = f" (from {', '.join(args.from_)} only)" if args.from_ else ""
--            if args.challenge:
--                bot._format = args.format
--                them = args.challenge[0]
--                print(f"'{args.accept}' challenging {them} to {args.format} at {where}: {args.n} games "
--                      f"(they accept in their Showdown client)", flush=True)
--                asyncio.run(bot.send_challenges(to_id_str(them), args.n))
--            elif args.ladder:
-+            if not args.challenge:
-+                # Laddering or taking challenges: the first Ctrl-C finishes this game (or Bo3
-+                # series) and stops; another one at least 2 s later quits now. (A terminal Ctrl-C
-+                # arrives twice: from the terminal and forwarded by `uv run`.)
-                 import signal
- 
-                 first = []
- 
-                 def graceful(*_):
++            # The first Ctrl-C finishes this game (or Bo3 series) and stops, in every mode; another
++            # one at least 2 s later quits now. (A terminal Ctrl-C arrives twice: from the terminal
++            # and forwarded by `uv run`.)
++            import signal
++
++            first = []
++
++            def graceful(*_):
++                if not first:
++                    first.append(time.time())
++                    bot.stop_after_match = True
++                    print("\nCtrl-C: finishing the current match, then stopping (Ctrl-C again to quit now)",
++                          flush=True)
++                elif time.time() - first[0] > 2:
++                    raise KeyboardInterrupt
++
++            signal.signal(signal.SIGINT, graceful)
+             if args.challenge:
+                 bot._format = args.format
+                 them = args.challenge[0]
+@@ -995,23 +1099,6 @@ def main() -> None:
+                       f"(they accept in their Showdown client)", flush=True)
+                 asyncio.run(bot.send_challenges(to_id_str(them), args.n))
+             elif args.ladder:
+-                import signal
+-
+-                first = []
+-
+-                def graceful(*_):
 -                    # First Ctrl-C: finish this game (or Bo3 series) and stop; another one at least
 -                    # 2 s later quits now. (A terminal Ctrl-C arrives twice: from the terminal and
 -                    # forwarded by `uv run`.)
-                     if not first:
-                         first.append(time.time())
-                         bot.stop_after_match = True
-@@ -1012,6 +1069,13 @@ def main() -> None:
-                         raise KeyboardInterrupt
- 
-                 signal.signal(signal.SIGINT, graceful)
-+            if args.challenge:
-+                bot._format = args.format
-+                them = args.challenge[0]
-+                print(f"'{args.accept}' challenging {them} to {args.format} at {where}: {args.n} games "
-+                      f"(they accept in their Showdown client)", flush=True)
-+                asyncio.run(bot.send_challenges(to_id_str(them), args.n))
-+            elif args.ladder:
+-                    if not first:
+-                        first.append(time.time())
+-                        bot.stop_after_match = True
+-                        print("\nCtrl-C: finishing the current match, then stopping (Ctrl-C again to quit now)",
+-                              flush=True)
+-                    elif time.time() - first[0] > 2:
+-                        raise KeyboardInterrupt
+-
+-                signal.signal(signal.SIGINT, graceful)
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
