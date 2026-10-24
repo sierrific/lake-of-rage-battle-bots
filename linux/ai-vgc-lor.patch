@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..165275e 100644
+index eb60a97..c6c6664 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -20,17 +20,20 @@ index eb60a97..165275e 100644
      watch_open = False  # also show it in a local watch page that follows each new battle
      _watching: list[str] | None = None  # [current battle url, tag], read by the watch page's server
      stop_after_match = False  # set by the first Ctrl-C: finish the current game / Bo3 series, then stop
-@@ -645,6 +647,9 @@ class ChallengeMixin:
+@@ -645,6 +647,12 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
 +        # Upload the replay while still in the room (poke-env /leaves right after |win|).
 +        if self.replay_url and any(len(m) > 1 and m[1] in ("win", "tie") for m in split_messages[1:]):
 +            await self.ps_client.send_message("/savereplay silent", split_messages[0][0].removeprefix(">"))
++            # Showdown throttles messages sent too close together ("typing too quickly"); without
++            # this pause the /leave and the next ladder /search that follow could be dropped.
++            await asyncio.sleep(1.5)
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -674,8 +679,12 @@ class ChallengeMixin:
+@@ -674,8 +682,12 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -43,7 +46,7 @@ index eb60a97..165275e 100644
                     # Team file the pool last handed out (ladder plays one match at a time).
                     "team": getattr(self._team, "last_name", None),
                     "model": getattr(self, "model_name", None),
-@@ -791,6 +800,13 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -791,6 +803,13 @@ def _public_login(player: Player, password: str | None) -> None:
      client.log_in = log_in
  
  
@@ -57,7 +60,7 @@ index eb60a97..165275e 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +834,12 @@ def main() -> None:
+@@ -818,6 +837,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -70,7 +73,7 @@ index eb60a97..165275e 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -913,9 +935,10 @@ def main() -> None:
+@@ -913,9 +938,10 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -83,7 +86,7 @@ index eb60a97..165275e 100644
      # The sim bridge (search) still needs the local Showdown checkout, but not a local server.
      proc = None if public else ensure_server(args.port, args.showdown)
      common = dict(
-@@ -923,7 +946,8 @@ def main() -> None:
+@@ -923,7 +949,8 @@ def main() -> None:
          ping_interval=20.0, ping_timeout=60.0,
          battle_format=args.format, max_concurrent_battles=args.concurrency,
          accept_open_team_sheet=not args.closed_sheets,
@@ -93,7 +96,7 @@ index eb60a97..165275e 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -967,8 +991,11 @@ def main() -> None:
+@@ -967,8 +994,11 @@ def main() -> None:
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
              bot.logs_dir = args.logs_dir
@@ -106,7 +109,7 @@ index eb60a97..165275e 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -986,7 +1013,7 @@ def main() -> None:
+@@ -986,7 +1016,7 @@ def main() -> None:
                  threading.Thread(target=watchdog, daemon=True).start()
              if args.from_:
                  bot.allowed = {to_id_str(u) for u in args.from_}
