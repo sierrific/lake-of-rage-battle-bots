@@ -1072,7 +1072,7 @@ $bTema.Add_Click({
         $it.Add_Click({ param($s) Escolher-Tema $s.Tag })
         [void]$m.Items.Add($it)
     }
-    $m.Show($bTema, (New-Object System.Drawing.Point((S 46) - (S 250), $bTema.Height)))
+    $m.Show($bTema, (New-Object System.Drawing.Point(((S 46) - (S 250)), $bTema.Height)))
 })
 
 # ---------------------------------------------------------------------------------------------
