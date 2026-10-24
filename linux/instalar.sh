@@ -94,5 +94,9 @@ if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload
 fi
 
+echo "==> Limpando caches de download (~1,5 GB)"
+as_bots "$UV cache clean -q; npm cache clean --force --loglevel=error" || true
+apt-get clean
+
 echo
 echo "Pronto: versão $(cat "$DIR/VERSION")."

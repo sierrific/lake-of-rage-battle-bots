@@ -71,6 +71,14 @@ if ($Ligar) {
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+# Um painel só: abrir de novo pelo atalho não cria uma segunda janela.
+$criado = $false
+$trava = New-Object System.Threading.Mutex($true, 'Local\LoRBotsPainel', [ref]$criado)
+if (-not $criado) {
+    [System.Windows.Forms.MessageBox]::Show('O Painel LoR Bots já está aberto.', 'Painel LoR Bots') | Out-Null
+    return
+}
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $form = New-Object System.Windows.Forms.Form
@@ -339,6 +347,9 @@ $timer.Add_Tick({ try { Atualizar-Tela } catch { $lBot.Text = "Bot: sem resposta
 
 $form.Add_Shown({
     $form.Cursor = 'WaitCursor'
+    # A primeira chamada liga o Linux do WSL e leva alguns segundos.
+    $lBot.Text = 'Carregando… (ligando o Linux dos bots)'
+    $form.Refresh()
     try {
         Carregar-Opcoes
         if ($script:estado['bot'] -in @('active', 'activating', 'deactivating')) { Manter-Vivo }
@@ -355,3 +366,4 @@ $form.Add_Shown({
 
 [void]$form.ShowDialog()
 $timer.Stop()
+$trava.ReleaseMutex()
