@@ -1102,7 +1102,14 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         elseif ($l -match '^Ctrl-C: finishing') { $txt = 'Parando depois da partida (ou série) atual' }
         elseif ($l -match '^Stopping lor-bot@') { $txt = 'Desligando…' }
         elseif ($l -match '^Stopped lor-bot@') { $txt = 'Bot parado' }
-        elseif ($l -match '^\s+search:|Deactivated successfully|Killing process|remains running|^lor-bot@.*Consumed') { continue }
+        elseif ($l -match '^\s+search:|Deactivated successfully|Killing process|remains running|^lor-bot@.*Consumed|SyntaxWarning|^\s+function showErr') { continue }
+        elseif ($l -match 'Received pm: \|pm\|\s*([^|]+)\|') {
+            # Mensagens privadas no Showdown: só uma linha por pedido de amizade, o resto do HTML some.
+            $de = $Matches[1].Trim()
+            if ($l -match 'sent you a friend request') { $txt = "Pedido de amizade de $de no Showdown" }
+            elseif ($l -match '/uhtml|/raw') { continue }
+            else { $txt = "Mensagem de $de no Showdown" }
+        }
         elseif ($l -match 'Traceback|Error|ERROR|WARNING|Unhandled|failed|Failed') { $txt = "⚠ $l"; $tipo = 'aviso' }
         else { $txt = $l }
         if ($filtro -eq 'Partidas' -and $tipo -ne 'partida') { continue }

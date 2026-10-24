@@ -101,7 +101,7 @@ ligar)
 	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
 	gerar_env
 	systemctl start "$UNIT"
-	[ -s "$ETC/coleta.env" ] && systemctl start lor-envio || true
+	[ -s "$ETC/coleta.env" ] && systemctl enable --now lor-envio >/dev/null 2>&1 || true
 	echo ok=ligado
 	;;
 desligar)
