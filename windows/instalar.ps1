@@ -52,10 +52,6 @@ if ($LASTEXITCODE -ne 0) {
     Read-Host 'Aperte Enter para fechar'
     return
 }
-$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
-    [Security.Principal.WindowsBuiltInRole]::Administrator)
-# systemd no WSL precisa de uma versao recente; sem admin o update pode travar num pedido de UAC.
-if ($admin) { & wsl.exe --update *> $null }
 
 # 2. Distribuicao LoRBots
 if ((Distros) -notcontains $Distro) {
@@ -83,6 +79,15 @@ NoLinux "printf '[boot]\nsystemd=true\n[user]\ndefault=root\n' > /etc/wsl.conf"
 & wsl.exe --terminate $Distro | Out-Null
 Start-Sleep -Seconds 3
 $pid1 = (& wsl.exe -d $Distro -u root -e ps -p 1 -o comm= | Out-String).Trim()
+if ($pid1 -ne 'systemd') {
+    # WSL antigo demais para systemd. O "wsl --update" fecha TODAS as distribuicoes (derruba um
+    # bot no meio da partida), entao so roda quando precisa.
+    Passo 'Atualizando o WSL (fecha as distribuicoes Linux abertas)'
+    & wsl.exe --update
+    & wsl.exe --terminate $Distro | Out-Null
+    Start-Sleep -Seconds 3
+    $pid1 = (& wsl.exe -d $Distro -u root -e ps -p 1 -o comm= | Out-String).Trim()
+}
 if ($pid1 -ne 'systemd') { Falha "O WSL deste PC nao ligou o systemd (achei '$pid1'). Rode 'wsl --update' como administrador e tente de novo." }
 
 # 3. Bot (dentro do Linux): o mesmo script do botao Atualizar do painel.
