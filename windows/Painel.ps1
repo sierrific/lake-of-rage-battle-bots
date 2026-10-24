@@ -8,10 +8,13 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Ramo = if ($env:LOR_RAMO) { $env:LOR_RAMO } else { 'main' }  # outra branch só para testes
-$Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
 $Distro = 'LoRBots'
 $Pasta = $PSScriptRoot
+# main, ou a branch de teste com que o instalador rodou (ramo.txt)
+$Ramo = 'main'
+if ($env:LOR_RAMO) { $Ramo = $env:LOR_RAMO }
+elseif (Test-Path (Join-Path $Pasta 'ramo.txt')) { $Ramo = (Get-Content (Join-Path $Pasta 'ramo.txt') -TotalCount 1).Trim() }
+$Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 
 function Invoke-Painel {

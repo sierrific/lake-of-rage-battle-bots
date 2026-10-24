@@ -53,7 +53,10 @@ if ($LASTEXITCODE -ne 0) {
     Read-Host 'Aperte Enter para fechar'
     return
 }
-& wsl.exe --update *> $null  # systemd no WSL precisa de uma versao recente; se falhar, segue
+$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+# systemd no WSL precisa de uma versao recente; sem admin o update pode travar num pedido de UAC.
+if ($admin) { & wsl.exe --update *> $null }
 
 # 2. Distribuicao LoRBots
 if ((Distros) -notcontains $Distro) {
@@ -84,6 +87,8 @@ NoLinux "curl -fsSL $Raw/linux/atualizar.sh -o /tmp/lor-atualizar.sh && LOR_RAMO
 Passo 'Instalando o painel'
 Invoke-WebRequest -UseBasicParsing -Uri "$Raw/windows/Painel.ps1" -OutFile (Join-Path $Pasta 'Painel.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri "$Raw/VERSION" -OutFile (Join-Path $Pasta 'VERSION')
+# A branch escolhida (main, ou outra num teste) fica gravada para o botao Atualizar do painel.
+Set-Content -Path (Join-Path $Pasta 'ramo.txt') -Value $Ramo -Encoding ASCII
 $shell = New-Object -ComObject WScript.Shell
 $destinos = @([Environment]::GetFolderPath('Desktop'), (Join-Path ([Environment]::GetFolderPath('Programs')) ''))
 foreach ($d in $destinos) {
