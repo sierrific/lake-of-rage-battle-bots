@@ -1,0 +1,117 @@
+diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
+index eb60a97..165275e 100644
+--- a/src/ai_vgc/nn/player.py
++++ b/src/ai_vgc/nn/player.py
+@@ -7,7 +7,8 @@
+         --opp-model data/models/all-bo3-opp-v2.pt --search-prior 0.1 --greedy \
+         --accept MyBotName --server showdown --from MyMainName --n 5  # on play.pokemonshowdown.com
+ 
+-`--server showdown` logs in to the public server, not a local one. The password comes from
++`--server showdown` logs in to the public server, not a local one; `--server-url` to any other
++remote server (e.g. wss://showdown.sierverso.com.br/showdown/websocket), with the same login. The password comes from
+ $PS_PASSWORD, or you type it at a prompt (blank for an unregistered name). `--from` accepts
+ challenges only from those accounts; without it, anyone on the server can start a game.
+ 
+@@ -525,6 +526,7 @@ class ChallengeMixin:
+     save_dir: Path | None = None  # games.jsonl plus an HTML replay per game
+     logs_dir: Path | None = None  # logs_<format>.json, the scraped logs' layout, for the bot's games only
+     watch_url: str | None = None  # "https://play.pokemonshowdown.com/": print each battle's link there
++    replay_url: str | None = None  # "https://replay.pokemonshowdown.com/": /savereplay each game, link it in games.jsonl
+     watch_open = False  # also show it in a local watch page that follows each new battle
+     _watching: list[str] | None = None  # [current battle url, tag], read by the watch page's server
+     stop_after_match = False  # set by the first Ctrl-C: finish the current game / Bo3 series, then stop
+@@ -645,6 +647,9 @@ class ChallengeMixin:
+         webbrowser.open(page_url)
+ 
+     async def _handle_battle_message(self, split_messages: list[list[str]]):
++        # Upload the replay while still in the room (poke-env /leaves right after |win|).
++        if self.replay_url and any(len(m) > 1 and m[1] in ("win", "tie") for m in split_messages[1:]):
++            await self.ps_client.send_message("/savereplay silent", split_messages[0][0].removeprefix(">"))
+         await super()._handle_battle_message(split_messages)
+         # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
+         # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
+@@ -674,8 +679,12 @@ class ChallengeMixin:
+             row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
+                    "format": self._format, "opponent": battle.opponent_username, "result": result,
+                    "turns": battle.turn, "replay": replay.name,
++                   # Saved by _handle_battle_message; the id is the room's minus "battle-" (password included).
++                   "replay_url": self.replay_url + battle.battle_tag.removeprefix("battle-") if self.replay_url else None,
+                    "ours": [m.species for m in battle.team.values()],
+                    "theirs": [m.species for m in battle.opponent_team.values()],
++                   "ours_names": [_dex_name(m) for m in battle.team.values()],
++                   "theirs_names": [_dex_name(m) for m in battle.opponent_team.values()],
+                    # Team file the pool last handed out (ladder plays one match at a time).
+                    "team": getattr(self._team, "last_name", None),
+                    "model": getattr(self, "model_name", None),
+@@ -791,6 +800,13 @@ def _public_login(player: Player, password: str | None) -> None:
+     client.log_in = log_in
+ 
+ 
++def _dex_name(mon) -> str:
++    """Display name ("Ogerpon-Wellspring") for a poke-env species id ("ogerponwellspring")."""
++    from poke_env.data import GenData
++
++    return GenData.from_gen(mon.gen).pokedex.get(mon.species, {}).get("name", mon.species)
++
++
+ def main() -> None:
+     from ai_vgc.showdown import account, ensure_server, wilson
+     from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
+@@ -818,6 +834,12 @@ def main() -> None:
+                          "challenges (one at a time; games are saved as with --accept)")
+     ap.add_argument("--server", choices=["local", "showdown"], default="local",
+                     help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
++    ap.add_argument("--server-url", default=None, metavar="WS_URL",
++                    help="a remote server's websocket instead of --server, e.g. "
++                         "wss://showdown.sierverso.com.br/showdown/websocket (--accept only; logs in as with --server showdown)")
++    ap.add_argument("--client-url", default=None, metavar="URL",
++                    help="--server-url: the client page for that server, for --watch links "
++                         "(e.g. https://showdown-sierverso-com-br.psim.us/)")
+     ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
+                     help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
+     ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
+@@ -913,9 +935,10 @@ def main() -> None:
+                                          cycle=bool(args.cycle))
+         return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
+ 
+-    public = args.server == "showdown"
++    # public: any remote server (the official one or --server-url); both log in through the login server.
++    public = args.server == "showdown" or args.server_url is not None
+     if public and not args.accept:
+-        ap.error("--server showdown only works with --accept")
++        ap.error("--server showdown and --server-url only work with --accept")
+     # The sim bridge (search) still needs the local Showdown checkout, but not a local server.
+     proc = None if public else ensure_server(args.port, args.showdown)
+     common = dict(
+@@ -923,7 +946,8 @@ def main() -> None:
+         ping_interval=20.0, ping_timeout=60.0,
+         battle_format=args.format, max_concurrent_battles=args.concurrency,
+         accept_open_team_sheet=not args.closed_sheets,
+-        server_configuration=ShowdownServerConfiguration if public else ServerConfiguration(
++        server_configuration=ServerConfiguration(args.server_url, "https://play.pokemonshowdown.com/action.php?")
++        if args.server_url else ShowdownServerConfiguration if public else ServerConfiguration(
+             f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
+     )
+     try:
+@@ -967,8 +991,11 @@ def main() -> None:
+             bot.change_after_loss = args.change_after_loss
+             bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
+             bot.logs_dir = args.logs_dir
+-            bot.watch_url = "https://play.pokemonshowdown.com/" if public else f"http://localhost:{args.port}/"
++            bot.watch_url = (args.client_url or "https://play.pokemonshowdown.com/") if public \
++                else f"http://localhost:{args.port}/"
+             bot.watch_open = args.watch
++            # Replays only upload from the official server (other servers must be registered with it).
++            bot.replay_url = "https://replay.pokemonshowdown.com/" if public and not args.server_url else None
+             bot.timer = public and not args.no_timer
+             if public:
+                 import threading
+@@ -986,7 +1013,7 @@ def main() -> None:
+                 threading.Thread(target=watchdog, daemon=True).start()
+             if args.from_:
+                 bot.allowed = {to_id_str(u) for u in args.from_}
+-            where = "play.pokemonshowdown.com" if public else f"http://localhost:{args.port}"
++            where = args.server_url or ("play.pokemonshowdown.com" if public else f"http://localhost:{args.port}")
+             who = f" (from {', '.join(args.from_)} only)" if args.from_ else ""
+             if args.challenge:
+                 bot._format = args.format

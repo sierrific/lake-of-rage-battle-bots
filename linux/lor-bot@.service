@@ -1,0 +1,22 @@
+[Unit]
+Description=Bot de IA Lake of Rage (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bots
+EnvironmentFile=/etc/lor-bots/%i.env
+ExecStart=/opt/lor-bots/rodar-bot.sh
+Restart=on-failure
+RestartSec=30
+# Parar = terminar a partida/série atual: SIGINT só no script principal (ele repassa ao bot),
+# e até 45 min de espera. "Desligar agora" no painel usa systemctl kill.
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=45min
+# ~0,8–1 GB por bot com a busca de jogadas; o teto evita que um bot derrube a máquina.
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

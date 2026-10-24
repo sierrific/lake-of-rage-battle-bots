@@ -1,0 +1,17 @@
+[Unit]
+Description=Envia as partidas dos bots para a coleta do time
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bots
+# COLETA_CODIGO=... (o código que o Thiago passa para cada membro; o painel salva aqui)
+EnvironmentFile=/etc/lor-bots/coleta.env
+ExecStart=/usr/bin/python3 /opt/lor-bots/enviar-partidas.py /opt/lor-bots/ai-vgc/data/live_games
+Restart=always
+RestartSec=60
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
