@@ -39,18 +39,14 @@ def main() -> None:
     raiz = Path(sys.argv[1])
     raiz.mkdir(parents=True, exist_ok=True)
     estado_arq = raiz / ".coleta-enviado"
-    if estado_arq.exists():
-        estado = json.loads(estado_arq.read_text())
-    else:
+    estado = _ler_estado(estado_arq)
+    if estado is None:
         print("primeira execução: enviando também as partidas que já existiam", flush=True)
         estado = {"desde": time.strftime("%Y-%m-%d %H:%M:%S"), "enviados": {}}
-        estado_arq.write_text(json.dumps(estado))
+        _gravar(estado_arq, estado)
     # Partidas de antes da instalação vão para o treino, mas não para o Discord.
     desde: str = estado["desde"]
     enviados: dict[str, int] = estado["enviados"]
-
-    def salvar() -> None:
-        estado_arq.write_text(json.dumps(estado))
 
     while True:
         for jsonl in sorted(raiz.glob("*/games.jsonl")):
@@ -60,33 +56,69 @@ def main() -> None:
             if tamanho <= pos:
                 enviados[chave] = min(pos, tamanho)
                 continue
+            # Um lote de até LOTE bytes por vez (só linhas completas), sem ler o resto do arquivo:
+            # a posição só avança depois que a coleta aceita o lote.
             with open(jsonl, "rb") as f:
-                f.seek(pos)
-                bloco = f.read()
-            fim = bloco.rfind(b"\n") + 1  # só linhas completas
-            # Lotes de até LOTE bytes; a posição só avança depois que a coleta aceita o lote.
-            lote: list[bytes] = []
-            lido = 0  # bytes do arquivo cobertos pelo lote
-            for original in bloco[:fim].splitlines(keepends=True):
-                linha = original
-                if original.strip():
-                    row = json.loads(original)
-                    if str(row.get("time", "")) < desde:
-                        linha = json.dumps({**row, "antigo": True}).encode() + b"\n"
-                if lote and sum(map(len, lote)) + len(linha) > LOTE:
-                    if not _mandar(codigo, lote):
-                        break
-                    pos, lote, lido = pos + lido, [], 0
+                while pos < tamanho:
+                    f.seek(pos)
+                    bloco = f.read(LOTE)
+                    fim = bloco.rfind(b"\n") + 1
+                    if not fim:
+                        if len(bloco) < LOTE:
+                            break  # a última linha ainda está sendo escrita
+                        f.seek(pos)
+                        pulada = len(f.readline())  # uma partida maior que o lote: a coleta recusaria
+                        print(f"{chave}: partida de {pulada} bytes, grande demais para enviar; pulando", flush=True)
+                        pos += pulada
+                    else:
+                        lote = [m for linha in bloco[:fim].splitlines(keepends=True)
+                                if linha.strip() and (m := _marcar(linha, desde, chave))]
+                        if lote and not _mandar(codigo, lote):
+                            break
+                        pos += fim
                     enviados[chave] = pos
-                    salvar()
-                if original.strip():
-                    lote.append(linha)
-                lido += len(original)
-            else:
-                if not lote or _mandar(codigo, lote):
-                    enviados[chave] = pos + lido
-                    salvar()
+                    _gravar(estado_arq, estado)
         time.sleep(POLL)
+
+
+def _marcar(linha: bytes, desde: str, chave: str) -> bytes | None:
+    try:
+        row = json.loads(linha)
+    except ValueError:
+        print(f"{chave}: linha inválida (gravação interrompida?), pulando", flush=True)
+        return None
+    if str(row.get("time", "")) < desde:
+        return json.dumps({**row, "antigo": True}).encode() + b"\n"
+    return linha
+
+
+def _ler_estado(arq: Path) -> dict | None:
+    if not arq.exists():
+        return None
+    try:
+        estado = json.loads(arq.read_text())
+        if isinstance(estado.get("desde"), str) and isinstance(estado.get("enviados"), dict):
+            return estado
+    except (ValueError, AttributeError):
+        pass
+    # Corrompido (ex.: o PC desligou no meio de uma gravação antiga): guarda uma cópia e começa
+    # de novo. A coleta ignora partidas repetidas; todas as que já existem vão como "antigo",
+    # para o Discord não repostar.
+    arq.replace(arq.with_name(arq.name + ".ruim"))
+    print("registro de envios corrompido: reenviando tudo como antigo (a coleta ignora repetidas)", flush=True)
+    estado = {"desde": time.strftime("%Y-%m-%d %H:%M:%S"), "enviados": {}}
+    _gravar(arq, estado)
+    return estado
+
+
+def _gravar(arq: Path, estado: dict) -> None:
+    # Arquivo novo + rename: uma queda no meio deixa o registro antigo inteiro, nunca um pela metade.
+    tmp = arq.with_name(arq.name + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump(estado, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, arq)
 
 
 def _mandar(codigo: str, lote: list[bytes]) -> bool:

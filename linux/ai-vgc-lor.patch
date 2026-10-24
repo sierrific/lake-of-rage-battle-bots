@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..f59e6d4 100644
+index eb60a97..c387655 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -86,7 +86,28 @@ index eb60a97..f59e6d4 100644
                     # Team file the pool last handed out (ladder plays one match at a time).
                     "team": getattr(self._team, "last_name", None),
                     "model": getattr(self, "model_name", None),
-@@ -791,6 +825,13 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -725,8 +759,19 @@ class ChallengeMixin:
+     async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
+         await self.ps_client.logged_in.wait()
+         for _ in range(n_challenges):
+-            user, fmt = await self._challenge_queue.get()
++            # Graceful stop (as in _ladder): wait for a challenge, but give up once it's asked.
++            item = None
++            while item is None and not self.stop_after_match:
++                try:
++                    item = await asyncio.wait_for(self._challenge_queue.get(), 5)
++                except asyncio.TimeoutError:
++                    pass
++            if item is None:
++                break
++            user, fmt = item
+             await self._battle_count_queue.join()  # the previous game or series is over
++            if self.stop_after_match:
++                break
+             self._format = fmt
+             print(f"accepting {fmt} from {user}", flush=True)
+             await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
+@@ -791,6 +836,13 @@ def _public_login(player: Player, password: str | None) -> None:
      client.log_in = log_in
  
  
@@ -100,7 +121,7 @@ index eb60a97..f59e6d4 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +859,12 @@ def main() -> None:
+@@ -818,6 +870,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -113,7 +134,7 @@ index eb60a97..f59e6d4 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -913,9 +960,10 @@ def main() -> None:
+@@ -913,9 +971,10 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -126,7 +147,7 @@ index eb60a97..f59e6d4 100644
      # The sim bridge (search) still needs the local Showdown checkout, but not a local server.
      proc = None if public else ensure_server(args.port, args.showdown)
      common = dict(
-@@ -923,7 +971,8 @@ def main() -> None:
+@@ -923,7 +982,8 @@ def main() -> None:
          ping_interval=20.0, ping_timeout=60.0,
          battle_format=args.format, max_concurrent_battles=args.concurrency,
          accept_open_team_sheet=not args.closed_sheets,
@@ -136,7 +157,7 @@ index eb60a97..f59e6d4 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -967,8 +1016,11 @@ def main() -> None:
+@@ -967,8 +1027,11 @@ def main() -> None:
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
              bot.logs_dir = args.logs_dir
@@ -149,12 +170,46 @@ index eb60a97..f59e6d4 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -986,7 +1038,7 @@ def main() -> None:
+@@ -986,23 +1049,17 @@ def main() -> None:
                  threading.Thread(target=watchdog, daemon=True).start()
              if args.from_:
                  bot.allowed = {to_id_str(u) for u in args.from_}
 -            where = "play.pokemonshowdown.com" if public else f"http://localhost:{args.port}"
 +            where = args.server_url or ("play.pokemonshowdown.com" if public else f"http://localhost:{args.port}")
              who = f" (from {', '.join(args.from_)} only)" if args.from_ else ""
-             if args.challenge:
+-            if args.challenge:
+-                bot._format = args.format
+-                them = args.challenge[0]
+-                print(f"'{args.accept}' challenging {them} to {args.format} at {where}: {args.n} games "
+-                      f"(they accept in their Showdown client)", flush=True)
+-                asyncio.run(bot.send_challenges(to_id_str(them), args.n))
+-            elif args.ladder:
++            if not args.challenge:
++                # Laddering or taking challenges: the first Ctrl-C finishes this game (or Bo3
++                # series) and stops; another one at least 2 s later quits now. (A terminal Ctrl-C
++                # arrives twice: from the terminal and forwarded by `uv run`.)
+                 import signal
+ 
+                 first = []
+ 
+                 def graceful(*_):
+-                    # First Ctrl-C: finish this game (or Bo3 series) and stop; another one at least
+-                    # 2 s later quits now. (A terminal Ctrl-C arrives twice: from the terminal and
+-                    # forwarded by `uv run`.)
+                     if not first:
+                         first.append(time.time())
+                         bot.stop_after_match = True
+@@ -1012,6 +1069,13 @@ def main() -> None:
+                         raise KeyboardInterrupt
+ 
+                 signal.signal(signal.SIGINT, graceful)
++            if args.challenge:
++                bot._format = args.format
++                them = args.challenge[0]
++                print(f"'{args.accept}' challenging {them} to {args.format} at {where}: {args.n} games "
++                      f"(they accept in their Showdown client)", flush=True)
++                asyncio.run(bot.send_challenges(to_id_str(them), args.n))
++            elif args.ladder:
                  bot._format = args.format
+                 print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
+                 asyncio.run(bot.ladder(args.n))
