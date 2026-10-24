@@ -22,8 +22,7 @@ $RootfsSums = 'https://cloud-images.ubuntu.com/wsl/releases/24.04/current/SHA256
 function Passo($texto) { Write-Host "`n==> $texto" -ForegroundColor Cyan }
 function Falha($texto) {
     Write-Host "`n$texto" -ForegroundColor Red
-    Read-Host 'Aperte Enter para fechar'
-    throw $texto
+    throw 'Instalacao interrompida.'
 }
 function Distros() { (& wsl.exe -l -q 2>$null) -replace "`0", '' | Where-Object { $_ } | ForEach-Object { $_.Trim() } }
 function NoLinux([string]$comando) {
@@ -60,17 +59,24 @@ if ($admin) { & wsl.exe --update *> $null }
 
 # 2. Distribuicao LoRBots
 if ((Distros) -notcontains $Distro) {
-    Passo 'Baixando o Ubuntu 24.04 (~350 MB)'
     $arq = Join-Path $Pasta 'ubuntu-24.04.rootfs.tar.gz'
-    Invoke-WebRequest -UseBasicParsing -Uri $Rootfs -OutFile $arq
-    $esperado = ((Invoke-WebRequest -UseBasicParsing -Uri $RootfsSums).Content -split "`n" |
-        Where-Object { $_ -match 'amd64-24\.04lts\.rootfs\.tar\.gz' } | Select-Object -First 1) -split '\s+' | Select-Object -First 1
+    # O SHA256SUMS vem como binario para o PowerShell 5; salvar em arquivo e ler como texto.
+    $somas = Join-Path $Pasta 'SHA256SUMS'
+    Invoke-WebRequest -UseBasicParsing -Uri $RootfsSums -OutFile $somas
+    $linha = Get-Content $somas | Where-Object { $_ -match '^([0-9a-fA-F]{64})\s+\*?ubuntu-noble-wsl-amd64-24\.04lts\.rootfs\.tar\.gz$' } | Select-Object -First 1
+    if (-not $linha) { Falha 'Nao achei a soma SHA256 do Ubuntu no site da Canonical. Tente de novo mais tarde.' }
+    $esperado = ($linha -split '\s+')[0].ToUpper()
+    # Um download anterior ja certo e reaproveitado.
+    if (-not (Test-Path $arq) -or (Get-FileHash -Algorithm SHA256 $arq).Hash -ne $esperado) {
+        Passo 'Baixando o Ubuntu 24.04 (~350 MB)'
+        Invoke-WebRequest -UseBasicParsing -Uri $Rootfs -OutFile $arq
+    }
     $obtido = (Get-FileHash -Algorithm SHA256 $arq).Hash
-    if (-not $esperado -or $obtido -ne $esperado.ToUpper()) { Falha 'O download do Ubuntu veio corrompido. Rode o instalador de novo.' }
+    if ($obtido -ne $esperado) { Falha "O download do Ubuntu veio corrompido (SHA256 $obtido, esperado $esperado). Rode o instalador de novo." }
     Passo "Criando a distribuicao $Distro"
     & wsl.exe --import $Distro (Join-Path $Pasta 'wsl') $arq --version 2
     if ($LASTEXITCODE -ne 0) { Falha 'Nao consegui criar a distribuicao do WSL.' }
-    Remove-Item $arq
+    Remove-Item $arq, $somas
 }
 # systemd ligado (os bots rodam como servicos) e root como usuario padrao.
 NoLinux "printf '[boot]\nsystemd=true\n[user]\ndefault=root\n' > /etc/wsl.conf"
