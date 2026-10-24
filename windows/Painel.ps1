@@ -783,6 +783,10 @@ elseif (Test-Path (Join-Path $Pasta 'ramo.txt')) { $Ramo = (Get-Content (Join-Pa
 $Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $ArquivoSkin = Join-Path $Pasta 'skin.txt'
+# Versão deste painel (o instalador grava; o Atualizar regrava depois de trocar o Painel.ps1). Ela é
+# conferida à parte da versão do Linux: se a troca do painel falhar depois de o Linux atualizar, o
+# próximo Atualizar ainda oferece a troca.
+$ArquivoVersao = Join-Path $Pasta 'VERSION'
 $Lancador = Join-Path $Pasta 'Painel.vbs'
 $AtalhoLigar = Join-Path ([Environment]::GetFolderPath('Startup')) 'LoR Bots (ligar).lnk'
 
@@ -1191,7 +1195,7 @@ function Atualizar-Tela {
     $time = if ($e['time'] -eq 'top3' -or -not $e['time']) { 'Top 3' } else { $e['time'] }
     $lInfo.Text = "$conta  ·  $(([string]$e['formato']).ToUpper())  ·  $time"
     $lVersao.Text = "Versão $($e['versao'])"
-    if ($script:versaoNova -and $script:versaoNova -ne $e['versao']) {
+    if (Precisa-Atualizar) {
         $lAtualizar.Text = "Atualizar para $($script:versaoNova)"
         $lAtualizar.Negrito = $true
     } else {
@@ -1384,6 +1388,15 @@ function Mudar-Auto {
 $xAuto.add_Mudou({ Mudar-Auto })
 $lAuto.Add_Click({ $xAuto.Marcado = -not $xAuto.Marcado; Mudar-Auto })
 
+function Versao-Painel {
+    try { (Get-Content $ArquivoVersao -TotalCount 1).Trim() } catch { '' }
+}
+
+# Versão nova no GitHub para o Linux ou para este painel (cada um pode ter ficado para trás).
+function Precisa-Atualizar {
+    [bool]$script:versaoNova -and ($script:versaoNova -ne $script:estado['versao'] -or $script:versaoNova -ne (Versao-Painel))
+}
+
 function Atualizar-Painel {
     if ([System.Windows.Forms.MessageBox]::Show(
         "Baixar a versão $($script:versaoNova) do bot e do painel? Se o bot estiver jogando, ele termina a partida atual antes de reiniciar.",
@@ -1417,8 +1430,14 @@ function Atualizar-Painel {
     try {
         Copy-Item -Force $atual (Join-Path $Pasta 'Painel.anterior.ps1')
         Move-Item -Force $novo $atual
+        Set-Content -Path $ArquivoVersao -Value $script:versaoNova -Encoding ASCII
     } catch {
-        Mensagem "O bot foi atualizado, mas não consegui trocar o painel: $($_.Exception.Message)"
+        Remove-Item $novo -ErrorAction SilentlyContinue
+        Mensagem ("O bot foi atualizado, mas não consegui trocar o painel ($($_.Exception.Message)). Pode ser pouco " +
+            "espaço no disco C: ou o arquivo aberto em outro programa. Libere espaço e clique em Atualizar de novo: o " +
+            "painel termina a troca (o bot não é reinstalado de novo).")
+        Manter-Vivo
+        Atualizar-Tela
         return
     }
     Manter-Vivo
@@ -1428,7 +1447,7 @@ function Atualizar-Painel {
 }
 $lAtualizar.Add_Click({
     try { $script:versaoNova = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$Raw/VERSION").Content.Trim() } catch { }
-    if ($script:versaoNova -and $script:versaoNova -ne $script:estado['versao']) { Atualizar-Painel }
+    if (Precisa-Atualizar) { Atualizar-Painel }
     elseif ($script:versaoNova) { Mensagem "Já está na versão mais nova ($($script:versaoNova))." }
     else { Mensagem 'Não consegui ver a versão no GitHub. Confira a internet e tente de novo.' }
     Atualizar-Tela
