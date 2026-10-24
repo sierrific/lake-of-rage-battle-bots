@@ -261,3 +261,46 @@ class TestPainelDesafio(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPainelPlacar(TestPainelDesafio):
+    """estado: o placar que o bot grava em data/live_games/placar-<conta>.json."""
+
+    def setUp(self):
+        super().setUp()
+        self.env["LOR_AIVGC"] = str(self.d / "ai")
+        (self.d / "ai" / "data" / "live_games").mkdir(parents=True)
+        self.arq = self.d / "ai" / "data" / "live_games" / "placar-lorbot1.json"  # conta "LoR Bot1"
+
+    def gravar(self, idade: float = 0, **campos):
+        import json
+        dados = {"time": time.time() - idade, "opponent": "Rival", "bo3": True, "jogo": 2,
+                 "serie": ["win"], "turn": 7, "nossos": 3, "deles": 1, "resultado": None, **campos}
+        self.arq.write_text(json.dumps(dados))
+
+    def placar(self) -> dict[str, str]:
+        linhas = [x.split("=", 1) for x in self.painel("estado").splitlines() if x.startswith("placar_")]
+        return dict(linhas)
+
+    def test_mostra_o_placar_da_serie(self):
+        self.gravar()
+        self.assertEqual(self.placar(), {
+            "placar_oponente": "Rival", "placar_bo3": "sim", "placar_jogo": "2", "placar_vitorias": "1",
+            "placar_derrotas": "0", "placar_turno": "7", "placar_nossos": "3", "placar_deles": "1",
+            "placar_resultado": ""})
+
+    def test_sem_placar_com_bot_desligado(self):
+        self.gravar()
+        (self.d / "estado").write_text("inactive")
+        self.assertEqual(self.placar(), {"placar_oponente": ""})
+
+    def test_placar_velho_some_sem_partida(self):
+        self.gravar(idade=3600)
+        self.assertEqual(self.placar(), {"placar_oponente": ""})
+        (self.d / "aceito").touch()  # agora há uma partida em andamento no log
+        self.assertEqual(self.placar()["placar_oponente"], "Rival")
+
+    def test_sem_arquivo_ou_arquivo_quebrado(self):
+        self.assertEqual(self.placar(), {"placar_oponente": ""})
+        self.arq.write_text("{quebrado")
+        self.assertEqual(self.placar(), {"placar_oponente": ""})

@@ -25,12 +25,12 @@
 set -euo pipefail
 
 BOT_ID="${LOR_BOT:-bot}"
-ETC="${LOR_ETC:-/etc/lor-bots}"  # LOR_ETC e LOR_RUN: só para os testes
+ETC="${LOR_ETC:-/etc/lor-bots}"  # LOR_ETC, LOR_RUN e LOR_AIVGC: só para os testes
 CONF="$ETC/$BOT_ID.conf"
 SENHA="$ETC/$BOT_ID.senha"
 ENV="$ETC/$BOT_ID.env"
 UNIT="lor-bot@$BOT_ID"
-AIVGC=/opt/lor-bots/ai-vgc
+AIVGC="${LOR_AIVGC:-/opt/lor-bots/ai-vgc}"
 TIMES="$AIVGC/data/teams/reg_mc_top"
 MODELO=data/models/mc-bo3-rnad-v5.pt
 # Times do padrão ("top3", nome antigo da opção): os dois melhores do Bo3 no ladder em 24/10
@@ -99,6 +99,34 @@ cancelar_reinicio() {
 	return $achou
 }
 
+# O placar da partida (ou série Bo3) atual, que o bot grava a cada turno em
+# data/live_games/placar-<conta>.json. Só enquanto o bot está ligado e o placar é recente
+# (ou a partida ainda está em andamento): depois de 10 min parado, some do painel.
+placar() {
+	local id arq=""
+	id="$(conf_get conta | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9')"
+	[ -n "$id" ] && arq="$AIVGC/data/live_games/placar-$id.json"
+	if [ -n "$arq" ] && [ -f "$arq" ] && [[ "$(estado_unit "$UNIT")" =~ ^(active|deactivating)$ ]]; then
+		python3 -I - "$arq" "$1" <<'PY' 2>/dev/null && return
+import json, sys, time
+d = json.load(open(sys.argv[1]))
+if time.time() - d["time"] > 600 and not sys.argv[2]:
+    sys.exit(1)
+serie = d.get("serie") or []
+print(f"placar_oponente={d.get('opponent') or ''}")
+print(f"placar_bo3={'sim' if d.get('bo3') else 'nao'}")
+print(f"placar_jogo={d.get('jogo') or 1}")
+print(f"placar_vitorias={serie.count('win')}")
+print(f"placar_derrotas={serie.count('loss')}")
+print(f"placar_turno={d.get('turn') or 0}")
+print(f"placar_nossos={d.get('nossos', '')}")
+print(f"placar_deles={d.get('deles', '')}")
+print(f"placar_resultado={d.get('resultado') or ''}")
+PY
+	fi
+	echo "placar_oponente="
+}
+
 nome_valido() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; }
 
 # O id do Showdown: só letras minúsculas e números ("Sier VGC" -> siervgc).
@@ -132,6 +160,7 @@ estado)
 			| awk '/^watch: /{p=$2} /^(win|loss|tie) vs /{p=""} END{print p}')"
 	fi
 	echo "partida=$p"
+	placar "$p"
 	if desafio_ativo; then
 		echo "desafio=$(desafio_get alvo)"
 		echo "desafio_fase=$(desafio_get fase)"
