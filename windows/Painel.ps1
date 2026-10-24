@@ -309,7 +309,11 @@ $bAgora.Add_Click({
     Atualizar-Tela
 })
 $bLog.Add_Click({
-    Start-Process wsl.exe -ArgumentList "-d $Distro -u root -e journalctl -fu lor-bot@bot -o cat -n 50"
+    # Abre no navegador a batalha em andamento (o log já aparece no próprio painel).
+    Atualizar-Tela
+    if ($script:estado['partida']) { Start-Process $script:estado['partida'] }
+    elseif ($script:estado['bot'] -in @('active', 'activating')) { Mensagem 'Nenhuma partida agora: o bot está procurando adversário. Tente de novo em instantes.' }
+    else { Mensagem 'O bot está desligado.' }
 })
 $bPartidas.Add_Click({ Start-Process explorer.exe "\\wsl$\$Distro\opt\lor-bots\ai-vgc\data\live_games" })
 

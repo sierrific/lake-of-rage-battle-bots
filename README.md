@@ -40,7 +40,7 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
 - **Atualizar**: quando sai versão nova aqui no GitHub, o botão fica amarelo. Um clique baixa a
   versão nova do bot e do painel.
 - **Ligar o bot junto com o Windows**.
-- **Ver ao vivo** (o log do bot) e **Abrir partidas** (replays e `games.jsonl`).
+- **Ver ao vivo** (abre no navegador a partida em andamento) e **Abrir partidas** (replays e `games.jsonl`).
 
 ## Num servidor Linux (Oracle etc.)
 
