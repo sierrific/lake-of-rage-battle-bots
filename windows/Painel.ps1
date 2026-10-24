@@ -1140,6 +1140,9 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         $txt = $null
         if ($l -match '^Started lor-bot@') { $txt = 'Bot iniciado' }
         elseif ($l -match "^'(.+)' laddering (\S+) at ([^:]+):") { $txt = "Conta $($Matches[1]) conectada · procurando partida no ladder" }
+        elseif ($l -match '^challenge declined by (\S+)') { $txt = "$($Matches[1]) recusou o desafio"; $tipo = 'partida' }
+        elseif ($l -match '^challenge never reached (\S+)') { $txt = "O desafio não chegou a $($Matches[1]) (offline ou não aceita desafios?)"; $tipo = 'aviso' }
+        elseif ($l -match '^challenge not accepted by (\S+) in (\d+) min') { $txt = "$($Matches[1]) não aceitou em $($Matches[2]) min · desafio cancelado"; $tipo = 'partida' }
         elseif ($l -match "^'(.+)' challenging (\S+) to ") { $txt = "Conta $($Matches[1]) conectada · desafio enviado a $($Matches[2]), esperando aceitar" }
         elseif ($l -match '^(Started|Finished) lor-desafio-|^lor-desafio-') { continue }
         elseif ($l -match '^team: (\S+)') { $txt = "Time da vez: $($Matches[1])" }
