@@ -24,9 +24,23 @@ function Falha($texto) {
     Write-Host "`n$texto" -ForegroundColor Red
     throw 'Instalacao interrompida.'
 }
-function Distros() { (& wsl.exe -l -q 2>$null) -replace "`0", '' | Where-Object { $_ } | ForEach-Object { $_.Trim() } }
+# O wsl.exe escreve avisos no stderr (ex.: "O Subsistema do Windows para Linux nao esta
+# instalado"). Com $ErrorActionPreference = 'Stop' o PowerShell 5 transforma isso num erro que
+# encerra o instalador, entao as chamadas ao wsl.exe rodam com 'Continue' e olham o codigo de saida.
+function Wsl {
+    $antes = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & wsl.exe @args } catch { $global:LASTEXITCODE = 1 } finally { $ErrorActionPreference = $antes }
+}
+# O mesmo, sem mostrar o stderr (para perguntas: "o WSL existe?", "quais distribuicoes?").
+function WslQuieto {
+    $antes = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & wsl.exe @args 2>$null } catch { $global:LASTEXITCODE = 1 } finally { $ErrorActionPreference = $antes }
+}
+function Distros() { (WslQuieto -l -q) -replace "`0", '' | Where-Object { $_ } | ForEach-Object { $_.Trim() } }
 function NoLinux([string]$comando) {
-    & wsl.exe -d $Distro -u root -e bash -lc $comando
+    Wsl -d $Distro -u root -e bash -lc $comando
     if ($LASTEXITCODE -ne 0) { Falha "Falhou dentro do Linux (codigo $LASTEXITCODE): $comando" }
 }
 
@@ -35,7 +49,8 @@ New-Item -ItemType Directory -Force -Path $Pasta | Out-Null
 
 # 1. WSL
 Passo 'Verificando o WSL'
-& wsl.exe --status *> $null
+$global:LASTEXITCODE = 1
+WslQuieto --status | Out-Null
 if ($LASTEXITCODE -ne 0) {
     $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -43,7 +58,13 @@ if ($LASTEXITCODE -ne 0) {
         Falha 'O WSL ainda nao esta instalado. Feche esta janela, abra o PowerShell como administrador (botao direito > Executar como administrador) e rode o comando de novo.'
     }
     Passo 'Instalando o WSL (o Windows pode pedir para reiniciar)'
-    & wsl.exe --install --no-distribution
+    Wsl --install --no-distribution
+    if ($LASTEXITCODE -ne 0) {
+        # Windows 10 mais antigo nao conhece o --no-distribution: liga os recursos do Windows direto.
+        # O kernel do WSL vem depois, no "wsl --update" antes de criar a distribuicao.
+        & dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart | Out-Null
+        & dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Null
+    }
     # Depois de reiniciar, o instalador abre sozinho para continuar (na mesma branch, se era um teste).
     $volta = "`$env:LOR_RAMO='$Ramo'; irm $Raw/windows/instalar.ps1 | iex"
     New-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'LoRBots' -Force `
@@ -70,23 +91,30 @@ if ((Distros) -notcontains $Distro) {
     $obtido = (Get-FileHash -Algorithm SHA256 $arq).Hash
     if ($obtido -ne $esperado) { Falha "O download do Ubuntu veio corrompido (SHA256 $obtido, esperado $esperado). Rode o instalador de novo." }
     Passo "Criando a distribuicao $Distro"
-    & wsl.exe --import $Distro (Join-Path $Pasta 'wsl') $arq --version 2
-    if ($LASTEXITCODE -ne 0) { Falha 'Nao consegui criar a distribuicao do WSL.' }
+    Wsl --import $Distro (Join-Path $Pasta 'wsl') $arq --version 2
+    if ($LASTEXITCODE -ne 0) {
+        # WSL recem-ligado as vezes ainda nao tem o kernel: atualiza e tenta de novo.
+        # (Aqui ainda nao ha bot nenhum rodando, entao o --update nao derruba partida.)
+        Passo 'Atualizando o WSL'
+        Wsl --update
+        Wsl --import $Distro (Join-Path $Pasta 'wsl') $arq --version 2
+    }
+    if ($LASTEXITCODE -ne 0) { Falha 'Nao consegui criar a distribuicao do WSL. Reinicie o computador e rode o instalador de novo.' }
     Remove-Item $arq, $somas
 }
 # systemd ligado (os bots rodam como servicos) e root como usuario padrao.
 NoLinux "printf '[boot]\nsystemd=true\n[user]\ndefault=root\n' > /etc/wsl.conf"
-& wsl.exe --terminate $Distro | Out-Null
+Wsl --terminate $Distro | Out-Null
 Start-Sleep -Seconds 3
-$pid1 = (& wsl.exe -d $Distro -u root -e ps -p 1 -o comm= | Out-String).Trim()
+$pid1 = (Wsl -d $Distro -u root -e ps -p 1 -o comm= | Out-String).Trim()
 if ($pid1 -ne 'systemd') {
     # WSL antigo demais para systemd. O "wsl --update" fecha TODAS as distribuicoes (derruba um
     # bot no meio da partida), entao so roda quando precisa.
     Passo 'Atualizando o WSL (fecha as distribuicoes Linux abertas)'
-    & wsl.exe --update
-    & wsl.exe --terminate $Distro | Out-Null
+    Wsl --update
+    Wsl --terminate $Distro | Out-Null
     Start-Sleep -Seconds 3
-    $pid1 = (& wsl.exe -d $Distro -u root -e ps -p 1 -o comm= | Out-String).Trim()
+    $pid1 = (Wsl -d $Distro -u root -e ps -p 1 -o comm= | Out-String).Trim()
 }
 if ($pid1 -ne 'systemd') { Falha "O WSL deste PC nao ligou o systemd (achei '$pid1'). Rode 'wsl --update' como administrador e tente de novo." }
 
