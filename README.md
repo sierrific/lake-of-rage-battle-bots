@@ -9,14 +9,20 @@ vão para a coleta do time, que alimenta o treino e o canal do Discord.
 1. Crie uma conta para o bot no [Showdown](https://play.pokemonshowdown.com) e registre-a
    (engrenagem → Register). Use uma conta só do bot, não a sua.
 2. Peça ao Thiago o seu **código da coleta**.
-3. Abra o PowerShell (de preferência *Executar como administrador*) e cole:
+3. Baixe o **[Instalar LoR Bots.bat](https://github.com/sierrific/lake-of-rage-battle-bots/releases/latest/download/Instalar-LoR-Bots.bat)**
+   e dê dois cliques nele. O Windows vai perguntar se pode rodar como administrador: aceite.
+   Se aparecer "O Windows protegeu o computador", clique em *Mais informações* → *Executar assim mesmo*
+   (o arquivo não tem assinatura digital, mas é só um atalho para o instalador deste repositório).
+
+   Na primeira vez ele pode pedir para reiniciar o PC (para ligar o WSL); depois de reiniciar ele
+   continua sozinho. A instalação leva uns 10–20 min e ocupa ~3 GB.
+
+   <details><summary>Ou pelo PowerShell</summary>
 
    ```powershell
    irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/main/windows/instalar.ps1 | iex
    ```
-
-   Na primeira vez ele pode pedir para reiniciar o PC (para ligar o WSL); depois de reiniciar ele
-   continua sozinho. A instalação leva uns 10–20 min e ocupa ~4 GB.
+   </details>
 4. No **Painel LoR Bots** (atalho na Área de Trabalho): preencha a conta e a senha do bot e o
    código da coleta e clique em **Ligar**.
 
