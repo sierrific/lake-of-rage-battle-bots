@@ -1388,19 +1388,43 @@ function Atualizar-Painel {
     if ([System.Windows.Forms.MessageBox]::Show(
         "Baixar a versão $($script:versaoNova) do bot e do painel? Se o bot estiver jogando, ele termina a partida atual antes de reiniciar.",
         'Painel LoR Bots', 'YesNo') -ne 'Yes') { return }
+    # O painel novo só entra no lugar deste depois que a atualização do Linux deu certo; antes disso
+    # fica ao lado (Painel.novo.ps1), e o atual vira Painel.anterior.ps1 (para voltar à mão, se precisar).
+    $atual = Join-Path $Pasta 'Painel.ps1'
+    $novo = Join-Path $Pasta 'Painel.novo.ps1'
     try {
-        # Primeiro o painel (este arquivo), depois o Linux numa janela que mostra o progresso.
-        $novo = Join-Path $Pasta 'Painel.novo.ps1'
         Invoke-WebRequest -UseBasicParsing -Uri "$Raw/windows/Painel.ps1" -OutFile $novo
-        Move-Item -Force $novo (Join-Path $Pasta 'Painel.ps1')
-        Start-Process wsl.exe -Wait -ArgumentList "-d $Distro -u root -e env LOR_RAMO=$Ramo /opt/lor-bots/painel.sh atualizar"
-        Manter-Vivo
-        $trava.ReleaseMutex()
-        Start-Process wscript.exe -ArgumentList "`"$Lancador`""
-        $form.Close()
+        $erros = $null
+        [void][System.Management.Automation.PSParser]::Tokenize((Get-Content $novo -Raw -Encoding UTF8), [ref]$erros)
+        if ($erros.Count -gt 0) { throw 'o painel baixado veio incompleto ou com erro. Tente de novo.' }
     } catch {
-        Mensagem "Não consegui atualizar: $($_.Exception.Message)"
+        Remove-Item $novo -ErrorAction SilentlyContinue
+        Mensagem "Não consegui baixar a versão nova: $($_.Exception.Message)"
+        return
     }
+    # O Linux numa janela que mostra o progresso; o código de saída diz se deu certo.
+    $p = Start-Process wsl.exe -PassThru -ArgumentList "-d $Distro -u root -e env LOR_RAMO=$Ramo /opt/lor-bots/painel.sh atualizar"
+    [void]$p.Handle  # guarda o processo, senão o ExitCode volta vazio
+    $p.WaitForExit()
+    if ($p.ExitCode -ne 0) {
+        Remove-Item $novo -ErrorAction SilentlyContinue
+        Mensagem ("A atualização do bot parou no meio (código $($p.ExitCode)). O painel continua nesta versão, e o bot " +
+            "segue como estava. Tente Atualizar de novo; se falhar outra vez, mande um print da janela de progresso.")
+        Manter-Vivo
+        Atualizar-Tela
+        return
+    }
+    try {
+        Copy-Item -Force $atual (Join-Path $Pasta 'Painel.anterior.ps1')
+        Move-Item -Force $novo $atual
+    } catch {
+        Mensagem "O bot foi atualizado, mas não consegui trocar o painel: $($_.Exception.Message)"
+        return
+    }
+    Manter-Vivo
+    $trava.ReleaseMutex()
+    Start-Process wscript.exe -ArgumentList "`"$Lancador`""
+    $form.Close()
 }
 $lAtualizar.Add_Click({
     try { $script:versaoNova = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$Raw/VERSION").Content.Trim() } catch { }
