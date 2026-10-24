@@ -11,6 +11,7 @@
 #   painel.sh conta                     stdin: usuário na 1ª linha, senha na 2ª
 #   painel.sh codigo                    stdin: o código da coleta
 #   painel.sh formato bo3|bo1
+#   painel.sh timer sim|nao             o bot liga o timer no começo de cada partida (padrão: sim)
 #   painel.sh time top3|<nome>       top3 = o padrão (MC371 ou MC196)
 #   painel.sh times                     os times salvos (um por linha)
 #   painel.sh adicionar-time            stdin: nome na 1ª linha; depois o export do Showdown
@@ -68,6 +69,7 @@ gerar_env() {
 	modo="--ladder"
 	[ $# -eq 2 ] && modo="--challenge $1 $2 --challenge-wait $ESPERA_ACEITE"
 	[ "$formato" = bo1 ] && modo+=" --bo1"
+	[ "$(conf_get timer)" = nao ] && modo+=" --no-timer"
 	if [ -n "$time" ] && [ "$time" != top3 ] && [ -f "$TIMES/LOR-$time.txt" ]; then
 		modo+=" --use LOR-$time"
 	else
@@ -150,6 +152,8 @@ estado)
 	echo "formato=${f:-bo3}"
 	t="$(conf_get time)"
 	echo "time=${t:-top3}"
+	tm="$(conf_get timer)"
+	echo "timer=${tm:-sim}"
 	mem=$(systemctl show -p MemoryCurrent --value "$UNIT" 2>/dev/null || true)
 	[[ "$mem" =~ ^[0-9]+$ ]] && echo "memoria_mb=$((mem / 1024 / 1024))" || echo "memoria_mb="
 	# A batalha em andamento: a última anunciada no log ("watch: https://play.pokemonshowdown.com/battle-..."),
@@ -263,6 +267,12 @@ formato)
 	conf_set formato "$1"
 	gerar_env
 	echo ok=formato
+	;;
+timer)
+	[[ "${1:-}" =~ ^(sim|nao)$ ]] || { echo "erro=use sim ou nao"; exit 1; }
+	conf_set timer "$1"
+	gerar_env
+	echo ok=timer
 	;;
 time)
 	t="${1:-top3}"
