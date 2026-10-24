@@ -62,7 +62,8 @@ Atualizar: `sudo /opt/lor-bots/atualizar.sh`.
   /opt/lor-bots/atualizar.sh`).
 - `linux/ai-vgc-lor.patch`: o que mudamos no Ai-vgc (commit fixo em `linux/instalar.sh`).
   Acrescenta `--server-url`/`--client-url` para jogar no servidor do time, `/savereplay` em cada
-  partida do oficial (link do replay no `games.jsonl`) e os nomes dos Pokémon.
+  partida do oficial (link do replay no `games.jsonl`), os nomes dos Pokémon e uma nova busca no
+  ladder quando 10 min passam sem partida (o Showdown às vezes descarta a busca sem avisar).
 - `linux/enviar-partidas.py` manda as linhas novas de `data/live_games/*/games.jsonl` para a
   coleta (`https://showdown.sierverso.com.br/coleta/`, código por membro). A coleta e o poster do
   Discord rodam na VPS e estão no repositório do servidor (LOR-SD-Server, pasta `coleta/`).
