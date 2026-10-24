@@ -783,6 +783,48 @@ elseif (Test-Path (Join-Path $Pasta 'ramo.txt')) { $Ramo = (Get-Content (Join-Pa
 $Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $ArquivoSkin = Join-Path $Pasta 'skin.txt'
+$Lancador = Join-Path $Pasta 'Painel.vbs'
+$AtalhoLigar = Join-Path ([Environment]::GetFolderPath('Startup')) 'LoR Bots (ligar).lnk'
+
+function Rodar-Oculto([string]$comando) {
+    # Sem janela nenhuma. Com o Windows Terminal como console padrão (Windows 11), o
+    # "-WindowStyle Hidden" ainda abre uma janela do Terminal; o Run do WScript com estilo 0 não.
+    [void](New-Object -ComObject WScript.Shell).Run($comando, 0, $false)
+}
+
+function Preparar-Atalhos {
+    # O Painel.vbs abre este arquivo sem janela do PowerShell, e os atalhos (Área de Trabalho, menu
+    # Iniciar, "Iniciar com o Windows") apontam para ele. Instalações antigas apontavam direto para o
+    # powershell.exe e são consertadas aqui, na primeira vez que o painel novo abre.
+    $vbs = @(
+        "' Abre o Painel LoR Bots sem janela do PowerShell (gerado pelo Painel.ps1; os argumentos vão junto).",
+        'Set sh = CreateObject("WScript.Shell")',
+        'args = ""',
+        'For Each a In WScript.Arguments : args = args & " " & a : Next',
+        ('sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{0}""" & args, 0, False' -f (Join-Path $Pasta 'Painel.ps1'))
+    )
+    # UTF-16 com BOM: o WScript lê assim caminhos com acento (C:\Users\João\...).
+    Set-Content -Path $Lancador -Value $vbs -Encoding Unicode
+    $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
+    $sh = New-Object -ComObject WScript.Shell
+    $alvos = @(
+        @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Painel LoR Bots.lnk'), ''),
+        @((Join-Path ([Environment]::GetFolderPath('Programs')) 'Painel LoR Bots.lnk'), ''),
+        @($AtalhoLigar, ' -Ligar')
+    )
+    foreach ($a in $alvos) {
+        if (-not (Test-Path $a[0])) { continue }
+        $l = $sh.CreateShortcut($a[0])
+        $argumentos = "`"$Lancador`"" + $a[1]
+        if ($l.TargetPath -ne $wscript -or $l.Arguments -ne $argumentos) {
+            $l.TargetPath = $wscript
+            $l.Arguments = $argumentos
+            $l.WorkingDirectory = $Pasta
+            if ($l.IconLocation -match '^,|powershell') { $l.IconLocation = 'shell32.dll,137' }
+            $l.Save()
+        }
+    }
+}
 
 function Invoke-Painel {
     # Roda painel.sh no Linux; o que é texto do usuário (senha, nomes, times) vai pela entrada
@@ -823,7 +865,7 @@ function Ler-Estado {
 function Manter-Vivo {
     # O WSL desliga o Linux quando nenhum programa do Windows o usa; este processo escondido
     # segura enquanto o bot estiver ligado (e sai sozinho depois).
-    Start-Process wsl.exe -WindowStyle Hidden -ArgumentList "-d $Distro -u root -e /opt/lor-bots/painel.sh manter-vivo"
+    Rodar-Oculto "wsl.exe -d $Distro -u root -e /opt/lor-bots/painel.sh manter-vivo"
 }
 
 function Mensagem([string]$texto, [string]$titulo = 'Painel LoR Bots') {
@@ -846,6 +888,7 @@ if (-not $criado) {
     [System.Windows.Forms.MessageBox]::Show('O Painel LoR Bots já está aberto.', 'Painel LoR Bots') | Out-Null
     return
 }
+try { Preparar-Atalhos } catch { }
 
 # Nítido em telas com escala (125%, 150%...): o painel cuida do DPI e multiplica as posições.
 Add-Type -Name Dpi -Namespace LoRNativo -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
@@ -1049,7 +1092,7 @@ $divRodape = New-Object LoR.Divisor
 $divRodape.FundoNome = 'fundo'
 [void](Pos $divRodape 818 656 4 22 $form)
 
-$Atalho = Join-Path ([Environment]::GetFolderPath('Startup')) 'LoR Bots (ligar).lnk'
+$Atalho = $AtalhoLigar
 $xAuto.Marcado = Test-Path $Atalho
 
 # Menu de aparência.
@@ -1331,9 +1374,10 @@ $bRecolher.Add_Click({
 function Mudar-Auto {
     if ($xAuto.Marcado) {
         $s = (New-Object -ComObject WScript.Shell).CreateShortcut($Atalho)
-        $s.TargetPath = 'powershell.exe'
-        $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Pasta\Painel.ps1`" -Ligar"
+        $s.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+        $s.Arguments = "`"$Lancador`" -Ligar"
         $s.WorkingDirectory = $Pasta
+        $s.IconLocation = 'shell32.dll,137'
         $s.Save()
     } elseif (Test-Path $Atalho) { Remove-Item $Atalho }
 }
@@ -1352,7 +1396,7 @@ function Atualizar-Painel {
         Start-Process wsl.exe -Wait -ArgumentList "-d $Distro -u root -e env LOR_RAMO=$Ramo /opt/lor-bots/painel.sh atualizar"
         Manter-Vivo
         $trava.ReleaseMutex()
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Pasta\Painel.ps1`""
+        Start-Process wscript.exe -ArgumentList "`"$Lancador`""
         $form.Close()
     } catch {
         Mensagem "Não consegui atualizar: $($_.Exception.Message)"

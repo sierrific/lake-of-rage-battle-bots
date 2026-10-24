@@ -100,12 +100,22 @@ Invoke-WebRequest -UseBasicParsing -Uri "$Raw/windows/Painel.ps1" -OutFile (Join
 Invoke-WebRequest -UseBasicParsing -Uri "$Raw/VERSION" -OutFile (Join-Path $Pasta 'VERSION')
 # A branch escolhida (main, ou outra num teste) fica gravada para o botao Atualizar do painel.
 Set-Content -Path (Join-Path $Pasta 'ramo.txt') -Value $Ramo -Encoding ASCII
+# O Painel.vbs abre o painel sem janela do PowerShell (com o Windows Terminal como console padrao, o
+# -WindowStyle Hidden ainda abre uma janela). O proprio painel reescreve este arquivo quando abre.
+$vbs = Join-Path $Pasta 'Painel.vbs'
+Set-Content -Path $vbs -Encoding Unicode -Value @(
+    'Set sh = CreateObject("WScript.Shell")',
+    'args = ""',
+    'For Each a In WScript.Arguments : args = args & " " & a : Next',
+    ('sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{0}""" & args, 0, False' -f (Join-Path $Pasta 'Painel.ps1'))
+)
+$wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
 $shell = New-Object -ComObject WScript.Shell
 $destinos = @([Environment]::GetFolderPath('Desktop'), (Join-Path ([Environment]::GetFolderPath('Programs')) ''))
 foreach ($d in $destinos) {
     $atalho = $shell.CreateShortcut((Join-Path $d 'Painel LoR Bots.lnk'))
-    $atalho.TargetPath = 'powershell.exe'
-    $atalho.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Pasta\Painel.ps1`""
+    $atalho.TargetPath = $wscript
+    $atalho.Arguments = "`"$vbs`""
     $atalho.WorkingDirectory = $Pasta
     $atalho.IconLocation = 'shell32.dll,137'
     $atalho.Save()
@@ -113,4 +123,4 @@ foreach ($d in $destinos) {
 
 Write-Host "`nPronto! Abrindo o Painel LoR Bots (tambem tem um atalho na Area de Trabalho)." -ForegroundColor Green
 Write-Host 'No painel: coloque a conta e a senha do Showdown do bot, o codigo da coleta que o Thiago passou, e clique em Ligar.'
-Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Pasta\Painel.ps1`""
+Start-Process $wscript -ArgumentList "`"$vbs`""
