@@ -1629,6 +1629,7 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         elseif ($l -match '^challenge not accepted by (\S+) in (\d+) min') { $txt = "$($Matches[1]) não aceitou em $($Matches[2]) min · desafio cancelado"; $tipo = 'partida' }
         elseif ($l -match "^'(.+)' challenging (\S+) to ") { $txt = "Conta $($Matches[1]) conectada · desafio enviado a $($Matches[2]), esperando aceitar" }
         elseif ($l -match '^(Started|Finished) lor-desafio-|^lor-desafio-') { continue }
+        elseif ($l -match '^pausing ([\d.]+) min before the next ladder search') { $txt = "Pausa de $($Matches[1]) min antes de procurar a próxima partida (para não cair sempre com os mesmos bots)" }
         elseif ($l -match '^team: (\S+)') { $txt = "Time da vez: $($Matches[1])" }
         elseif ($l -match '^watch: (\S+)') { $txt = "Partida em andamento · $($Matches[1])"; $tipo = 'partida' }
         elseif ($l -match '^(win|loss|tie) vs (.+) in (\d+) turns') {
@@ -1715,6 +1716,7 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         } elseif ($l -match '^Started lor-bot@') { $evento.Titulo = 'Bot iniciado'; $evento.Detalhe = 'Iniciando a sessão do bot.' }
         elseif ($l -match "^'(.+)' (laddering|challenging) ") { $evento.Titulo = 'Conta conectada'; $evento.CorNome = 'verde' }
         elseif ($l -match '^team: (\S+)') { $evento.Titulo = 'Time selecionado'; $evento.Detalhe = $Matches[1] }
+        elseif ($l -match '^pausing ([\d.]+) min before') { $evento.Titulo = 'Pausa entre partidas'; $evento.Detalhe = "$($Matches[1]) min até a próxima busca" }
         elseif ($l -match '^challenge ') { $evento.Titulo = 'Desafio'; $evento.CorNome = 'ambar'; $evento.Tipo = 'partida' }
         elseif ($l -match 'Traceback|Error|ERROR|WARNING|Unhandled|failed|Failed') { $evento.Titulo = 'Aviso do bot'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^Ctrl-C: finishing|^Stopping lor-bot@') { $evento.Titulo = 'Parada solicitada'; $evento.CorNome = 'ambar' }
