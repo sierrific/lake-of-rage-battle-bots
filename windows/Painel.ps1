@@ -109,11 +109,19 @@ namespace LoR
         public string FundoNome = "cartao";
         public Base()
         {
+            TabStop = false;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
                 ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
         }
         protected Color CorFundo { get { return Tema.Atual.Cor(FundoNome); } }
+        protected override bool IsInputKey(Keys keyData)
+        {
+            var key = keyData & Keys.KeyCode;
+            return (TabStop && (key == Keys.Enter || key == Keys.Space || key == Keys.Up || key == Keys.Down)) || base.IsInputKey(keyData);
+        }
         protected override void OnPaintBackground(PaintEventArgs e) { e.Graphics.Clear(CorFundo); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
     }
 
     public class Janela : Form, ITematico
@@ -303,6 +311,18 @@ namespace LoR
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
             Cursor = Cursors.Hand;
+            TabStop = true;
+            AccessibleRole = AccessibleRole.PushButton;
+        }
+        protected override bool IsInputKey(Keys keyData)
+        {
+            var key = keyData & Keys.KeyCode;
+            return key == Keys.Enter || key == Keys.Space || base.IsInputKey(keyData);
+        }
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space) { OnClick(EventArgs.Empty); e.Handled = e.SuppressKeyPress = true; }
+            base.OnKeyDown(e);
         }
         protected override void OnMouseEnter(EventArgs e) { sobre = true; Invalidate(); base.OnMouseEnter(e); }
         protected override void OnMouseLeave(EventArgs e) { sobre = false; Invalidate(); base.OnMouseLeave(e); }
@@ -330,6 +350,7 @@ namespace LoR
     public class Cartao : Panel, ITematico
     {
         public string Titulo = "", Subtitulo = "";
+        public bool Destaque;
         public Cartao()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
@@ -349,10 +370,13 @@ namespace LoR
                 g.FillPath(b, p);
                 g.DrawPath(borda, p);
             }
+            if (Destaque)
+                using (var p = new Pen(t.Ouro, Math.Max(1f, Tema.F * 2f)))
+                    g.DrawLine(p, Tema.S(12), Tema.S(1), Width - Tema.S(12), Tema.S(1));
             if (Titulo.Length > 0)
             {
                 // Tema "lado": legenda à direita do título; senão, embaixo dele (e o título sobe um pouco).
-                bool lado = t.LegendaAoLado || Subtitulo.Length == 0;
+                bool lado = Subtitulo.Length == 0;
                 using (var f = new Font("Segoe UI Semibold", 13f))
                     Desenho.Texto(g, Titulo, f, t.Texto, new Rectangle(Tema.S(20), Tema.S(lado ? 12 : 6), Width - Tema.S(40), Tema.S(30)), TextFormatFlags.Left);
                 if (Subtitulo.Length > 0)
@@ -367,21 +391,28 @@ namespace LoR
         }
     }
 
-    public enum Estilo { Primario, Contorno, Neutro, Perigo, Fantasma }
+    public enum Estilo { Primario, Contorno, Neutro, Perigo, Fantasma, Navegacao }
 
     public class Botao : Base
     {
         public Estilo Estilo = Estilo.Contorno;
         public string Icone = "";
         public bool Negrito = true;
+        public bool Selecionado, SemBorda;
         bool sobre, apertado;
-        public Botao() { Cursor = Cursors.Hand; }
+        public Botao() { Cursor = Cursors.Hand; TabStop = true; AccessibleRole = AccessibleRole.PushButton; }
+        public void PerformClick() { if (Enabled) OnClick(EventArgs.Empty); }
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space) { PerformClick(); e.Handled = e.SuppressKeyPress = true; }
+            base.OnKeyDown(e);
+        }
         protected override void OnMouseEnter(EventArgs e) { sobre = true; Invalidate(); base.OnMouseEnter(e); }
         protected override void OnMouseLeave(EventArgs e) { sobre = false; apertado = false; Invalidate(); base.OnMouseLeave(e); }
         protected override void OnMouseDown(MouseEventArgs e) { apertado = true; Invalidate(); base.OnMouseDown(e); }
         protected override void OnMouseUp(MouseEventArgs e) { apertado = false; Invalidate(); base.OnMouseUp(e); }
         protected override void OnEnabledChanged(EventArgs e) { Cursor = Enabled ? Cursors.Hand : Cursors.Default; Invalidate(); base.OnEnabledChanged(e); }
-        protected override void OnTextChanged(EventArgs e) { Invalidate(); base.OnTextChanged(e); }
+        protected override void OnTextChanged(EventArgs e) { AccessibleName = Text; Invalidate(); base.OnTextChanged(e); }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -404,6 +435,10 @@ namespace LoR
                     case Estilo.Perigo: fundo = CorFundo; borda = t.Vermelho; texto = t.Vermelho; break;
                     case Estilo.Neutro: fundo = CorFundo; borda = t.Neutro; texto = t.Texto; break;
                     case Estilo.Fantasma: fundo = CorFundo; borda = CorFundo; texto = t.Texto; break;
+                    case Estilo.Navegacao:
+                        fundo = Selecionado ? t.Cartao : CorFundo;
+                        borda = Selecionado ? t.Borda : CorFundo;
+                        texto = Selecionado ? t.Ouro : t.Suave; break;
                     default: fundo = CorFundo; borda = t.Ouro; texto = t.TextoContorno; break;
                 }
                 if (sobre)
@@ -412,6 +447,7 @@ namespace LoR
                         : Desenho.Misturar(fundo, borda, apertado ? 0.22f : 0.12f);
                 }
             }
+            if (SemBorda) borda = fundo;
             var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             using (var p = Desenho.Arredondado(r, Tema.S(6)))
             using (var b = new SolidBrush(fundo))
@@ -427,15 +463,16 @@ namespace LoR
             {
                 var tam = TextRenderer.MeasureText(g, Text, f, Size.Empty, TextFormatFlags.NoPadding);
                 int iw = Icone.Length > 0 ? Tema.S(26) : 0;
-                int x = (Width - tam.Width - iw) / 2;
+                int x = Estilo == Estilo.Navegacao ? Tema.S(12) : Math.Max(Tema.S(6), (Width - tam.Width - iw) / 2);
                 if (iw > 0)
                 {
                     Color ci = texto;
                     if (Estilo == Estilo.Perigo && Enabled) ci = t.Vermelho;
                     Desenho.Texto(g, Icone, fi, ci, new Rectangle(x, 0, Tema.S(18), Height), TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
                 }
-                Desenho.Texto(g, Text, f, texto, new Rectangle(x + iw, 0, tam.Width + 4, Height), TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+                Desenho.Texto(g, Text, f, texto, new Rectangle(x + iw, 0, Math.Max(1, Width - x - iw - Tema.S(6)), Height), TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
             }
+            if (Focused) ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(ClientRectangle, -Tema.S(4), -Tema.S(4)), texto, fundo);
         }
     }
 
@@ -464,10 +501,31 @@ namespace LoR
         }
     }
 
+    public class AcaoTexto : Rotulo
+    {
+        public AcaoTexto() { TabStop = true; Cursor = Cursors.Hand; AccessibleRole = AccessibleRole.Link; }
+        public void PerformClick() { if (Enabled) OnClick(EventArgs.Empty); }
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space) { PerformClick(); e.Handled = e.SuppressKeyPress = true; }
+            base.OnKeyDown(e);
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2), Tema.Atual.Ouro, CorFundo);
+        }
+    }
+
     public class Icone : Base
     {
         public string CorNome = "suave";
         public float Tamanho = 11f;
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (TabStop && (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)) { OnClick(EventArgs.Empty); e.Handled = e.SuppressKeyPress = true; }
+            base.OnKeyDown(e);
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
             using (var f = Desenho.Icones(Tamanho))
@@ -527,7 +585,7 @@ namespace LoR
                 x += Tema.S(24);
             }
             using (var f = new Font("Segoe UI", 10f))
-                Desenho.Texto(g, Text, f, texto, new Rectangle(x, 0, Width - x, Height), TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+                Desenho.Texto(g, Text, f, texto, new Rectangle(x, 0, Width - x - Tema.S(6), Height), TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
         }
     }
 
@@ -566,6 +624,9 @@ namespace LoR
             Olho.Tamanho = 12f;
             Olho.FundoNome = "campo";
             Olho.Cursor = Cursors.Hand;
+            Olho.TabStop = true;
+            Olho.AccessibleRole = AccessibleRole.PushButton;
+            Olho.AccessibleName = "Mostrar ou ocultar senha";
             Olho.Click += delegate { Caixa.UseSystemPasswordChar = !Caixa.UseSystemPasswordChar; Olho.CorNome = Caixa.UseSystemPasswordChar ? "suave" : "ouro"; Olho.Invalidate(); };
             Controls.Add(Olho);
             Caixa.UseSystemPasswordChar = true;
@@ -621,8 +682,20 @@ namespace LoR
         public List<string> Itens = new List<string>();
         int indice = -1;
         public event EventHandler Escolheu;
-        public Lista() { Cursor = Cursors.Hand; }
-        public int Indice { get { return indice; } set { indice = value; Text = (indice >= 0 && indice < Itens.Count) ? Itens[indice] : ""; Invalidate(); } }
+        public Lista() { Cursor = Cursors.Hand; TabStop = true; AccessibleRole = AccessibleRole.ComboBox; }
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space || (e.Alt && e.KeyCode == Keys.Down))
+            { OnClick(EventArgs.Empty); e.Handled = e.SuppressKeyPress = true; }
+            else if (e.KeyCode == Keys.Up || e.KeyCode == Keys.Down)
+            {
+                Indice = Math.Max(0, Math.Min(Itens.Count - 1, indice + (e.KeyCode == Keys.Up ? -1 : 1)));
+                if (Escolheu != null) Escolheu(this, EventArgs.Empty);
+                e.Handled = e.SuppressKeyPress = true;
+            }
+            base.OnKeyDown(e);
+        }
+        public int Indice { get { return indice; } set { indice = value; Text = (indice >= 0 && indice < Itens.Count) ? Itens[indice] : ""; AccessibleDescription = Text; Invalidate(); } }
         public string Escolhido { get { return (indice >= 0 && indice < Itens.Count) ? Itens[indice] : null; } }
 
         protected override void OnClick(EventArgs e)
@@ -662,6 +735,7 @@ namespace LoR
                 Desenho.Texto(g, Text, f, t.Texto, new Rectangle(Tema.S(14), 0, Width - Tema.S(48), Height), TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             using (var f = Desenho.Icones(10f))
                 Desenho.Texto(g, "", f, t.Texto, new Rectangle(Width - Tema.S(36), 0, Tema.S(24), Height), TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
+            if (Focused) ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(ClientRectangle, -Tema.S(4), -Tema.S(4)), t.Ouro, t.Campo);
         }
     }
 
@@ -685,8 +759,13 @@ namespace LoR
     {
         bool marcado;
         public event EventHandler Mudou;
-        public Chave() { Cursor = Cursors.Hand; FundoNome = "fundo"; }
-        public bool Marcado { get { return marcado; } set { marcado = value; Invalidate(); } }
+        public Chave() { Cursor = Cursors.Hand; FundoNome = "fundo"; TabStop = true; AccessibleRole = AccessibleRole.CheckButton; }
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space) { OnClick(EventArgs.Empty); e.Handled = e.SuppressKeyPress = true; }
+            base.OnKeyDown(e);
+        }
+        public bool Marcado { get { return marcado; } set { marcado = value; AccessibleDescription = value ? "Ligado" : "Desligado"; Invalidate(); } }
         protected override void OnClick(EventArgs e)
         {
             base.OnClick(e);
@@ -718,6 +797,82 @@ namespace LoR
             {
                 if (Width >= Height) e.Graphics.DrawLine(p, 0, Height / 2, Width, Height / 2);
                 else e.Graphics.DrawLine(p, Width / 2, 0, Width / 2, Height);
+            }
+        }
+    }
+
+    // Navegação usa a mesma paleta, incluindo ao trocar de tema sem reiniciar.
+    public class Superficie : Panel, ITematico
+    {
+        public string FundoNome = "fundo";
+        public void AplicarTema() { BackColor = Tema.Atual.Cor(FundoNome); Invalidate(); }
+        protected override void OnPaintBackground(PaintEventArgs e) { e.Graphics.Clear(Tema.Atual.Cor(FundoNome)); }
+    }
+
+    public class EventoAtividade
+    {
+        public string Titulo = "", Detalhe = "", CorNome = "suave", Tipo = "outro";
+    }
+
+    // Resumo legível; o log completo continua disponível em Detalhes técnicos.
+    public class ListaAtividade : Base
+    {
+        public readonly List<EventoAtividade> Itens = new List<EventoAtividade>();
+        public string Vazio = "Sem atividade registrada.";
+        public bool Horizontal;
+        public ListaAtividade() { AccessibleRole = AccessibleRole.List; }
+        public void Definir(EventoAtividade[] itens)
+        {
+            Itens.Clear();
+            if (itens != null) Itens.AddRange(itens);
+            var textos = new List<string>();
+            foreach (var item in Itens) textos.Add(item.Titulo + ". " + item.Detalhe);
+            AccessibleDescription = textos.Count == 0 ? Vazio : string.Join("; ", textos.ToArray());
+            Invalidate();
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            Desenho.Preparar(g);
+            using (var titulo = new Font("Segoe UI Semibold", 10f))
+            using (var detalhe = new Font("Segoe UI", 9f))
+            {
+                if (Itens.Count == 0)
+                {
+                    Desenho.Texto(g, Vazio, detalhe, Tema.Atual.Suave, ClientRectangle, TextFormatFlags.WordBreak);
+                    return;
+                }
+                if (Horizontal)
+                {
+                    int total = Math.Min(3, Itens.Count), largura = Width / total;
+                    for (int i = 0; i < total; i++)
+                    {
+                        var item = Itens[i];
+                        int x = i * largura;
+                        using (var ponto = new SolidBrush(Tema.Atual.Cor(item.CorNome)))
+                            g.FillEllipse(ponto, x + Tema.S(2), Tema.S(9), Tema.S(6), Tema.S(6));
+                        Desenho.Texto(g, item.Titulo, titulo, Tema.Atual.Texto,
+                            new Rectangle(x + Tema.S(20), 0, largura - Tema.S(32), Tema.S(26)), TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+                        Desenho.Texto(g, item.Detalhe, detalhe, Tema.Atual.Suave,
+                            new Rectangle(x + Tema.S(20), Tema.S(28), largura - Tema.S(32), Math.Max(1, Height - Tema.S(28))), TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+                    }
+                    return;
+                }
+                int altura = Tema.S(72), n = Math.Min(Itens.Count, Math.Max(1, Height / altura));
+                for (int i = 0; i < n; i++)
+                {
+                    var item = Itens[i];
+                    int y = i * altura;
+                    if (i < n - 1)
+                        using (var linha = new Pen(Tema.Atual.Borda, Math.Max(1f, Tema.F)))
+                            g.DrawLine(linha, Tema.S(5), y + Tema.S(15), Tema.S(5), y + altura + Tema.S(10));
+                    using (var ponto = new SolidBrush(Tema.Atual.Cor(item.CorNome)))
+                        g.FillEllipse(ponto, Tema.S(2), y + Tema.S(9), Tema.S(6), Tema.S(6));
+                    Desenho.Texto(g, item.Titulo, titulo, Tema.Atual.Texto,
+                        new Rectangle(Tema.S(22), y, Width - Tema.S(24), Tema.S(26)), TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+                    Desenho.Texto(g, item.Detalhe, detalhe, Tema.Atual.Suave,
+                        new Rectangle(Tema.S(22), y + Tema.S(28), Width - Tema.S(24), Tema.S(40)), TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+                }
             }
         }
     }
@@ -783,6 +938,7 @@ elseif (Test-Path (Join-Path $Pasta 'ramo.txt')) { $Ramo = (Get-Content (Join-Pa
 $Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $ArquivoSkin = Join-Path $Pasta 'skin.txt'
+$ArquivoLayout = Join-Path $Pasta 'layout.txt'
 # Versão deste painel (o instalador grava; o Atualizar regrava depois de trocar o Painel.ps1). Ela é
 # conferida à parte da versão do Linux: se a troca do painel falhar depois de o Linux atualizar, o
 # próximo Atualizar ainda oferece a troca.
@@ -858,11 +1014,13 @@ function Invoke-Painel {
 
 function Ler-Estado {
     $r = Invoke-Painel @('estado')
+    if ($r.Codigo -ne 0) { throw (($r.Saida + "`n" + $r.Erro).Trim()) }
     $e = @{}
     foreach ($linha in $r.Saida -split "`n") {
         $i = $linha.IndexOf('=')
         if ($i -gt 0) { $e[$linha.Substring(0, $i)] = $linha.Substring($i + 1).Trim() }
     }
+    if (-not $e['bot']) { throw 'O WSL não informou o estado do bot.' }
     $e
 }
 
@@ -874,6 +1032,10 @@ function Manter-Vivo {
 
 function Mensagem([string]$texto, [string]$titulo = 'Painel LoR Bots') {
     [System.Windows.Forms.MessageBox]::Show($texto, $titulo) | Out-Null
+}
+
+function Confirmar([string]$texto) {
+    [System.Windows.Forms.MessageBox]::Show($texto, 'Painel LoR Bots', 'YesNo', 'Warning', 'Button2') -eq 'Yes'
 }
 
 if ($Ligar) {
@@ -1002,105 +1164,412 @@ function Novo-BotaoJanela($simbolo, $x) {
     $form.Controls.Add($b)
     $b
 }
-$bTema = Novo-BotaoJanela ([string][char]0xE790) 830
-$bMin = Novo-BotaoJanela ([string][char]0xE921) 876
-$bFechar = Novo-BotaoJanela ([string][char]0xE8BB) 922
+$bTema = Novo-BotaoJanela ([string][char]0xE790) 866
+$bMin = Novo-BotaoJanela ([string][char]0xE921) 912
+$bFechar = Novo-BotaoJanela ([string][char]0xE8BB) 958
+$bTema.AccessibleName = 'Escolher layout e tema Lago ou Dragão'
+$bMin.AccessibleName = 'Minimizar painel'
+$bFechar.AccessibleName = 'Fechar painel'
 $bFechar.Fechar = $true
 $bMin.Add_Click({ $form.WindowState = 'Minimized' })
 $bFechar.Add_Click({ $form.Close() })
 $ttTema = New-Object System.Windows.Forms.ToolTip
-$ttTema.SetToolTip($bTema, 'Aparência do painel')
+$ttTema.SetToolTip($bTema, 'Aparência: layout e tema')
 
-# Status
-$cStatus = Novo-Cartao '' '' 13 69 998 132
+# Central de comando: os controles existentes mantêm seus eventos e comandos.
+$lateral = New-Object LoR.Superficie
+$lateral.FundoNome = 'log'
+[void](Pos $lateral 1 60 147 584 $form)
+$r = Novo-Rotulo 'SEU BOT' 18 16 114 22 $lateral 'suave' 8.5 $true
+$r.FundoNome = 'log'
+$nBatalhas = Novo-Botao 'Batalhas' 'Navegacao' ([string][char]0xE7C1) 9 52 129 42 $lateral
+$nTimes = Novo-Botao 'Times' 'Navegacao' ([string][char]0xE8F1) 9 102 129 42 $lateral
+$nHistorico = Novo-Botao 'Histórico' 'Navegacao' ([string][char]0xE81C) 9 152 129 42 $lateral
+$nAjustes = Novo-Botao 'Ajustes' 'Navegacao' ([string][char]0xE713) 9 202 129 42 $lateral
+$Navegacao = [ordered]@{ batalhas = $nBatalhas; times = $nTimes; historico = $nHistorico; ajustes = $nAjustes }
+foreach ($id in $Navegacao.Keys) { $Navegacao[$id].FundoNome = 'log'; $Navegacao[$id].Tag = $id }
+$r = Novo-Rotulo 'SHOWDOWN' 18 488 114 20 $lateral 'suave' 8.5 $true
+$r.FundoNome = 'log'
+$lNavConta = Novo-Rotulo 'Sem conta' 18 513 116 24 $lateral 'texto' 10 $true
+$lNavConta.FundoNome = 'log'
+$lNavEstado = Novo-Rotulo 'Configure em Ajustes' 18 539 118 23 $lateral 'suave' 8.5
+$lNavEstado.FundoNome = 'log'
+
+$lTitulo = Novo-Rotulo 'Central de batalhas' 170 76 610 34 $form 'texto' 18 $true
+$lTitulo.FundoNome = 'fundo'
+$lSubtitulo = Novo-Rotulo 'Ladder oficial · Regulamento M-C' 170 111 630 22 $form 'suave' 9.5
+$lSubtitulo.FundoNome = 'fundo'
+$bDesafiar = Novo-Botao 'Desafiar jogador' 'Neutro' ([string][char]0xE7C1) 812 82 192 38 $form
+$bDesafiar.FundoNome = 'fundo'
+
+# Partida atual: a identidade, o placar e os comandos não disputam a mesma linha.
+$cStatus = Novo-Cartao '' '' 170 137 520 270
+$cStatus.Destaque = $true
 $pBot = New-Object LoR.Bolinha
-[void](Pos $pBot 22 22 22 22 $cStatus)
-$lBot = Novo-Rotulo 'Carregando…' 56 12 400 36 $cStatus 'texto' 15 $true
+[void](Pos $pBot 18 16 20 20 $cStatus)
+$lBot = Novo-Rotulo 'Carregando…' 46 10 456 32 $cStatus 'texto' 13 $true
 $selo = New-Object LoR.Pilula
-[void](Pos $selo 300 17 200 27 $cStatus)
+[void](Pos $selo 18 46 250 26 $cStatus)
 $selo.Visible = $false
+$lInfo = Novo-Rotulo 'Ligando o Linux dos bots…' 18 78 484 22 $cStatus 'suave' 9.5
+$lSeuBotCaption = Novo-Rotulo 'SEU BOT' 18 105 170 18 $cStatus 'suave' 8 $true
+$lRivalCaption = Novo-Rotulo 'ADVERSÁRIO' 310 105 192 18 $cStatus 'suave' 8 $true
+$lRivalCaption.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
+$lNos = Novo-Rotulo '—' 18 125 170 25 $cStatus 'texto' 11 $true
+$lRival = Novo-Rotulo 'Aguardando adversário' 310 125 192 25 $cStatus 'texto' 11 $true
+$lRival.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
+$lPlacar = Novo-Rotulo '—' 190 107 120 53 $cStatus 'ouro' 28 $true
+$lPlacar.Alinhar = [System.Windows.Forms.TextFormatFlags]'HorizontalCenter, VerticalCenter'
+$lPlacarLegenda = Novo-Rotulo 'sem partida' 177 157 146 21 $cStatus 'suave' 8.5
+$lPlacarLegenda.Alinhar = [System.Windows.Forms.TextFormatFlags]'HorizontalCenter, VerticalCenter'
+$lTimeAtivo = Novo-Rotulo '' 18 151 170 22 $cStatus 'suave' 9
+$lPokemon = Novo-Rotulo '' 325 151 177 22 $cStatus 'suave' 9
+$lPokemon.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
+$bVer = Novo-Botao 'Acompanhar partida' 'Primario' ([string][char]0xE8A7) 18 183 226 36 $cStatus
+$bLigar = Novo-Botao 'Iniciar bot' 'Primario' ([string][char]0x25B6) 18 183 226 36 $cStatus
+$bDesligar = Novo-Botao 'Parar ao fim da série' 'Neutro' ([string][char]0x25A0) 256 183 246 36 $cStatus
+$sepStatus = New-Object LoR.Divisor
+[void](Pos $sepStatus 18 227 484 2 $cStatus)
 $chip = New-Object LoR.Pilula
 $chip.Tipo = 'neutra'
 $chip.Simbolo = [string][char]0xE950
-[void](Pos $chip 520 17 110 27 $cStatus)
+[void](Pos $chip 18 236 116 24 $cStatus)
 $chip.Visible = $false
-$lInfo = Novo-Rotulo 'ligando o Linux dos bots' 56 47 540 24 $cStatus 'suave' 11
-$bVer = Novo-Botao 'Ver ao vivo' 'Neutro' ([string][char]0xE8A7) 22 82 140 38 $cStatus
-$bHistorico = Novo-Botao 'Histórico de partidas' 'Neutro' ([string][char]0xE8FD) 174 82 210 38 $cStatus
-$div = New-Object LoR.Divisor
-[void](Pos $div 604 18 4 96 $cStatus)
-$bLigar = Novo-Botao 'Iniciar' 'Primario' ([string][char]0x25B6) 632 20 140 40 $cStatus
-$bDesligar = Novo-Botao 'Parar após a partida' 'Primario' ([string][char]0x25A0) 784 20 196 40 $cStatus
-$bAgora = Novo-Botao 'Parar agora' 'Perigo' ([string][char]0xE7BA) 706 70 200 36 $cStatus
-$lAgora = Novo-Rotulo 'Interrompe a partida atual' 676 108 260 20 $cStatus 'suave' 9.5
-$lAgora.Alinhar = [System.Windows.Forms.TextFormatFlags]'HorizontalCenter, VerticalCenter'
+$bAgora = Novo-Botao 'Interromper agora' 'Perigo' ([string][char]0xE7BA) 302 232 200 32 $cStatus
+$bAgora.SemBorda = $true
+$ttTema.SetToolTip($bAgora, 'Interrompe a partida atual. O bot pode perder por W.O.')
+$ttTema.SetToolTip($lRival, '')
 
-# Configuração de partidas
-$cJogo = Novo-Cartao 'Configuração de partidas' 'Ladder oficial · Reg M-C' 13 211 595 164
-[void](Novo-Rotulo 'Formato' 20 50 80 20 $cJogo)
-[void](Novo-Rotulo 'Timer' 110 50 124 20 $cJogo)
-[void](Novo-Rotulo 'Time' 244 50 222 20 $cJogo)
-$cFormato = Nova-Lista @('BO3', 'BO1') 20 72 80 36 $cJogo
-$cTimer = Nova-Lista @('Ligado', 'Desligado') 110 72 124 36 $cJogo
-$cTime = Nova-Lista @('Padrão (MC371/MC196)') 244 72 222 36 $cJogo
-$bAplicar = Novo-Botao 'Aplicar' 'Contorno' '' 478 72 98 36 $cJogo
-$sep = New-Object LoR.Divisor
-[void](Pos $sep 20 114 555 4 $cJogo)
-$bAddTime = Novo-Botao 'Adicionar time' 'Contorno' ([string][char]0xE710) 20 124 150 32 $cJogo
-$bRemTime = Novo-Botao 'Remover time' 'Neutro' ([string][char]0xE74D) 182 124 150 32 $cJogo
-$bDesafiar = Novo-Botao 'Desafiar jogador' 'Contorno' ([string][char]0xE7C1) 344 124 231 32 $cJogo
+# Os mesmos seletores aparecem em Batalhas e Times, preservando valores não aplicados.
+$cJogo = Novo-Cartao 'Próximas partidas' 'Valem após a partida ou série atual.' 170 420 520 160
+$lFormato = Novo-Rotulo 'Formato' 18 46 84 19 $cJogo 'suave' 9
+$lTimer = Novo-Rotulo 'Timer' 114 46 118 19 $cJogo 'suave' 9
+$lTimeCampo = Novo-Rotulo 'Time' 244 46 258 19 $cJogo 'suave' 9
+$cFormato = Nova-Lista @('BO3', 'BO1') 18 68 84 34 $cJogo
+$cFormato.AccessibleName = 'Formato das próximas partidas'
+$cTimer = Nova-Lista @('Ligado', 'Desligado') 114 68 118 34 $cJogo
+$cTimer.AccessibleName = 'Timer das próximas partidas'
+$cTime = Nova-Lista @('Padrão (MC371/MC196)') 244 68 258 34 $cJogo
+$cTime.AccessibleName = 'Time das próximas partidas'
+$lConfigStatus = Novo-Rotulo 'Selecione e aplique para trocar.' 18 111 310 40 $cJogo 'suave' 9
+$lConfigStatus.Alinhar = [System.Windows.Forms.TextFormatFlags]'WordBreak, VerticalCenter'
+$bAplicar = Novo-Botao 'Aplicar alterações' 'Neutro' '' 342 115 160 34 $cJogo
+$bAddTime = Novo-Botao 'Adicionar time' 'Contorno' ([string][char]0xE710) 20 163 172 36 $cJogo
+$bRemTime = Novo-Botao 'Remover time' 'Neutro' ([string][char]0xE74D) 206 163 172 36 $cJogo
+$bAddTime.Visible = $false
+$bRemTime.Visible = $false
 
-# Coleta
-$cColeta = Novo-Cartao 'Coleta de times' 'Código para treino e Discord' 13 385 595 112
-$tCodigo = Novo-Campo 'Cole seu código' 20 50 440 36 $cColeta
-$tCodigo.Caixa.UseSystemPasswordChar = $true
-$bCodigo = Novo-Botao 'Salvar código' 'Contorno' '' 472 50 106 36 $cColeta
-$pCodigo = New-Object LoR.Bolinha
-$pCodigo.Brilho = $false
-$pCodigo.CorNome = 'ambar'
-[void](Pos $pCodigo 22 94 10 10 $cColeta)
-$lCodigo = Novo-Rotulo 'Não salvo' 38 88 540 22 $cColeta 'ambar' 10
+# Atividade estruturada, com o log bruto acessível sem perder filtros ou recolhimento.
+$cLog = Novo-Cartao 'Atividade' '' 706 137 298 443
+$cFiltro = Nova-Lista @('Todos', 'Partidas', 'Avisos') 18 47 114 30 $cLog
+$cFiltro.AccessibleName = 'Filtrar atividade'
+$bRecolher = Novo-Botao 'Recolher' 'Fantasma' '' 188 10 94 30 $cLog
+$bTecnico = Novo-Botao 'Log técnico' 'Neutro' ([string][char]0xE756) 144 47 138 30 $cLog
+$atividade = New-Object LoR.ListaAtividade
+$atividade.AccessibleName = 'Atividade recente'
+[void](Pos $atividade 18 94 262 294 $cLog)
+$tLog = New-Object LoR.CaixaLog
+$tLog.Caixa.AccessibleName = 'Log técnico completo do bot'
+[void](Pos $tLog 16 90 266 303 $cLog)
+$tLog.Visible = $false
+$bAbrirHistorico = Novo-Botao 'Ver histórico e replays' 'Fantasma' '' 18 403 262 28 $cLog
 
-# Conta do Showdown
-$cConta = Novo-Cartao 'Conta do Showdown' '' 618 211 393 286
-[void](Novo-Rotulo 'Usuário' 20 50 200 20 $cConta)
-$tUsuario = Novo-Campo '' 20 72 353 38 $cConta
-[void](Novo-Rotulo 'Senha' 20 120 200 20 $cConta)
-$tSenha = Novo-Campo '' 20 142 353 38 $cConta
+# Conexões resumidas; os campos sensíveis ficam na seção Ajustes.
+$cResumoColeta = Novo-Cartao '' '' 170 593 410 50
+[void](Novo-Rotulo 'Coleta de partidas' 14 4 275 21 $cResumoColeta 'texto' 10 $true)
+$lResumoColeta = Novo-Rotulo 'Verificando código…' 14 25 282 19 $cResumoColeta 'suave' 8.5
+$bGerenciarColeta = Novo-Botao 'Gerenciar' 'Fantasma' '' 305 9 94 32 $cResumoColeta
+$cResumoConta = Novo-Cartao '' '' 594 593 410 50
+[void](Novo-Rotulo 'Conta do Showdown' 14 4 278 21 $cResumoConta 'texto' 10 $true)
+$lResumoConta = Novo-Rotulo 'Verificando conta…' 14 25 285 19 $cResumoConta 'suave' 8.5
+$bEditarConta = Novo-Botao 'Editar' 'Fantasma' '' 319 9 80 32 $cResumoConta
+
+# Ajustes: os mesmos campos e eventos de salvamento do painel anterior.
+$cConta = Novo-Cartao 'Conta do Showdown' '' 170 137 405 286
+[void](Novo-Rotulo 'Usuário' 20 50 350 20 $cConta)
+$tUsuario = Novo-Campo '' 20 72 365 38 $cConta
+$tUsuario.Caixa.AccessibleName = 'Usuário do Showdown'
+[void](Novo-Rotulo 'Senha' 20 120 350 20 $cConta)
+$tSenha = Novo-Campo '' 20 142 365 38 $cConta
+$tSenha.Caixa.AccessibleName = 'Senha do Showdown'
 $tSenha.ComOlho()
 $iCadeado = New-Object LoR.Icone
 $iCadeado.Text = [string][char]0xE72E
 [void](Pos $iCadeado 20 190 20 22 $cConta)
-[void](Novo-Rotulo 'A senha fica apenas neste PC.' 46 190 320 22 $cConta 'suave' 10)
-$bConta = Novo-Botao 'Salvar conta' 'Contorno' '' 222 228 151 38 $cConta
+[void](Novo-Rotulo 'A senha fica apenas neste PC.' 46 190 339 22 $cConta 'suave' 10)
+$bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 228 151 38 $cConta
+$cColeta = Novo-Cartao 'Coleta de partidas' 'Código para treino e Discord' 591 137 413 286
+$tCodigo = Novo-Campo 'Cole seu código' 20 72 373 38 $cColeta
+$tCodigo.Caixa.AccessibleName = 'Código da coleta de partidas'
+$tCodigo.Caixa.UseSystemPasswordChar = $true
+$pCodigo = New-Object LoR.Bolinha
+$pCodigo.Brilho = $false
+$pCodigo.CorNome = 'ambar'
+[void](Pos $pCodigo 22 131 10 10 $cColeta)
+$lCodigo = Novo-Rotulo 'Não salvo' 40 120 353 32 $cColeta 'ambar' 9.5
+$lCodigo.Alinhar = [System.Windows.Forms.TextFormatFlags]'WordBreak, VerticalCenter'
+$lColetaAjuda = Novo-Rotulo 'As partidas alimentam o treino do time e o canal do Discord.' 20 166 373 44 $cColeta 'suave' 10
+$lColetaAjuda.Alinhar = [System.Windows.Forms.TextFormatFlags]'WordBreak'
+$bCodigo = Novo-Botao 'Salvar código' 'Neutro' '' 242 228 151 38 $cColeta
 
-# Atividade
-$cLog = Novo-Cartao 'Atividade' '' 13 507 998 133
-$cFiltro = Nova-Lista @('Todos', 'Partidas', 'Avisos') 750 10 124 32 $cLog
-$bRecolher = Novo-Botao 'Recolher' 'Fantasma' ([string][char]0xE70E) 880 10 104 32 $cLog
-$tLog = New-Object LoR.CaixaLog
-[void](Pos $tLog 16 50 966 72 $cLog)
+$cTimesAjuda = Novo-Cartao 'Gerenciar seus times' '' 170 384 834 180
+$r = Novo-Rotulo "Adicionar time: cole um link do pokepast.es ou o export do Showdown. O conteúdo é validado antes de salvar.`n`nPara trocar, escolha o time na lista e aplique. O bot conclui a partida ou série atual antes de usar a nova configuração." 20 51 794 109 $cTimesAjuda 'suave' 11
+$r.Alinhar = [System.Windows.Forms.TextFormatFlags]'WordBreak'
 
-# Rodapé
+# Histórico conserva tanto os replays no Showdown quanto os arquivos locais.
+$cHistorico = Novo-Cartao 'Histórico e replays' 'Abra os replays salvos ou os arquivos de partidas neste PC.' 170 137 834 443
+$bHistorico = Novo-Botao 'Abrir histórico de replays' 'Primario' ([string][char]0xE8A7) 20 65 267 38 $cHistorico
+$bPastaPartidas = Novo-Botao 'Abrir pasta de partidas' 'Neutro' ([string][char]0xE8B7) 301 65 251 38 $cHistorico
+[void](Novo-Rotulo 'Eventos recentes de partidas' 20 121 794 26 $cHistorico 'suave' 10)
+$atividadeHistorico = New-Object LoR.ListaAtividade
+$atividadeHistorico.AccessibleName = 'Eventos recentes de partidas'
+[void](Pos $atividadeHistorico 20 157 794 272 $cHistorico)
+
+# Rodapé permanece fixo ao navegar ou recolher a atividade.
 $xAuto = New-Object LoR.Chave
-[void](Pos $xAuto 24 656 40 22 $form)
-$lAuto = Novo-Rotulo 'Iniciar com o Windows' 74 652 300 30 $form 'texto' 10
+$xAuto.AccessibleName = 'Iniciar o bot com o Windows'
+[void](Pos $xAuto 22 658 36 20 $form)
+$lAuto = Novo-Rotulo 'Iniciar com o Windows' 68 651 280 32 $form 'texto' 9.5
 $lAuto.FundoNome = 'fundo'
 $lAuto.Cursor = 'Hand'
-$lAtualizar = Novo-Rotulo 'Verificar atualização' 790 652 210 30 $form 'ouro' 10
+$lAtualizar = New-Object LoR.AcaoTexto
+$lAtualizar.Text = 'Verificar atualização'
+$lAtualizar.CorNome = 'ouro'
+$lAtualizar.Tamanho = 9.5
+[void](Pos $lAtualizar 785 651 219 32 $form)
 $lAtualizar.FundoNome = 'fundo'
 $lAtualizar.Sublinhado = $true
-$lAtualizar.Cursor = 'Hand'
 $lAtualizar.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
-$lVersao = Novo-Rotulo 'Versão' 520 652 254 30 $form 'suave' 10
+$lVersao = Novo-Rotulo 'Versão' 519 651 254 32 $form 'suave' 9.5
 $lVersao.FundoNome = 'fundo'
 $lVersao.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
 $divRodape = New-Object LoR.Divisor
 $divRodape.FundoNome = 'fundo'
-[void](Pos $divRodape 778 656 4 22 $form)
-
+[void](Pos $divRodape 778 658 2 20 $form)
 $Atalho = $AtalhoLigar
 $xAuto.Marcado = Test-Path $Atalho
+$script:secao = 'batalhas'
+$script:recolhido = $false
+$script:logTecnico = $false
+
+function Arrumar-Atividade {
+    $altura = if ($script:layout -eq 'central') { 443 } else { 123 }
+    $cLog.Height = S $(if ($script:recolhido) { 43 } else { $altura })
+    $bRecolher.Text = if ($script:recolhido) { 'Expandir' } else { 'Recolher' }
+    $cFiltro.Visible = -not $script:recolhido
+    $bTecnico.Visible = -not $script:recolhido
+    $bAbrirHistorico.Visible = -not $script:recolhido
+    $atividade.Visible = -not $script:recolhido -and -not $script:logTecnico
+    $tLog.Visible = -not $script:recolhido -and $script:logTecnico
+    $bTecnico.Text = if ($script:logTecnico) { 'Resumo' } else { 'Log técnico' }
+}
+
+function Mostrar-Secao([string]$secao) {
+    if (-not $Navegacao.Contains($secao)) { return }
+    if ($script:layout -eq 'refinado') { $secao = 'batalhas' }
+    $script:secao = $secao
+    $form.SuspendLayout()
+    try {
+        foreach ($item in $script:LayoutBase) {
+            if ($item.Controle.Parent -ne $item.Pai) { $item.Pai.Controls.Add($item.Controle) }
+            $item.Controle.Bounds = $item.Bounds
+        }
+        $atividade.Horizontal = $false
+        $bAplicar.Text = 'Aplicar alterações'
+        $bAbrirHistorico.Text = 'Ver histórico e replays'
+        $lTitulo.Visible = $true
+        $lSubtitulo.Visible = $true
+        $lColetaAjuda.Visible = $true
+        $lConfigStatus.Visible = $true
+        $lateral.Visible = $true
+        foreach ($c in $lateral.Controls) { $c.Visible = $true }
+        $batalhas = $secao -eq 'batalhas'
+        foreach ($c in @($cStatus, $cLog, $cResumoColeta, $cResumoConta)) { $c.Visible = $batalhas }
+        $cJogo.Visible = $secao -in @('batalhas', 'times')
+        $cConta.Visible = $secao -eq 'ajustes'
+        $cColeta.Visible = $secao -eq 'ajustes'
+        $cTimesAjuda.Visible = $secao -eq 'times'
+        $cHistorico.Visible = $secao -eq 'historico'
+        $titulos = @{ batalhas = 'Central de batalhas'; times = 'Seus times'; historico = 'Histórico de partidas'; ajustes = 'Ajustes' }
+        $subtitulos = @{ batalhas = 'Ladder oficial · Regulamento M-C'; times = 'Formato, timer e times das próximas partidas.'; historico = 'Resultados, replays e arquivos locais.'; ajustes = 'Conta do Showdown e envio de partidas.' }
+        $lTitulo.Text = $titulos[$secao]
+        $lSubtitulo.Text = $subtitulos[$secao]
+        foreach ($id in $Navegacao.Keys) { $Navegacao[$id].Selecionado = $id -eq $secao; $Navegacao[$id].Invalidate() }
+        if ($secao -eq 'times') {
+            $cJogo.SetBounds((S 170), (S 137), (S 834), (S 232))
+            $cJogo.Titulo = 'Configuração de partidas'
+            $cFormato.SetBounds((S 20), (S 68), (S 120), (S 36))
+            $cTimer.SetBounds((S 154), (S 68), (S 140), (S 36))
+            $cTime.SetBounds((S 308), (S 68), (S 506), (S 36))
+            $lFormato.SetBounds((S 20), (S 46), (S 120), (S 19))
+            $lTimer.SetBounds((S 154), (S 46), (S 140), (S 19))
+            $lTimeCampo.SetBounds((S 308), (S 46), (S 506), (S 19))
+            $lConfigStatus.SetBounds((S 20), (S 116), (S 794), (S 35))
+            $bAplicar.SetBounds((S 654), (S 163), (S 160), (S 36))
+        } else {
+            $cJogo.SetBounds((S 170), (S 420), (S 520), (S 160))
+            $cJogo.Titulo = 'Próximas partidas'
+            $cFormato.SetBounds((S 18), (S 68), (S 84), (S 34))
+            $cTimer.SetBounds((S 114), (S 68), (S 118), (S 34))
+            $cTime.SetBounds((S 244), (S 68), (S 258), (S 34))
+            $lFormato.SetBounds((S 18), (S 46), (S 84), (S 19))
+            $lTimer.SetBounds((S 114), (S 46), (S 118), (S 19))
+            $lTimeCampo.SetBounds((S 244), (S 46), (S 258), (S 19))
+            $lConfigStatus.SetBounds((S 18), (S 111), (S 310), (S 40))
+            $bAplicar.SetBounds((S 342), (S 115), (S 160), (S 34))
+        }
+        $bAddTime.Visible = $secao -eq 'times'
+        $bRemTime.Visible = $secao -eq 'times'
+        Aplicar-Layout
+        $cJogo.Invalidate()
+        Arrumar-Atividade
+    } finally { $form.ResumeLayout($true) }
+}
+
+foreach ($id in $Navegacao.Keys) { $Navegacao[$id].Add_Click({ param($s) Mostrar-Secao $s.Tag }) }
+$bGerenciarColeta.Add_Click({ Mostrar-Secao 'ajustes'; [void]$tCodigo.Caixa.Focus() })
+$bEditarConta.Add_Click({ Mostrar-Secao 'ajustes'; [void]$tUsuario.Caixa.Focus() })
+$bAbrirHistorico.Add_Click({ if ($script:layout -eq 'refinado') { $bHistorico.PerformClick() } else { Mostrar-Secao 'historico' } })
+foreach ($lista in @($cFormato, $cTimer, $cTime)) {
+    $lista.add_Escolheu({ $lConfigStatus.Text = 'Alterações não aplicadas.'; $lConfigStatus.CorNome = 'ambar' })
+}
+$Layouts = [ordered]@{ central = 'Central de comando'; arena = 'Arena em foco'; refinado = 'Painel refinado' }
+$script:layout = 'central'
+try { $salvo = (Get-Content $ArquivoLayout -TotalCount 1 -ErrorAction Stop).Trim(); if ($Layouts.Contains($salvo)) { $script:layout = $salvo } } catch { }
+
+function Memorizar-Layout($pai) {
+    foreach ($c in $pai.Controls) {
+        $script:LayoutBase.Add([pscustomobject]@{ Controle = $c; Pai = $c.Parent; Bounds = $c.Bounds })
+        Memorizar-Layout $c
+    }
+}
+$script:LayoutBase = New-Object System.Collections.Generic.List[object]
+Memorizar-Layout $form
+
+function Posicionar-Status {
+    if ($script:layout -eq 'refinado') {
+        $selo.SetBounds((S 300), (S 14), [Math]::Min((S 186), $selo.LarguraIdeal()), (S 26))
+        $chip.SetBounds((S 498), (S 14), [Math]::Min((S 104), $chip.LarguraIdeal()), (S 26))
+    } else {
+        $selo.SetBounds((S 18), (S 46), [Math]::Min(($cStatus.Width - (S 36)), $selo.LarguraIdeal()), (S 26))
+        $chip.Width = [Math]::Min((S 200), $chip.LarguraIdeal())
+    }
+}
+
+function Aplicar-Layout {
+    if ($script:layout -eq 'central') { return }
+    if ($script:layout -eq 'arena') {
+        $lateral.SetBounds((S 1), (S 60), (S 1022), (S 48))
+        foreach ($c in $lateral.Controls) { $c.Visible = $c -is [LoR.Botao] }
+        $i = 0
+        foreach ($n in $Navegacao.Values) { $n.SetBounds((S (20 + $i * 160)), (S 4), (S 145), (S 40)); $i++ }
+        $lTitulo.SetBounds((S 22), (S 116), (S 750), (S 34))
+        if ($script:secao -eq 'batalhas') { $lTitulo.Text = 'Arena de batalhas' }
+        $lSubtitulo.SetBounds((S 22), (S 151), (S 750), (S 22))
+        $bDesafiar.SetBounds((S 812), (S 122), (S 192), (S 38))
+        if ($script:secao -eq 'batalhas') {
+            $cStatus.SetBounds((S 22), (S 181), (S 612), (S 270))
+            $lBot.Width = S 548
+            foreach ($c in @($lRivalCaption, $lRival, $lPokemon)) { $c.Left += S 92 }
+            foreach ($c in @($lPlacar, $lPlacarLegenda)) { $c.Left += S 46 }
+            $bVer.Width = S 272; $bLigar.Width = S 272
+            $bDesligar.SetBounds((S 302), (S 183), (S 292), (S 36))
+            $bAgora.Left = S 394; $sepStatus.Width = S 576
+            $cJogo.SetBounds((S 650), (S 181), (S 354), (S 270))
+            $cFormato.SetBounds((S 18), (S 68), (S 104), (S 36))
+            $cTimer.SetBounds((S 134), (S 68), (S 202), (S 36))
+            $lTimer.Left = S 134
+            $lTimeCampo.SetBounds((S 18), (S 113), (S 318), (S 19))
+            $cTime.SetBounds((S 18), (S 135), (S 318), (S 36))
+            $lConfigStatus.SetBounds((S 18), (S 179), (S 318), (S 32))
+            $bAplicar.SetBounds((S 18), (S 220), (S 318), (S 36))
+            $cLog.SetBounds((S 22), (S 466), (S 982), (S 123))
+            $cResumoColeta.SetBounds((S 22), (S 603), (S 484), (S 46))
+            $cResumoConta.SetBounds((S 520), (S 603), (S 484), (S 46))
+            $bGerenciarColeta.Left = S 379; $bEditarConta.Left = S 393
+        } elseif ($script:secao -eq 'times') {
+            $cJogo.SetBounds((S 22), (S 181), (S 982), (S 232))
+            $cTime.Width = S 654; $lTimeCampo.Width = S 654
+            $bAplicar.Left = S 802
+            $cTimesAjuda.SetBounds((S 22), (S 428), (S 982), (S 180))
+        } elseif ($script:secao -eq 'ajustes') {
+            $cConta.SetBounds((S 22), (S 181), (S 483), (S 286))
+            $cColeta.SetBounds((S 521), (S 181), (S 483), (S 286))
+            $tUsuario.Width = S 443; $tSenha.Width = S 443; $tCodigo.Width = S 443
+            $bConta.Left = S 312; $bCodigo.Left = S 312
+            $lCodigo.Width = S 423; $lColetaAjuda.Width = S 443
+        } else {
+            $cHistorico.SetBounds((S 22), (S 181), (S 982), (S 443))
+            $atividadeHistorico.Width = S 942
+        }
+    } else {
+        # Painel refinado mantém tudo na mesma tela, com a densidade do painel clássico.
+        $lateral.Visible = $false; $lTitulo.Visible = $false; $lSubtitulo.Visible = $false
+        $cResumoColeta.Visible = $false; $cResumoConta.Visible = $false
+        $cConta.Visible = $true; $cColeta.Visible = $true
+        $cStatus.SetBounds((S 13), (S 69), (S 998), (S 150))
+        $lBot.Width = S 238
+        $lInfo.SetBounds((S 18), (S 42), (S 580), (S 22))
+        $lSeuBotCaption.SetBounds((S 18), (S 67), (S 182), (S 18))
+        $lRivalCaption.SetBounds((S 358), (S 67), (S 232), (S 18))
+        $lNos.SetBounds((S 18), (S 87), (S 182), (S 24))
+        $lRival.SetBounds((S 358), (S 87), (S 232), (S 24))
+        $lTimeAtivo.SetBounds((S 18), (S 113), (S 182), (S 22))
+        $lPokemon.SetBounds((S 358), (S 113), (S 232), (S 22))
+        $lPlacar.SetBounds((S 214), (S 65), (S 126), (S 50))
+        $lPlacarLegenda.SetBounds((S 204), (S 115), (S 146), (S 21))
+        $bVer.SetBounds((S 616), (S 14), (S 350), (S 36)); $bLigar.Bounds = $bVer.Bounds
+        $bDesligar.SetBounds((S 616), (S 61), (S 350), (S 36))
+        $bAgora.SetBounds((S 674), (S 106), (S 238), (S 32))
+        $sepStatus.SetBounds((S 605), (S 12), (S 2), (S 126))
+        $cJogo.SetBounds((S 13), (S 230), (S 595), (S 164))
+        $cJogo.Titulo = 'Configuração de partidas'
+        $lFormato.SetBounds((S 20), (S 50), (S 80), (S 20))
+        $lTimer.SetBounds((S 110), (S 50), (S 124), (S 20))
+        $lTimeCampo.SetBounds((S 244), (S 50), (S 222), (S 20))
+        $cFormato.SetBounds((S 20), (S 72), (S 80), (S 34))
+        $cTimer.SetBounds((S 110), (S 72), (S 124), (S 34))
+        $cTime.SetBounds((S 244), (S 72), (S 222), (S 34))
+        $bAplicar.Text = 'Aplicar'
+        $bAplicar.SetBounds((S 478), (S 72), (S 98), (S 34))
+        $lConfigStatus.Visible = $false
+        $bAddTime.Visible = $true; $bRemTime.Visible = $true
+        $bAddTime.SetBounds((S 20), (S 124), (S 150), (S 32))
+        $bRemTime.SetBounds((S 182), (S 124), (S 150), (S 32))
+        $cJogo.Controls.Add($bDesafiar)
+        $bDesafiar.SetBounds((S 344), (S 124), (S 231), (S 32))
+        $cConta.SetBounds((S 618), (S 230), (S 393), (S 277))
+        $tUsuario.Width = S 353; $tSenha.Width = S 353
+        $bConta.Left = S 222
+        $cColeta.SetBounds((S 13), (S 405), (S 595), (S 102))
+        $tCodigo.SetBounds((S 20), (S 50), (S 419), (S 32))
+        $bCodigo.SetBounds((S 453), (S 50), (S 122), (S 32))
+        $pCodigo.SetBounds((S 22), (S 88), (S 8), (S 8))
+        $lCodigo.SetBounds((S 40), (S 84), (S 535), (S 16))
+        $lColetaAjuda.Visible = $false
+        $cLog.SetBounds((S 13), (S 517), (S 998), (S 123))
+    }
+    if ($script:secao -eq 'batalhas') {
+        $atividade.Horizontal = $true
+        $atividade.SetBounds((S 18), (S 47), (S ($cLog.Width / [LoR.Tema]::F - 36)), (S 68))
+        $tLog.SetBounds((S 16), (S 47), ($cLog.Width - (S 32)), (S 68))
+        $cFiltro.SetBounds(($cLog.Width - (S 378)), (S 10), (S 114), (S 30))
+        $bTecnico.SetBounds(($cLog.Width - (S 252)), (S 10), (S 138), (S 30))
+        $bRecolher.SetBounds(($cLog.Width - (S 110)), (S 10), (S 94), (S 30))
+        $bAbrirHistorico.Text = 'Histórico'
+        $bAbrirHistorico.SetBounds((S 174), (S 10), (S 114), (S 30))
+    }
+    Posicionar-Status
+}
+
+function Escolher-Layout([string]$id) {
+    if (-not $Layouts.Contains($id)) { return }
+    $script:layout = $id
+    try { Set-Content -LiteralPath $ArquivoLayout -Value $id -Encoding ASCII } catch { }
+    Mostrar-Secao $script:secao
+}
+Mostrar-Secao 'batalhas'
+
 
 # Menu de aparência.
 function Escolher-Tema($id) {
@@ -1109,11 +1578,20 @@ function Escolher-Tema($id) {
     $form.AplicarTema()
     Arrumar-Status
 }
-$bTema.Add_Click({
+function Criar-MenuAparencia {
     $m = New-Object System.Windows.Forms.ContextMenuStrip
     $m.Renderer = New-Object System.Windows.Forms.ToolStripProfessionalRenderer((New-Object LoR.CoresMenu))
     $m.ShowImageMargin = $false
     $m.Font = New-Object System.Drawing.Font('Segoe UI', 10.5)
+    foreach ($id in $Layouts.Keys) {
+        $atual = $script:layout -eq $id
+        $it = New-Object System.Windows.Forms.ToolStripMenuItem((@('    ', '✓ ')[[int]$atual]) + $Layouts[$id])
+        $it.ForeColor = if ($atual) { [LoR.Tema]::Atual.Ouro } else { [LoR.Tema]::Atual.Texto }
+        $it.Tag = $id
+        $it.Add_Click({ param($s) Escolher-Layout $s.Tag })
+        [void]$m.Items.Add($it)
+    }
+    [void]$m.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
     foreach ($id in $Temas.Keys) {
         $atual = [LoR.Tema]::Atual.Id -eq $id
         $it = New-Object System.Windows.Forms.ToolStripMenuItem((@('    ', '✓ ')[[int]$atual]) + $Temas[$id].Nome)
@@ -1122,6 +1600,10 @@ $bTema.Add_Click({
         $it.Add_Click({ param($s) Escolher-Tema $s.Tag })
         [void]$m.Items.Add($it)
     }
+    $m
+}
+$bTema.Add_Click({
+    $m = Criar-MenuAparencia
     $m.Show($bTema, (New-Object System.Drawing.Point(((S 46) - (S 250)), $bTema.Height)))
 })
 
@@ -1175,79 +1657,95 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
 }
 
 function Arrumar-Status {
-    # O selo e o chip de memória vêm logo depois do título, que muda de largura.
-    $lBot.Width = $lBot.LarguraTexto() + (S 8)
-    $x = $lBot.Right + (S 12)
-    if ($selo.Visible) { $selo.SetBounds($x, (S 17), $selo.LarguraIdeal(), (S 27)); $x = $selo.Right + (S 12) }
-    if ($chip.Visible) { $chip.SetBounds($x, (S 17), $chip.LarguraIdeal(), (S 27)) }
+    Posicionar-Status
 }
 
-# Placar da partida atual, na linha embaixo do título (no lugar de "conta · formato · time", que
-# também aparece nos cartões de baixo). Cada pedaço é um rótulo com a cor do tema; os rótulos são
-# reaproveitados a cada atualização.
-$script:pecasPlacar = New-Object System.Collections.Generic.List[object]
 function Mostrar-Placar($e) {
-    $pecas = @()
+    $lNos.Text = if ($e['conta']) { $e['conta'] } else { 'Sem conta' }
+    $time = if ($e['time'] -eq 'top3' -or -not $e['time']) { 'Padrão' } else { $e['time'] }
+    $lTimeAtivo.Text = "Time: $time"
+    $lTimeAtivo.AccessibleDescription = "Time configurado: $time"
+    $ttTema.SetToolTip($lNos, $lNos.Text)
+    $ttTema.SetToolTip($lTimeAtivo, $lTimeAtivo.AccessibleDescription)
+    $lPokemon.Text = ''
     if ($e['placar_oponente']) {
-        $sep = @{ t = '·'; c = 'suave' }
-        $pecas += @{ t = 'vs'; c = 'suave' }, @{ t = $e['placar_oponente']; c = 'texto'; n = $true }
-        if ($e['placar_bo3'] -eq 'sim') {
-            $pecas += $sep, @{ t = "Bo3 jogo $($e['placar_jogo'])"; c = 'suave' }
-            $pecas += $sep, @{ t = "$($e['placar_vitorias'])–$($e['placar_derrotas'])"; c = 'ouro'; n = $true; z = 12 }
+        $lRival.Text = $e['placar_oponente']
+        $bo3 = $e['placar_bo3'] -eq 'sim'
+        $lPlacar.Text = if ($bo3) { "$($e['placar_vitorias']) : $($e['placar_derrotas'])" } else { 'VS' }
+        $lPlacarLegenda.Text = if ($bo3) { 'placar da série' } else { 'partida BO1' }
+        $contexto = if ($bo3) { "BO3 · Jogo $($e['placar_jogo'])" } else { 'BO1' }
+        $resultado = @{ win = 'Vitória'; loss = 'Derrota'; tie = 'Empate' }[[string]$e['placar_resultado']]
+        $fase = if ($resultado) { $resultado } elseif (-not $e['placar_turno'] -or $e['placar_turno'] -eq '0') { 'Prévia de time' } else { "Turno $($e['placar_turno'])" }
+        $lInfo.Text = "$contexto · $fase"
+        $lPlacar.CorNome = switch ($e['placar_resultado']) { 'win' { 'verde' } 'loss' { 'vermelho' } 'tie' { 'ambar' } default { 'ouro' } }
+        if ($null -ne $e['placar_nossos'] -and $e['placar_nossos'] -ne '' -and $null -ne $e['placar_deles'] -and $e['placar_deles'] -ne '') {
+            $lPokemon.Text = "Pokémon: $($e['placar_nossos']) × $($e['placar_deles'])"
+            $ttTema.SetToolTip($lPokemon, "Restantes · seu bot: $($e['placar_nossos']); adversário: $($e['placar_deles'])")
         }
-        $pecas += $sep
-        switch ($e['placar_resultado']) {
-            'win' { $pecas += @{ t = 'Vitória'; c = 'verde'; n = $true } }
-            'loss' { $pecas += @{ t = 'Derrota'; c = 'vermelho'; n = $true } }
-            'tie' { $pecas += @{ t = 'Empate'; c = 'ambar'; n = $true } }
-            default {
-                $pecas += if ($e['placar_turno'] -in '', '0') { @{ t = 'prévia de time'; c = 'suave' } } else { @{ t = "turno $($e['placar_turno'])"; c = 'texto' } }
-            }
-        }
-        if ($e['placar_nossos'] -ne '' -and $e['placar_deles'] -ne '' -and $null -ne $e['placar_nossos']) {
-            $pecas += $sep, @{ t = $e['placar_nossos']; c = 'verde'; n = $true; g = 'pk' }, @{ t = '×'; c = 'suave'; g = 'pk' },
-                @{ t = $e['placar_deles']; c = 'vermelho'; n = $true; g = 'pk' }, @{ t = 'Pokémon'; c = 'suave'; g = 'pk' }
-        }
+    } else {
+        $lRival.Text = 'Aguardando adversário'
+        $lPlacar.Text = '—'
+        $lPlacar.CorNome = 'suave'
+        $lPlacarLegenda.Text = 'sem partida'
+        $lInfo.Text = if ($e['bot'] -eq 'active') { 'Procurando uma partida no ladder.' } else { 'Inicie o bot para buscar uma partida.' }
     }
-    $lInfo.Visible = $pecas.Count -eq 0
-    while ($script:pecasPlacar.Count -lt $pecas.Count) {
-        $r = New-Object LoR.Rotulo
-        [void](Pos $r 56 47 10 24 $cStatus)
-        $script:pecasPlacar.Add($r)
-    }
-    $x = S 56
-    $cabe = $pecas.Count
-    for ($i = 0; $i -lt $script:pecasPlacar.Count; $i++) {
-        $r = $script:pecasPlacar[$i]
-        if ($i -ge $pecas.Count) { $r.Visible = $false; continue }
-        $p = $pecas[$i]
-        $r.CorNome = $p.c
-        $r.Negrito = [bool]$p.n
-        $r.Tamanho = if ($p.z) { $p.z } else { 11 }
-        $r.Text = $p.t
-        $w = $r.LarguraTexto() + (S 2)
-        # Não entra na divisória do cartão: do primeiro pedaço que não cabe em diante, some tudo.
-        if ($i -lt $cabe -and $x + $w -gt (S 592)) { $cabe = $i }
-        $r.SetBounds($x, (S 47), $w, (S 24))
-        $r.Invalidate()
-        $x += $w + (S 5)
-    }
-    # Um grupo (o "3 × 1 Pokémon") aparece inteiro ou some inteiro; e sem "·" sobrando no fim.
-    if ($cabe -lt $pecas.Count -and $pecas[$cabe].g) {
-        while ($cabe -gt 0 -and $pecas[$cabe - 1].g -eq $pecas[$cabe].g) { $cabe-- }
-    }
-    while ($cabe -gt 0 -and $pecas[$cabe - 1].t -eq '·') { $cabe-- }
-    for ($i = 0; $i -lt $pecas.Count; $i++) { $script:pecasPlacar[$i].Visible = $i -lt $cabe }
+    $ttTema.SetToolTip($lRival, $lRival.Text)
+    $lPlacar.AccessibleName = $lPlacarLegenda.Text + ': ' + $lPlacar.Text
 }
 
-function Atualizar-Tela {
+# As linhas continuam vindo do journal existente. Não há timestamps ou métricas inventados.
+function Ler-Atividade([string[]]$linhas, [string]$filtro) {
+    for ($i = $linhas.Count - 1; $i -ge 0; $i--) {
+        $l = $linhas[$i].TrimEnd()
+        $traduzida = @(Traduzir-Log @($l) $filtro)
+        if ($traduzida.Count -eq 0) { continue }
+        $evento = New-Object LoR.EventoAtividade
+        $evento.Titulo = 'Evento do bot'
+        $evento.Detalhe = $traduzida[0]
+        if ($l -match '^(win|loss|tie) vs (.+) in (\d+) turns') {
+            $evento.Titulo = @{ win = 'Vitória'; loss = 'Derrota'; tie = 'Empate' }[$Matches[1]]
+            $evento.CorNome = @{ win = 'verde'; loss = 'vermelho'; tie = 'ambar' }[$Matches[1]]
+            $evento.Detalhe = "$($Matches[2]) · $($Matches[3]) turnos"
+            $evento.Tipo = 'partida'
+        } elseif ($l -match '^watch: (\S+)') {
+            $evento.Titulo = 'Partida em andamento'
+            $evento.Detalhe = $Matches[1]
+            $evento.CorNome = 'ouro'
+            $evento.Tipo = 'partida'
+        } elseif ($l -match '^Started lor-bot@') { $evento.Titulo = 'Bot iniciado'; $evento.Detalhe = 'Iniciando a sessão do bot.' }
+        elseif ($l -match "^'(.+)' (laddering|challenging) ") { $evento.Titulo = 'Conta conectada'; $evento.CorNome = 'verde' }
+        elseif ($l -match '^team: (\S+)') { $evento.Titulo = 'Time selecionado'; $evento.Detalhe = $Matches[1] }
+        elseif ($l -match '^challenge ') { $evento.Titulo = 'Desafio'; $evento.CorNome = 'ambar'; $evento.Tipo = 'partida' }
+        elseif ($l -match 'Traceback|Error|ERROR|WARNING|Unhandled|failed|Failed') { $evento.Titulo = 'Aviso do bot'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
+        elseif ($l -match '^Ctrl-C: finishing|^Stopping lor-bot@') { $evento.Titulo = 'Parada solicitada'; $evento.CorNome = 'ambar' }
+        elseif ($l -match '^Stopped lor-bot@') { $evento.Titulo = 'Bot parado' }
+        $evento
+    }
+}
+
+function Atualizar-Atividade {
+    $linhas = (Invoke-Painel @('log', '80')).Saida -split "`n"
+    $eventos = @(Ler-Atividade $linhas $cFiltro.Escolhido | Select-Object -First 4)
+    $atividade.Definir([LoR.EventoAtividade[]]$eventos)
+    $recentes = @(Ler-Atividade $linhas 'Partidas' | Select-Object -First 3)
+    $atividadeHistorico.Definir([LoR.EventoAtividade[]]$recentes)
+    $texto = $linhas -join "`r`n"
+    if ($tLog.Caixa.Text -ne $texto) {
+        $tLog.Caixa.Text = $texto
+        $tLog.Caixa.SelectionStart = $tLog.Caixa.Text.Length
+        $tLog.Caixa.ScrollToCaret()
+    }
+}
+
+function Atualizar-EstadoTela {
     $e = Ler-Estado
     $script:estado = $e
     $bot = $e['bot']
     $ligado = $bot -in @('active', 'activating')
-    $titulos = @{ active = 'Bot em execução'; activating = 'Ligando…'; deactivating = 'Parando após a partida'
-        inactive = 'Bot parado'; failed = 'Bot parou com erro' }
+    $bo3 = if ($e['placar_oponente']) { $e['placar_bo3'] -eq 'sim' } else { $e['formato'] -ne 'bo1' }
+    $titulos = @{ active = 'Bot em execução'; activating = 'Ligando…'; deactivating = 'Parando após a partida'; inactive = 'Bot parado'; failed = 'Bot parou com erro' }
     $lBot.Text = if ($titulos[$bot]) { $titulos[$bot] } else { "Bot: $bot" }
+    if ($bot -eq 'deactivating' -and $bo3) { $lBot.Text = 'Parando ao fim da série' }
     $desafio = $e['desafio']
     if ($desafio -and $bot -eq 'deactivating' -and $e['desafio_fase'] -eq 'esperando') { $lBot.Text = 'Trocando para o desafio' }
     $pBot.CorNome = switch ($bot) { 'active' { 'ponto' } 'failed' { 'vermelho' } { $_ -in 'activating', 'deactivating' } { 'ambar' } default { 'desligado' } }
@@ -1256,61 +1754,77 @@ function Atualizar-Tela {
         $selo.Tipo = 'verde'
         $selo.Text = if ($desafio -and $e['desafio_fase'] -eq 'jogando') { "Desafio contra $desafio" } else { 'Partida em andamento' }
         $selo.Visible = $true
-    }
-    elseif ($desafio) {
-        $fases = @{ esperando = "Desafio a $desafio depois da partida"; aguardando = "Esperando $desafio aceitar"
-            jogando = "Desafio contra $desafio"; cancelando = 'Cancelando o desafio' }
+    } elseif ($desafio) {
+        $fases = @{ esperando = "Desafio a $desafio depois da partida"; aguardando = "Esperando $desafio aceitar"; jogando = "Desafio contra $desafio"; cancelando = 'Cancelando o desafio' }
         $selo.Tipo = if ($e['desafio_fase'] -eq 'aguardando') { 'neutra' } else { 'ambar' }
         $selo.Text = if ($fases[$e['desafio_fase']]) { $fases[$e['desafio_fase']] } else { "Desafio a $desafio" }
         $selo.Visible = $true
-    }
-    elseif ($bot -eq 'active') { $selo.Tipo = 'neutra'; $selo.Text = 'Procurando partida'; $selo.Visible = $true }
+    } elseif ($bot -eq 'active') { $selo.Tipo = 'neutra'; $selo.Text = 'Procurando partida'; $selo.Visible = $true }
     elseif ($bot -eq 'failed') { $selo.Tipo = 'ambar'; $selo.Text = 'Veja a atividade'; $selo.Visible = $true }
     else { $selo.Visible = $false }
+    $ttTema.SetToolTip($selo, $selo.Text)
     $chip.Visible = [bool]$e['memoria_mb']
     $chip.Text = "$($e['memoria_mb']) MB"
     Arrumar-Status
-    $conta = if ($e['conta']) { $e['conta'] } else { 'sem conta' }
-    $time = if ($e['time'] -eq 'top3' -or -not $e['time']) { 'Padrão' } else { $e['time'] }
-    $lInfo.Text = "$conta  ·  $(([string]$e['formato']).ToUpper())  ·  $time"
     Mostrar-Placar $e
     $lVersao.Text = "Versão $($e['versao'])"
-    if (Precisa-Atualizar) {
-        $lAtualizar.Text = "Atualizar para $($script:versaoNova)"
-        $lAtualizar.Negrito = $true
-    } else {
-        $lAtualizar.Text = 'Verificar atualização'
-        $lAtualizar.Negrito = $false
-    }
+    if (Precisa-Atualizar) { $lAtualizar.Text = "Atualizar para $($script:versaoNova)"; $lAtualizar.Negrito = $true }
+    else { $lAtualizar.Text = 'Verificar atualização'; $lAtualizar.Negrito = $false }
     if (-not $tUsuario.Caixa.Focused -and -not $tUsuario.Caixa.Modified) { $tUsuario.Caixa.Text = $e['conta'] }
     $tSenha.Dica = if ($e['senha'] -eq 'sim') { 'Senha salva (digite para trocar)' } else { 'Senha da conta' }
+    $lNavConta.Text = if ($e['conta']) { $e['conta'] } else { 'Sem conta' }
+    $ttTema.SetToolTip($lNavConta, $lNavConta.Text)
+    $configurada = $e['conta'] -and $e['senha'] -eq 'sim'
+    $lNavEstado.Text = if ($configurada) { 'Conta configurada' } else { 'Configure em Ajustes' }
+    $lResumoConta.Text = if ($configurada) { "$($e['conta']) · credenciais neste PC" } else { 'Configure usuário e senha' }
+    $ttTema.SetToolTip($lResumoConta, $lResumoConta.Text)
     if ($e['codigo'] -eq 'sim') {
         $tCodigo.Dica = 'Código salvo (cole outro para trocar)'
         $pCodigo.CorNome = 'ponto'
         $lCodigo.CorNome = 'verde'
         $lCodigo.Text = if ($e['envio'] -eq 'active') { 'Salvo · enviando as partidas' } else { 'Salvo · o envio liga junto com o bot' }
+        $lResumoColeta.Text = if ($e['envio'] -eq 'active') { 'Código salvo · envio ativo' } else { 'Código salvo · envio aguardando' }
+        $lResumoColeta.CorNome = if ($e['envio'] -eq 'active') { 'verde' } else { 'suave' }
     } else {
         $tCodigo.Dica = 'Cole seu código'
         $pCodigo.CorNome = 'ambar'
         $lCodigo.CorNome = 'ambar'
         $lCodigo.Text = 'Não salvo'
+        $lResumoColeta.Text = 'Código não configurado'
+        $lResumoColeta.CorNome = 'ambar'
     }
     $pCodigo.Invalidate()
-    if (-not $script:recolhido) {
-        $linhas = (Invoke-Painel @('log', '80')).Saida -split "`n"
-        $texto = (Traduzir-Log $linhas $cFiltro.Escolhido | Select-Object -Last 40) -join "`r`n"
-        if ($tLog.Caixa.Text -ne $texto) {
-            $tLog.Caixa.Text = $texto
-            $tLog.Caixa.SelectionStart = $tLog.Caixa.Text.Length
-            $tLog.Caixa.ScrollToCaret()
-        }
-    }
+    if (-not $script:recolhido -or $script:secao -eq 'historico') { Atualizar-Atividade }
     $bLigar.Enabled = -not $ligado -and $bot -ne 'deactivating'
+    $mostrarLigar = $bot -notin @('active', 'activating', 'deactivating')
+    $bLigar.Visible = $mostrarLigar
+    $bVer.Visible = -not $mostrarLigar
     $bDesligar.Enabled = $ligado
+    $bDesligar.Text = if ($bo3) { 'Parar ao fim da série' } else { 'Parar após a partida' }
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $bDesafiar)) { $c.Enabled = $true }
 }
+
+function Mostrar-Falha([string]$erro) {
+    $script:estado = @{}
+    $lBot.Text = 'Sem resposta do WSL'
+    Mostrar-Placar @{}
+    $lInfo.Text = 'Verifique o WSL. Tentando novamente…'
+    $ttTema.SetToolTip($lInfo, $erro)
+    $pBot.CorNome = 'vermelho'
+    $pBot.Invalidate()
+    $chip.Visible = $false
+    $selo.Visible = $false
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $bDesafiar)) { $c.Enabled = $false }
+    Arrumar-Status
+}
+
+function Atualizar-Tela {
+    try { Atualizar-EstadoTela } catch { Mostrar-Falha $_.Exception.Message }
+}
+
 
 function Carregar-Opcoes {
     $e = Ler-Estado
@@ -1363,6 +1877,11 @@ $bAplicar.Add_Click({
     if (-not (Resultado (Invoke-Painel @('timer', $tm)) '')) { return }
     if (-not (Resultado (Invoke-Painel @('time', $t)) '')) { return }
     $r = Invoke-Painel @('reiniciar')
+    if (-not (Resultado $r '')) { return }
+    $lConfigStatus.CorNome = 'ouro'
+    $lConfigStatus.Text = if ($r.Saida -match 'reiniciando') { 'Salvo · entra após a partida ou série.' }
+        elseif ($r.Saida -match 'depois-do-desafio') { 'Salvo · entra ao voltar ao ladder.' }
+        else { 'Salvo · pronto para iniciar o bot.' }
     if ($r.Saida -match 'reiniciando') { Mensagem 'Salvo. O bot reinicia com isso depois da partida (ou série) atual.' }
     elseif ($r.Saida -match 'depois-do-desafio') { Mensagem 'Salvo. Vale quando o bot voltar do desafio.' }
     else { Mensagem 'Salvo. Vale na próxima vez que ligar.' }
@@ -1408,7 +1927,7 @@ $bAddTime.Add_Click({
 $bRemTime.Add_Click({
     if ($cTime.Indice -le 0) { Mensagem 'Escolha na lista um time que você adicionou.'; return }
     $t = $cTime.Escolhido
-    if ([System.Windows.Forms.MessageBox]::Show("Remover o time $t?", 'Painel LoR Bots', 'YesNo') -ne 'Yes') { return }
+    if (-not (Confirmar "Remover o time $t?")) { return }
     [void](Resultado (Invoke-Painel @('remover-time', $t)) '')
     Carregar-Opcoes
     Atualizar-Tela
@@ -1418,8 +1937,7 @@ $bDesafiar.Add_Click({
     Atualizar-Tela
     $alvo = $script:estado['desafio']
     if ($alvo) {
-        if ([System.Windows.Forms.MessageBox]::Show("Cancelar o desafio a $alvo? Se a partida já começou, o bot termina ela antes.",
-            'Painel LoR Bots', 'YesNo') -ne 'Yes') { return }
+        if (-not (Confirmar "Cancelar o desafio a $alvo? Se a partida já começou, o bot termina ela antes.")) { return }
         [void](Resultado (Invoke-Painel @('cancelar-desafio')) '')
         Atualizar-Tela
         return
@@ -1477,8 +1995,7 @@ $bLigar.Add_Click({
 })
 $bDesligar.Add_Click({ [void](Resultado (Invoke-Painel @('desligar')) ''); Atualizar-Tela })
 $bAgora.Add_Click({
-    if ([System.Windows.Forms.MessageBox]::Show('Parar agora? A partida em andamento fica pela metade (o bot perde por W.O.).',
-        'Painel LoR Bots', 'YesNo') -ne 'Yes') { return }
+    if (-not (Confirmar 'Parar agora? A partida em andamento fica pela metade (o bot perde por W.O.).')) { return }
     [void](Resultado (Invoke-Painel @('agora')) '')
     Atualizar-Tela
 })
@@ -1495,27 +2012,15 @@ $bHistorico.Add_Click({
     if ($conta) { Start-Process ('https://replay.pokemonshowdown.com/?user=' + [Uri]::EscapeDataString($conta)) }
     else { Start-Process explorer.exe "\\wsl$\$Distro\opt\lor-bots\ai-vgc\data\live_games" }
 })
+$bPastaPartidas.Add_Click({ Start-Process explorer.exe "\\wsl$\$Distro\opt\lor-bots\ai-vgc\data\live_games" })
 
 $cFiltro.add_Escolheu({ $tLog.Caixa.Text = ''; Atualizar-Tela })
 $bRecolher.Add_Click({
     $script:recolhido = -not $script:recolhido
-    $dy = S 86
-    if ($script:recolhido) {
-        $tLog.Visible = $false
-        $cLog.Height -= $dy
-        $bRecolher.Text = 'Expandir'; $bRecolher.Icone = [string][char]0xE70D
-        foreach ($c in @($xAuto, $lAuto, $lVersao, $lAtualizar, $divRodape)) { $c.Top -= $dy }
-        $form.ClientSize = New-Object System.Drawing.Size($form.ClientSize.Width, ($form.ClientSize.Height - $dy))
-    } else {
-        $form.ClientSize = New-Object System.Drawing.Size($form.ClientSize.Width, ($form.ClientSize.Height + $dy))
-        foreach ($c in @($xAuto, $lAuto, $lVersao, $lAtualizar, $divRodape)) { $c.Top += $dy }
-        $cLog.Height += $dy
-        $tLog.Visible = $true
-        $bRecolher.Text = 'Recolher'; $bRecolher.Icone = [string][char]0xE70E
-        Atualizar-Tela
-    }
-    $form.Invalidate()
+    Arrumar-Atividade
+    if (-not $script:recolhido) { Atualizar-Tela }
 })
+$bTecnico.Add_Click({ $script:logTecnico = -not $script:logTecnico; Arrumar-Atividade })
 
 function Mudar-Auto {
     if ($xAuto.Marcado) {
@@ -1540,9 +2045,7 @@ function Precisa-Atualizar {
 }
 
 function Atualizar-Painel {
-    if ([System.Windows.Forms.MessageBox]::Show(
-        "Baixar a versão $($script:versaoNova) do bot e do painel? Se o bot estiver jogando, ele termina a partida atual antes de reiniciar.",
-        'Painel LoR Bots', 'YesNo') -ne 'Yes') { return }
+    if (-not (Confirmar "Baixar a versão $($script:versaoNova) do bot e do painel? Se o bot estiver jogando, ele termina a partida atual antes de reiniciar.")) { return }
     # O painel novo só entra no lugar deste depois que a atualização do Linux deu certo; antes disso
     # fica ao lado (Painel.novo.ps1), e o atual vira Painel.anterior.ps1 (para voltar à mão, se precisar).
     $atual = Join-Path $Pasta 'Painel.ps1'
@@ -1598,7 +2101,7 @@ $lAtualizar.Add_Click({
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 5000
 $timer.Add_Tick({
-    try { Atualizar-Tela } catch { $lBot.Text = 'Sem resposta do WSL'; Mostrar-Placar @{}; $lInfo.Text = $_.Exception.Message; $pBot.CorNome = 'vermelho'; Arrumar-Status }
+    try { Atualizar-Tela } catch { Mostrar-Falha $_.Exception.Message }
 })
 
 $form.Add_Shown({
@@ -1613,10 +2116,7 @@ $form.Add_Shown({
         try { $script:versaoNova = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$Raw/VERSION").Content.Trim() } catch { }
         Atualizar-Tela
     } catch {
-        $lBot.Text = 'Sem resposta do WSL'
-        Mostrar-Placar @{}; $lInfo.Text = $_.Exception.Message
-        $pBot.CorNome = 'vermelho'
-        Arrumar-Status
+        Mostrar-Falha $_.Exception.Message
     }
     $form.Cursor = 'Default'
     $timer.Start()

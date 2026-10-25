@@ -65,3 +65,22 @@ componentes da janela em C# (`$CodigoUI`), tudo no mesmo arquivo, que é o que o
 trocar um cabeçalho, gere o base64 do JPG novo (`[Convert]::ToBase64String([IO.File]::ReadAllBytes('x.jpg'))`)
 e substitua o valor da variável. A escolha de tema de cada PC fica em `%LOCALAPPDATA%\LoRBots\skin.txt`
 (`dragao` ou `lago`); o menu é o ícone de paleta no cabeçalho.
+
+## Layouts do painel
+
+As medidas acima documentam os modelos originais. O painel nativo agora permite três layouts,
+todos na janela lógica de 1024×694 e usando as mesmas paletas e cabeçalhos:
+
+- `central`: Central de comando, com navegação lateral e seções Batalhas, Times, Histórico e Ajustes.
+- `arena`: Arena em foco, com navegação superior, confronto ampliado e atividade horizontal.
+- `refinado`: Painel refinado, com configuração, conta e coleta na mesma tela.
+
+O menu de aparência apresenta os três layouts e os dois temas. `layout.txt` salva o layout,
+independentemente de `skin.txt`; ausência ou valor inválido usa `central`. Alterar aparência apenas
+reorganiza os mesmos controles: preserva os campos e seletores e não chama o backend. No refinado,
+o botão Histórico abre os replays diretamente; nos demais, há a seção Histórico com acesso também à
+pasta local. A atividade mantém filtros, log completo e recolhimento sem redimensionar a janela.
+
+`tests/test_panel_ui.ps1` compila os componentes reais com PowerShell 5.1 e verifica temas, layouts,
+escala e eventos com fronteiras externas simuladas. As capturas usam dados sintéticos e não comprovam
+integração física com WSL, Showdown ou entrega no Discord.
