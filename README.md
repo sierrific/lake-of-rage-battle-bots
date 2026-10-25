@@ -31,6 +31,16 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
 
 ### Painel
 
+- **Aparência** (ícone de paleta no cabeçalho): escolha **Central de comando**, **Arena em foco** ou
+  **Painel refinado** e combine com o tema **Lago** (azul/dourado) ou **Dragão** (vermelho/dourado).
+  O layout e o tema são salvos separadamente neste PC. Trocar a aparência não reinicia o bot nem aplica
+  configurações de partidas. A Central de comando é o layout inicial.
+- **Central de comando**: navegação lateral por Batalhas, Times, Histórico e Ajustes. A partida atual
+  ganha um placar próprio; conta e código da coleta ficam em Ajustes. **Arena em foco** usa navegação
+  superior e prioriza o confronto. **Painel refinado** mantém controles, conta e coleta na mesma tela.
+- **Atividade**: resumo dos últimos eventos, filtros Todos/Partidas/Avisos e opção de recolher.
+  **Log técnico** exibe as linhas completas, inclusive eventos fora do resumo. O recolhimento não muda
+  o tamanho da janela. Histórico continua abrindo os replays do Showdown; também há acesso à pasta local.
 - **Ligar / Desligar (após a partida) / Desligar agora**. "Desligar" espera terminar a partida ou
   a série Bo3 atual, para o bot não perder por W.O.
 - **Conta do Showdown**: usuário e senha do bot. A senha fica só no seu PC.
@@ -59,6 +69,10 @@ Atualizar: `sudo /opt/lor-bots/atualizar.sh`.
 
 ## Para quem mantém
 
+- Teste nativo do painel no Windows: `powershell.exe -NoProfile -STA -File tests/test_panel_ui.ps1`.
+  Compila o C# embutido com PowerShell 5.1, exercita os controles com comandos simulados e verifica os
+  três layouts e dois temas nas escalas 100%, 125% e 150%. Não inicia WSL/bot, não usa credenciais reais
+  nem altera atalhos. As capturas são sintéticas; não substituem um teste da integração com o bot real.
 - **Lançar uma versão**: faça as mudanças na `main` e aumente o número em `VERSION`. O painel
   compara esse arquivo com o instalado para oferecer a atualização. Para testar antes, use outra
   branch: `$env:LOR_RAMO='minha-branch'` antes do comando de instalar (ou `LOR_RAMO=... sudo -E

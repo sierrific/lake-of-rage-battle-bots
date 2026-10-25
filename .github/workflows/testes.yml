@@ -6,6 +6,22 @@ on:
   pull_request:
 
 jobs:
+  painel_windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Painel nativo (PowerShell 5.1, C# 5, layouts, temas e comandos simulados)
+        shell: powershell
+        run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_panel_ui.ps1 -OutputDirectory "$env:RUNNER_TEMP/lor-panel-ui"
+      - name: Capturas sinteticas dos layouts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: painel-windows-ui
+          path: ${{ runner.temp }}/lor-panel-ui/*.png
+          if-no-files-found: ignore
+
   testes:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
