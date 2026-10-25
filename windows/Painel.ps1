@@ -1235,6 +1235,12 @@ $chip.Tipo = 'neutra'
 $chip.Simbolo = [string][char]0xE950
 [void](Pos $chip 18 236 116 24 $cStatus)
 $chip.Visible = $false
+# Elo da conta no ladder oficial (do cache do painel.sh; GXE e partidas na dica).
+$pElo = New-Object LoR.Pilula
+$pElo.Tipo = 'neutra'
+$pElo.Simbolo = [string][char]0xE734
+[void](Pos $pElo 144 236 110 24 $cStatus)
+$pElo.Visible = $false
 $bAgora = Novo-Botao 'Interromper agora' 'Perigo' ([string][char]0xE7BA) 302 232 200 32 $cStatus
 $bAgora.SemBorda = $true
 $ttTema.SetToolTip($bAgora, 'Interrompe a partida atual. O bot pode perder por W.O.')
@@ -1450,9 +1456,15 @@ function Posicionar-Status {
     if ($script:layout -eq 'refinado') {
         $selo.SetBounds((S 300), (S 14), [Math]::Min((S 186), $selo.LarguraIdeal()), (S 26))
         $chip.SetBounds((S 498), (S 14), [Math]::Min((S 104), $chip.LarguraIdeal()), (S 26))
+        # Embaixo do chip de memória, na linha da informação (que encurta para não encostar).
+        $pElo.SetBounds((S 498), (S 41), [Math]::Min((S 104), $pElo.LarguraIdeal()), (S 22))
+        $lInfo.Width = if ($pElo.Visible) { S 468 } else { S 580 }
     } else {
         $selo.SetBounds((S 18), (S 46), [Math]::Min(($cStatus.Width - (S 36)), $selo.LarguraIdeal()), (S 26))
         $chip.Width = [Math]::Min((S 200), $chip.LarguraIdeal())
+        # Ao lado do chip de memória, sem chegar no "Interromper agora".
+        $x = if ($chip.Visible) { $chip.Right + (S 10) } else { $chip.Left }
+        $pElo.SetBounds($x, $chip.Top, [Math]::Min($pElo.LarguraIdeal(), $bAgora.Left - $x - (S 10)), $chip.Height)
     }
 }
 
@@ -1770,6 +1782,15 @@ function Atualizar-EstadoTela {
     $ttTema.SetToolTip($selo, $selo.Text)
     $chip.Visible = [bool]$e['memoria_mb']
     $chip.Text = "$($e['memoria_mb']) MB"
+    $pElo.Visible = [bool]$e['elo']
+    if ($e['elo']) {
+        $pElo.Text = "Elo $($e['elo'])"
+        $dica = "Elo no ladder oficial ($(([string]$e['formato']).ToUpper()))"
+        if ($e['elo_gxe']) { $dica += " · GXE $(([string]$e['elo_gxe']).Replace('.', ','))%" }
+        if ($e['elo_partidas']) { $dica += " · $($e['elo_partidas']) partidas" }
+        $ttTema.SetToolTip($pElo, $dica)
+        $pElo.AccessibleName = $dica
+    }
     Arrumar-Status
     Mostrar-Placar $e
     $lVersao.Text = "Versão $($e['versao'])"
@@ -1821,6 +1842,7 @@ function Mostrar-Falha([string]$erro) {
     $pBot.CorNome = 'vermelho'
     $pBot.Invalidate()
     $chip.Visible = $false
+    $pElo.Visible = $false
     $selo.Visible = $false
     foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
