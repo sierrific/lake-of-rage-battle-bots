@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..ffc5113 100644
+index eb60a97..aaf0252 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -71,7 +71,7 @@ index eb60a97..ffc5113 100644
  
      def _busy(self) -> bool:
          """A battle is still being played, or a Bo3 series has games left (the next game starts
-@@ -550,8 +593,8 @@ class ChallengeMixin:
+@@ -550,17 +593,96 @@ class ChallengeMixin:
              if self.stop_after_match:
                  break
              async with self._battle_start_condition:
@@ -82,10 +82,27 @@ index eb60a97..ffc5113 100644
                  while self._battle_count_queue.full():
                      async with self._battle_end_condition:
                          await self._battle_end_condition.wait()
-@@ -561,6 +604,70 @@ class ChallengeMixin:
+                 await self._battle_semaphore.acquire()
+             while self.stop_after_match is False and self._busy():
+                 await asyncio.sleep(1)  # one match at a time: Ctrl-C always lands between matches
++            await self._ladder_pause()
          while self._busy():
              await asyncio.sleep(1)
  
++    LADDER_PAUSE = (60, 300)  # seconds, random, between ladder matches
++
++    async def _ladder_pause(self) -> None:
++        """Wait a random while before searching again. Other ladder bots re-search the moment a
++        match ends, so searching right away mostly pairs us with them; a random pause drifts us
++        out of step and lets us meet whoever (often a human) joins the queue meanwhile."""
++        if self.stop_after_match:
++            return
++        pause = random.uniform(*self.LADDER_PAUSE)
++        print(f"pausing {pause / 60:.1f} min before the next ladder search", flush=True)
++        end = time.time() + pause
++        while not self.stop_after_match and time.time() < end:
++            await asyncio.sleep(1)
++
 +    async def _send_challenges(self, opponent: str, n_challenges: int, to_wait=None):
 +        # poke-env's loop with _ladder's graceful stop: one match at a time, no new challenge
 +        # once `stop_after_match` is set (a challenge not yet accepted is cancelled), and the
@@ -153,7 +170,7 @@ index eb60a97..ffc5113 100644
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
          opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
-@@ -645,6 +752,12 @@ class ChallengeMixin:
+@@ -645,6 +767,12 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
@@ -166,7 +183,7 @@ index eb60a97..ffc5113 100644
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -663,6 +776,8 @@ class ChallengeMixin:
+@@ -663,6 +791,8 @@ class ChallengeMixin:
          return battle
  
      def _battle_finished_callback(self, battle: AbstractBattle) -> None:
@@ -175,7 +192,7 @@ index eb60a97..ffc5113 100644
          super()._battle_finished_callback(battle)
          self._last_end = time.time()
          if self.save_dir is None:
-@@ -674,8 +789,12 @@ class ChallengeMixin:
+@@ -674,8 +804,12 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -188,7 +205,7 @@ index eb60a97..ffc5113 100644
                     # Team file the pool last handed out (ladder plays one match at a time).
                     "team": getattr(self._team, "last_name", None),
                     "model": getattr(self, "model_name", None),
-@@ -714,6 +833,11 @@ class ChallengeMixin:
+@@ -714,6 +848,11 @@ class ChallengeMixin:
                  and (self.allowed is None or to_id_str(user) in self.allowed))
  
      async def _handle_challenge_request(self, split_message: list[str]):
@@ -200,7 +217,7 @@ index eb60a97..ffc5113 100644
          if len(split_message) >= 6 and self._wanted(split_message[2], split_message[5]):
              await self._challenge_queue.put((split_message[2].strip(), split_message[5]))
  
-@@ -725,8 +849,19 @@ class ChallengeMixin:
+@@ -725,8 +864,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -221,7 +238,7 @@ index eb60a97..ffc5113 100644
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -791,6 +926,13 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -791,6 +941,13 @@ def _public_login(player: Player, password: str | None) -> None:
      client.log_in = log_in
  
  
@@ -235,7 +252,7 @@ index eb60a97..ffc5113 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +960,12 @@ def main() -> None:
+@@ -818,6 +975,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -248,7 +265,7 @@ index eb60a97..ffc5113 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -829,6 +977,9 @@ def main() -> None:
+@@ -829,6 +992,9 @@ def main() -> None:
      ap.add_argument("--challenge", nargs="+", metavar="NAME",
                      help="challenge these accounts (e.g. scripts/vgcbench_bot.py) --n times in total, "
                           "one battle per account at a time")
@@ -258,7 +275,7 @@ index eb60a97..ffc5113 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -913,9 +1064,10 @@ def main() -> None:
+@@ -913,9 +1079,10 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -271,7 +288,7 @@ index eb60a97..ffc5113 100644
      # The sim bridge (search) still needs the local Showdown checkout, but not a local server.
      proc = None if public else ensure_server(args.port, args.showdown)
      common = dict(
-@@ -923,7 +1075,8 @@ def main() -> None:
+@@ -923,7 +1090,8 @@ def main() -> None:
          ping_interval=20.0, ping_timeout=60.0,
          battle_format=args.format, max_concurrent_battles=args.concurrency,
          accept_open_team_sheet=not args.closed_sheets,
@@ -281,7 +298,7 @@ index eb60a97..ffc5113 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -967,8 +1120,11 @@ def main() -> None:
+@@ -967,8 +1135,11 @@ def main() -> None:
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
              bot.logs_dir = args.logs_dir
@@ -294,7 +311,7 @@ index eb60a97..ffc5113 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -986,32 +1142,33 @@ def main() -> None:
+@@ -986,32 +1157,33 @@ def main() -> None:
                  threading.Thread(target=watchdog, daemon=True).start()
              if args.from_:
                  bot.allowed = {to_id_str(u) for u in args.from_}
