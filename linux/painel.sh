@@ -40,6 +40,9 @@ PADRAO="MC371 MC196"
 # Adaptação no Bo3 (desligada no bot.sh): depois de perder um jogo, abre com outra dupla; no
 # turno 1 dos jogos 2 e 3, a busca conta com o adversário respondendo ao nosso turno 1 anterior.
 ADAPTA="--change-after-loss --counter-t1 0.5"
+# Peso da política na busca (o bot.sh usa 0.1). Com 0.1 a busca quase nunca contraria a jogada
+# favorita da rede; em 1200 partidas locais de cada lado, 0.03 ganhou 83,5% contra 80,9%.
+BUSCA="--search-prior 0.03"
 # Um desafio roda numa unit à parte, que troca o lor-bot@<bot> para --challenge e depois volta.
 # O que ela precisa saber fica em $DESAFIO_DIR: alvo, partidas, fase (esperando = a partida do
 # ladder terminar, aguardando = o adversário aceitar, jogando, cancelando), voltar (1 = religar o
@@ -80,7 +83,7 @@ gerar_env() {
 	else
 		modo+=" --use $PADRAO"
 	fi
-	modo+=" --model $MODELO $ADAPTA"
+	modo+=" --model $MODELO $ADAPTA $BUSCA"
 	{
 		printf 'BOT="%s"\n' "$conta"
 		printf 'SENHA_ARQUIVO=%s\n' "$SENHA"
