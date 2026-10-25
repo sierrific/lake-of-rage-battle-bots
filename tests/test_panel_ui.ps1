@@ -85,7 +85,7 @@ function Install-Fakes {
 function Assert-Layout($parent) {
     foreach ($child in $parent.Controls) {
         if (-not $child.Visible) { continue }
-        Assert ($child.Left -ge 0 -and $child.Top -ge 0 -and $child.Right -le $parent.ClientSize.Width + 1 -and $child.Bottom -le $parent.ClientSize.Height + 1) ("controle fora do pai: " + $child.GetType().Name + ' / ' + $child.Text)
+        Assert ($child.Left -ge 0 -and $child.Top -ge 0 -and $child.Right -le $parent.ClientSize.Width + 1 -and $child.Bottom -le $parent.ClientSize.Height + 1) ("controle fora do pai: " + $child.GetType().Name + ' / ' + $child.Text + ' / bounds=' + $child.Bounds + ' / parent=' + $parent.ClientSize + ' / escala=' + [LoR.Tema]::F)
         Assert-Layout $child
     }
 }
@@ -152,6 +152,10 @@ foreach ($scale in @(1, 1.25, 1.5)) {
     # na área de trabalho. Não carrega o evento Shown operacional do painel.
     $form.ShowInTaskbar = $false
     $form.Opacity = 0
+    # O desktop virtual do runner pode ser menor que a janela a 125/150%.
+    # Preserve a geometria sob teste em vez de aceitar o limite de tracking do SO.
+    $form.MinimumSize = $form.Size
+    $form.MaximumSize = $form.Size
     $form.Show()
     try {
         Escolher-Layout 'central'
