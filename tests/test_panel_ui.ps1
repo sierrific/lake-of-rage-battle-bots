@@ -154,10 +154,13 @@ foreach ($scale in @(1, 1.25, 1.5)) {
     $form.Opacity = 0
     # O desktop virtual do runner pode ser menor que a janela a 125/150%.
     # Preserve a geometria sob teste em vez de aceitar o limite de tracking do SO.
-    $form.MinimumSize = $form.Size
-    $form.MaximumSize = $form.Size
+    $requiredSize = New-Object System.Drawing.Size((S 1024), (S 694))
+    $form.MinimumSize = $requiredSize
+    $form.MaximumSize = $requiredSize
+    $form.ClientSize = $requiredSize
     $form.Show()
     try {
+        Assert ($form.ClientSize -eq $requiredSize) ('janela sintetica deve conservar tamanho solicitado: ' + $form.ClientSize + ' / esperado=' + $requiredSize)
         Escolher-Layout 'central'
         Carregar-Opcoes
         Atualizar-Tela
