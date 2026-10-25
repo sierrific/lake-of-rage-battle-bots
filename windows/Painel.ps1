@@ -1739,6 +1739,9 @@ function Atualizar-Atividade {
 
 function Atualizar-EstadoTela {
     $e = Ler-Estado
+    # Se o WSL não respondeu na abertura, os seletores ainda estão no padrão: carrega antes de
+    # reabilitar o Aplicar, senão ele gravaria BO3/Padrão por cima da configuração salva.
+    if (-not $script:opcoesCarregadas) { Carregar-Opcoes }
     $script:estado = $e
     $bot = $e['bot']
     $ligado = $bot -in @('active', 'activating')
@@ -1835,6 +1838,7 @@ function Carregar-Opcoes {
     foreach ($t in ((Invoke-Painel @('times')).Saida -split "`n")) { if ($t.Trim()) { $cTime.Itens.Add($t.Trim()) } }
     $i = if ($e['time'] -and $e['time'] -ne 'top3') { $cTime.Itens.IndexOf($e['time']) } else { 0 }
     $cTime.Indice = [Math]::Max(0, $i)
+    $script:opcoesCarregadas = $true
 }
 
 function Resultado($r, [string]$ok) {
