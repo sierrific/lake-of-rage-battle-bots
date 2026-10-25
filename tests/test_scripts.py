@@ -4,6 +4,7 @@ Sem systemd nem Showdown: um bot.sh falso (zsh, como o do Ai-vgc) com um "Python
 cai ou termina, e um systemctl falso que só anota as chamadas.
 """
 
+import json
 import os
 import shutil
 import signal
@@ -193,7 +194,7 @@ class TestPainelDesafio(unittest.TestCase):
         (d / "estado").write_text("active")
         self.d = d
         self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "D": str(d),
-                    "LOR_ETC": str(d), "LOR_RUN": str(d)}
+                    "LOR_ETC": str(d), "LOR_RUN": str(d), "LOR_ELO_API": (d / "sem-api").as_uri() + "/"}
         self.dir = d / "lor-desafio-bot"
 
     def tearDown(self):
@@ -315,6 +316,57 @@ class TestPainelTimer(TestPainelDesafio):
         self.painel("timer", "sim")
         self.assertNotIn("--no-timer", (self.d / "bot.env").read_text())
         self.assertIn("erro=", self.painel("timer", "talvez", ok=False))
+
+
+
+class TestPainelElo(TestPainelDesafio):
+    """estado: o Elo da conta no ladder oficial, lido de um cache que se atualiza em segundo plano."""
+
+    def setUp(self):
+        super().setUp()
+        api = self.d / "api"
+        api.mkdir()
+        (api / "lorbot1.json").write_text(json.dumps({"ratings": {
+            "gen9championsvgc2026regmcbo3": {"elo": 1234.6, "gxe": 61.27, "w": 10, "l": 5, "t": 0},
+            "gen9championsvgc2026regmc": {"elo": 1100, "w": 1, "l": 1}}}))
+        self.env["LOR_ELO_API"] = api.as_uri() + "/"
+        self.cache = self.d / "lor-elo-bot.json"
+
+    def elo(self) -> dict[str, str]:
+        return dict(x.split("=", 1) for x in self.painel("estado").splitlines() if x.startswith("elo"))
+
+    def esperar_cache(self):
+        for _ in range(50):
+            if self.cache.exists():
+                return
+            time.sleep(0.1)
+        self.fail("o estado não pediu a consulta do Elo")
+
+    def test_consulta_em_segundo_plano_e_mostra(self):
+        self.assertEqual(self.elo(), {"elo": ""})  # primeira vez: ainda sem cache
+        self.esperar_cache()
+        self.assertEqual(self.elo(), {"elo": "1235", "elo_partidas": "15", "elo_gxe": "61.3"})
+
+    def test_formato_e_conta_trocados_nao_usam_o_cache_velho(self):
+        self.painel("_elo")
+        self.painel("formato", "bo1")
+        self.assertEqual(self.elo(), {"elo": ""})
+        self.painel("_elo")
+        self.assertEqual(self.elo()["elo"], "1100")
+        (self.d / "bot.conf").write_text("conta=Outra\nformato=bo1\n")
+        self.assertEqual(self.elo(), {"elo": ""})
+
+    def test_nosso_servidor_nao_mostra(self):
+        self.painel("_elo")
+        with open(self.d / "bot.conf", "a") as f:
+            f.write("servidor=lor\n")
+        self.assertEqual(self.elo(), {"elo": ""})
+
+    def test_sem_rede_mantem_o_ultimo(self):
+        self.painel("_elo")
+        self.env["LOR_ELO_API"] = (self.d / "nao-existe").as_uri() + "/"
+        self.painel("_elo")
+        self.assertEqual(self.elo()["elo"], "1235")
 
 
 if __name__ == "__main__":

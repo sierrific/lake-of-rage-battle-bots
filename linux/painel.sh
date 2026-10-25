@@ -47,6 +47,11 @@ ADAPTA="--change-after-loss --counter-t1 0.5"
 DESAFIO="lor-desafio-$BOT_ID"
 DESAFIO_DIR="${LOR_RUN:-/run}/$DESAFIO"
 ESPERA_ACEITE=300 # segundos para aceitar; depois disso o desafio é cancelado
+# O Elo da conta no ladder oficial, guardado em $ELO_CACHE: o "estado" só lê o arquivo (rápido, sem
+# rede) e, se ele tem mais de ELO_VALIDADE segundos, pede uma consulta nova em segundo plano.
+ELO_CACHE="${LOR_RUN:-/run}/lor-elo-$BOT_ID.json"
+ELO_VALIDADE=180
+ELO_API="${LOR_ELO_API:-https://pokemonshowdown.com/users/}"
 
 [ "$(id -u)" -eq 0 ] || { echo "erro=rode como root" >&2; exit 1; }
 
@@ -129,6 +134,84 @@ PY
 	echo "placar_oponente="
 }
 
+# O formato do ladder que o bot joga (o mesmo que o bot.sh monta: Reg M-C, Bo3 ou Bo1).
+formato_ladder() {
+	local f
+	f="$(conf_get formato)"
+	[ "$f" = bo1 ] && echo gen9championsvgc2026regmc || echo gen9championsvgc2026regmcbo3
+}
+
+# elo=, elo_partidas= e elo_gxe= do cache, se for da conta e do formato atuais (vazio se não houver).
+elo() {
+	local conta
+	conta="$(conf_get conta)"
+	if [ -z "$conta" ] || [ "$(conf_get servidor)" = lor ]; then
+		echo "elo="  # no nosso servidor o Elo não aparece no site oficial
+		return
+	fi
+	local saida rc=0
+	saida="$(python3 -I - "$ELO_CACHE" "$(id_showdown "$conta")" "$(formato_ladder)" "$ELO_VALIDADE" 2>/dev/null <<'PY'
+import json, sys, time
+cache, conta, fmt, validade = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+try:
+    d = json.load(open(cache))
+except (OSError, ValueError):
+    d = {}
+atual = d.get("conta") == conta and d.get("formato") == fmt
+if atual and d.get("elo") is not None:
+    print(f"elo={d['elo']}")
+    print(f"elo_partidas={d.get('partidas', '')}")
+    print(f"elo_gxe={d.get('gxe', '')}")
+else:
+    print("elo=")
+sys.exit(3 if not atual or time.time() - d.get("time", 0) > validade else 0)
+PY
+)" || rc=$?
+	[ -n "$saida" ] && echo "$saida" || echo "elo="
+	# 3 = cache velho ou de outra conta: consulta de novo em segundo plano, sem segurar o painel.
+	if [ "$rc" -eq 3 ]; then
+		setsid -f bash "$0" _elo fundo >/dev/null 2>&1 </dev/null || true
+	fi
+}
+
+# Consulta o ladder oficial e grava o cache, uma consulta por vez. Em segundo plano ("fundo"), se
+# já há uma consulta andando, não faz outra.
+elo_consultar() {
+	local conta
+	conta="$(conf_get conta)"
+	[ -n "$conta" ] || return 0
+	exec 9>"$ELO_CACHE.lock"
+	if [ "${1:-}" = fundo ]; then flock -n 9 || return 0; else flock -w 30 9 || return 0; fi
+	python3 -I - "$ELO_API" "$(id_showdown "$conta")" "$(formato_ladder)" "$ELO_CACHE" <<'PY'
+import json, os, sys, time, urllib.request
+api, conta, fmt, cache = sys.argv[1:5]
+d = {"time": time.time(), "conta": conta, "formato": fmt, "elo": None}
+try:
+    req = urllib.request.Request(api + conta + ".json", headers={"User-Agent": "lor-bots-painel"})
+    ratings = json.loads(urllib.request.urlopen(req, timeout=15).read()).get("ratings") or {}
+    if isinstance(ratings, list):
+        ratings = {r.get("formatid"): r for r in ratings}
+    r = ratings.get(fmt)
+    if r:
+        d["elo"] = round(float(r["elo"]))
+        d["partidas"] = sum(int(r.get(k) or 0) for k in ("w", "l", "t"))
+        if r.get("gxe") is not None:
+            d["gxe"] = round(float(r["gxe"]), 1)
+except Exception as e:
+    print(f"elo: {e!r}", file=sys.stderr)
+    try:  # sem rede: mantém o último Elo conhecido, mas tenta de novo na próxima validade
+        antigo = json.load(open(cache))
+        if antigo.get("conta") == conta and antigo.get("formato") == fmt:
+            d.update({k: antigo[k] for k in ("elo", "partidas", "gxe") if k in antigo})
+    except (OSError, ValueError):
+        pass
+tmp = cache + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(d, f)
+os.replace(tmp, cache)
+PY
+}
+
 nome_valido() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; }
 
 # O id do Showdown: só letras minúsculas e números ("Sier VGC" -> siervgc).
@@ -165,6 +248,7 @@ estado)
 	fi
 	echo "partida=$p"
 	placar "$p"
+	elo
 	if desafio_ativo; then
 		echo "desafio=$(desafio_get alvo)"
 		echo "desafio_fase=$(desafio_get fase)"
@@ -415,6 +499,9 @@ manter-vivo)
 	;;
 atualizar)
 	exec /opt/lor-bots/atualizar.sh
+	;;
+_elo)
+	elo_consultar "${1:-}"
 	;;
 *)
 	sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
