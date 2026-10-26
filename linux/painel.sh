@@ -9,7 +9,7 @@
 #   painel.sh estado                    chave=valor, para o painel
 #   painel.sh ligar | desligar | agora | reiniciar
 #   painel.sh conta                     stdin: usuário na 1ª linha, senha na 2ª
-#   painel.sh codigo                    stdin: o código da coleta
+#   painel.sh codigo                    stdin: o código da coleta (conferido na coleta antes de salvar)
 #   painel.sh formato bo3|bo1
 #   painel.sh timer sim|nao             o bot liga o timer no começo de cada partida (padrão: sim)
 #   painel.sh time top3|<nome>       top3 = o padrão (MC371 ou MC196)
@@ -23,6 +23,8 @@
 #   painel.sh log [linhas]
 #   painel.sh manter-vivo               segura o WSL ligado enquanto o bot roda
 #   painel.sh atualizar                 baixa a versão nova do GitHub e reinstala
+#   painel.sh backup <pasta>|desligar   stdin: o token de backup da coleta; copia as partidas de
+#                                       todos para <pasta> uma vez por dia (C:\... ou /mnt/c/...)
 set -euo pipefail
 
 BOT_ID="${LOR_BOT:-bot}"
@@ -55,6 +57,10 @@ ESPERA_ACEITE=300 # segundos para aceitar; depois disso o desafio é cancelado
 ELO_CACHE="${LOR_RUN:-/run}/lor-elo-$BOT_ID.json"
 ELO_VALIDADE=180
 ELO_API="${LOR_ELO_API:-https://pokemonshowdown.com/users/}"
+COLETA_PING="${LOR_COLETA_PING:-https://showdown.sierverso.com.br/coleta/ping}"
+# Como foi o último contato do envio com a coleta (ok, codigo = código recusado, fora), gravado pelo
+# enviar-partidas.py.
+COLETA_STATUS="$AIVGC/data/live_games/.coleta-status"
 
 [ "$(id -u)" -eq 0 ] || { echo "erro=rode como root" >&2; exit 1; }
 
@@ -230,7 +236,14 @@ case "$cmd" in
 estado)
 	echo "versao=$(cat /opt/lor-bots/VERSION 2>/dev/null || echo ?)"
 	echo "bot=$(estado_unit "$UNIT")"
-	echo "envio=$(estado_unit lor-envio)"
+	envio="$(estado_unit lor-envio)"
+	echo "envio=$envio"
+	st=""
+	if [ "$envio" = active ] && [ -f "$COLETA_STATUS" ]; then
+		st="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status") or "")' \
+			"$COLETA_STATUS" 2>/dev/null || true)"
+	fi
+	echo "envio_status=$st"
 	echo "conta=$(conf_get conta)"
 	echo "senha=$([ -s "$SENHA" ] && echo sim || echo nao)"
 	echo "codigo=$([ -s "$ETC/coleta.env" ] && echo sim || echo nao)"
@@ -339,6 +352,19 @@ codigo)
 	codigo="${codigo%$'\r'}"
 	codigo="${codigo//[[:space:]]/}"
 	[[ "$codigo" =~ ^[A-Za-z0-9_-]{8,128}$ ]] || { echo "erro=código inválido"; exit 1; }
+	# Confere na coleta antes de salvar: um código errado salvo só daria 401 em silêncio.
+	resp="$(mktemp)"
+	http="$(curl -s -o "$resp" -w '%{http_code}' --max-time 15 -H "Authorization: Bearer $codigo" "$COLETA_PING" 2>/dev/null || true)"
+	membro="$(sed -n 's/.*"nome": *"\([A-Za-z0-9_-]*\)".*/\1/p' "$resp")"
+	rm -f "$resp"
+	case "$http" in
+	200) ;;
+	401 | 403)
+		echo "erro=a coleta não reconheceu este código. Confira se copiou inteiro ou peça outro ao Thiago."
+		exit 1
+		;;
+	*) echo "aviso=não consegui falar com a coleta agora; o código foi salvo e o envio confere sozinho" ;;
+	esac
 	umask 077
 	printf 'COLETA_CODIGO=%s\n' "$codigo" >"$ETC/coleta.env.tmp"
 	chown root:bots "$ETC/coleta.env.tmp"
@@ -346,7 +372,9 @@ codigo)
 	mv "$ETC/coleta.env.tmp" "$ETC/coleta.env"
 	# Fica habilitado: depois de reiniciar o Linux, o envio volta sozinho com as partidas pendentes.
 	systemctl enable lor-envio >/dev/null 2>&1 || true
+	rm -f "$COLETA_STATUS"  # o do código anterior
 	systemctl restart lor-envio
+	[ -n "$membro" ] && echo "membro=$membro"
 	echo ok=codigo
 	;;
 formato)
@@ -506,8 +534,33 @@ atualizar)
 _elo)
 	elo_consultar "${1:-}"
 	;;
+backup)
+	# Cópia diária das partidas de todos da coleta para uma pasta deste PC (lor-backup.timer).
+	if [ "${1:-}" = desligar ]; then
+		systemctl disable --now lor-backup.timer >/dev/null 2>&1 || true
+		echo ok=backup-desligado
+		exit 0
+	fi
+	pasta="${1:-}"
+	if [[ "$pasta" =~ ^[A-Za-z]:[\\/] ]] && command -v wslpath >/dev/null; then
+		pasta="$(wslpath -u "$pasta")"
+	fi
+	[[ "$pasta" == /* && "$pasta" != *[\"$'\n']* && "$pasta" != / ]] || { echo "erro=use: painel.sh backup <pasta> (C:\\... ou /mnt/c/...)"; exit 1; }
+	IFS= read -r token || true
+	token="${token%$'\r'}"
+	token="${token//[[:space:]]/}"
+	[[ "$token" =~ ^[A-Za-z0-9_-]{16,128}$ ]] || { echo "erro=token inválido (é o do token-backup.sh da VPS)"; exit 1; }
+	mkdir -p "$pasta"
+	umask 077
+	printf 'BACKUP_TOKEN=%s\nBACKUP_DIR="%s"\n' "$token" "$pasta" >"$ETC/backup.env.tmp"
+	chmod 600 "$ETC/backup.env.tmp"
+	mv "$ETC/backup.env.tmp" "$ETC/backup.env"
+	systemctl enable --now lor-backup.timer >/dev/null 2>&1 || true
+	systemctl start --no-block lor-backup.service || true
+	echo "ok=backup em $pasta (primeira cópia começando; depois uma vez por dia)"
+	;;
 *)
-	sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
 	exit 1
 	;;
 esac

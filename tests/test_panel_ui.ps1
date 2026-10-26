@@ -67,7 +67,7 @@ function Install-Fakes {
             time { $script:fake.time = $Argumentos[1] }
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
             conta { $script:fake.conta = ($Entrada -split "`n")[0]; $script:fake.senha = 'sim' }
-            codigo { $script:fake.codigo = 'sim' }
+            codigo { $script:fake.codigo = 'sim'; $out = "membro=joao`nok=codigo" }
             desligar { $script:fake.bot = 'deactivating' }
             agora { $script:fake.bot = 'inactive'; $script:fake.partida = ''; $script:fake.placar_oponente = '' }
             ligar { $script:fake.bot = 'active' }
@@ -225,6 +225,12 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         $fake.codigo = 'nao'; $fake.senha = 'nao'
         Atualizar-Tela
         Assert ($lResumoColeta.Text -eq 'Código não configurado' -and $lNavEstado.Text -eq 'Configure em Ajustes') 'configuracao ausente'
+        $fake.codigo = 'sim'; $fake.senha = 'sim'; $fake.envio = 'active'; $fake.envio_status = 'codigo'
+        Atualizar-Tela
+        Assert ($lResumoColeta.Text -eq 'Código recusado pela coleta' -and $lCodigo.CorNome -eq 'vermelho') 'codigo recusado pela coleta'
+        $fake.envio_status = 'fora'
+        Atualizar-Tela
+        Assert ($lResumoColeta.Text -eq 'Código salvo · coleta fora do ar') 'coleta fora do ar'
         Fresh-State; Atualizar-Tela
         $formSize = $form.ClientSize
         $bTecnico.PerformClick()
@@ -289,6 +295,7 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             Assert ((Has-Command 'conta') -and $tSenha.Caixa.Text -eq '' -and (Has-Command 'reiniciar')) 'salvar conta limpa senha e agenda troca'
             $tCodigo.Caixa.Text = 'codigo-sintetico'; $bCodigo.PerformClick()
             Assert ((Has-Command 'codigo') -and $tCodigo.Caixa.Text -eq '') 'salvar codigo limpa campo'
+            Assert ($script:messages[$script:messages.Count - 1] -like 'Código de joao conferido*') 'codigo conferido diz de quem e'
             $cTime.Indice = 1; $bRemTime.PerformClick()
             Assert (-not (Has-Command 'remover-time|SolUgarte')) 'remover recusa sem confirmacao'
             $script:approve = $true; $bRemTime.PerformClick()

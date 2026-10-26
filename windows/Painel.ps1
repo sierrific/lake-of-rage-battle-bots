@@ -1026,8 +1026,16 @@ function Ler-Estado {
 
 function Manter-Vivo {
     # O WSL desliga o Linux quando nenhum programa do Windows o usa; este processo escondido
-    # segura enquanto o bot estiver ligado (e sai sozinho depois).
-    Rodar-Oculto "wsl.exe -d $Distro -u root -e /opt/lor-bots/painel.sh manter-vivo"
+    # segura enquanto o bot estiver ligado (e sai sozinho depois). Ele também pede ao Windows para
+    # não suspender o PC nesse tempo: com o PC dormindo o timer da partida corre e o bot perde. A
+    # tela ainda apaga normalmente; fechar a tampa do notebook segue a configuração do Windows.
+    $script = @"
+Add-Type -Name Energia -Namespace LoRNativo -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint estado);'
+[void][LoRNativo.Energia]::SetThreadExecutionState(0x80000001)
+& wsl.exe -d $Distro -u root -e /opt/lor-bots/painel.sh manter-vivo
+"@
+    $codificado = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+    Rodar-Oculto "powershell.exe -NoProfile -WindowStyle Hidden -EncodedCommand $codificado"
 }
 
 function Mensagem([string]$texto, [string]$titulo = 'Painel LoR Bots') {
@@ -1811,6 +1819,19 @@ function Atualizar-EstadoTela {
         $lCodigo.Text = if ($e['envio'] -eq 'active') { 'Salvo · enviando as partidas' } else { 'Salvo · o envio liga junto com o bot' }
         $lResumoColeta.Text = if ($e['envio'] -eq 'active') { 'Código salvo · envio ativo' } else { 'Código salvo · envio aguardando' }
         $lResumoColeta.CorNome = if ($e['envio'] -eq 'active') { 'verde' } else { 'suave' }
+        # O que a coleta respondeu de fato no último envio (o serviço ativo não garante que chega).
+        if ($e['envio'] -eq 'active' -and $e['envio_status'] -eq 'codigo') {
+            $pCodigo.CorNome = 'vermelho'
+            $lCodigo.CorNome = 'vermelho'
+            $lCodigo.Text = 'Código recusado pela coleta: peça outro ao Thiago'
+            $lResumoColeta.Text = 'Código recusado pela coleta'
+            $lResumoColeta.CorNome = 'vermelho'
+        } elseif ($e['envio'] -eq 'active' -and $e['envio_status'] -eq 'fora') {
+            $lCodigo.CorNome = 'ambar'
+            $lCodigo.Text = 'Salvo · coleta fora do ar, envia quando voltar'
+            $lResumoColeta.Text = 'Código salvo · coleta fora do ar'
+            $lResumoColeta.CorNome = 'ambar'
+        }
     } else {
         $tCodigo.Dica = 'Cole seu código'
         $pCodigo.CorNome = 'ambar'
@@ -1893,7 +1914,13 @@ $bConta.Add_Click({
 $bCodigo.Add_Click({
     if (-not $tCodigo.Caixa.Text.Trim()) { Mensagem 'Cole o código que o Thiago passou.'; return }
     $r = Invoke-Painel @('codigo') ($tCodigo.Caixa.Text.Trim() + "`n")
-    if (Resultado $r 'Código salvo. As partidas deste bot vão para a coleta do time.') { $tCodigo.Caixa.Text = '' }
+    if (Resultado $r '') {
+        $tCodigo.Caixa.Text = ''
+        # A coleta confere o código antes de salvar e diz de quem ele é.
+        if ($r.Saida -match '(?m)^aviso=(.+)$') { Mensagem "Código salvo, mas $($Matches[1].Trim())." }
+        elseif ($r.Saida -match '(?m)^membro=(.+)$') { Mensagem "Código de $($Matches[1].Trim()) conferido e salvo. As partidas deste bot vão para a coleta do time." }
+        else { Mensagem 'Código salvo. As partidas deste bot vão para a coleta do time.' }
+    }
     Atualizar-Tela
 })
 

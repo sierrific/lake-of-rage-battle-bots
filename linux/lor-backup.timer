@@ -1,0 +1,11 @@
+[Unit]
+Description=Cópia diária das partidas da coleta do time
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30min
+# O WSL só fica ligado com o bot: a cópia perdida roda assim que ele ligar de novo.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
