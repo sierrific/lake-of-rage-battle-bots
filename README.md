@@ -92,10 +92,15 @@ Atualizar: `sudo /opt/lor-bots/atualizar.sh`.
   Compila o C# embutido com PowerShell 5.1, exercita os controles com comandos simulados e verifica os
   três layouts e dois temas nas escalas 100%, 125% e 150%. Não inicia WSL/bot, não usa credenciais reais
   nem altera atalhos. As capturas são sintéticas; não substituem um teste da integração com o bot real.
-- **Lançar uma versão**: faça as mudanças na `main` e aumente o número em `VERSION`. O painel
-  compara esse arquivo com o instalado para oferecer a atualização. Para testar antes, use outra
-  branch: `$env:LOR_RAMO='minha-branch'` antes do comando de instalar (ou `LOR_RAMO=... sudo -E
+- **Lançar uma versão**: faça as mudanças na `main` e aumente o número em `VERSION`. Quando todos
+  os testes do GitHub passam nesse commit, o CI avança a branch `estavel`, que é de onde o painel e o
+  instalador baixam; um merge com teste vermelho não chega aos PCs. O painel compara o `VERSION` da
+  `estavel` com o instalado para oferecer a atualização. Para testar antes, use outra branch:
+  `$env:LOR_RAMO='minha-branch'` antes do comando de instalar (ou `LOR_RAMO=... sudo -E
   /opt/lor-bots/atualizar.sh`).
+- **Ai-vgc**: o instalador baixa o commit fixo da cópia do time (`sierrific/ai-vgc`, um fork) e,
+  se ela não existir, do repositório original. Não use "Sync fork" se o original reescrever o
+  histórico: o commit fixo precisa continuar existindo na cópia.
 - `linux/ai-vgc-lor.patch`: o que mudamos no Ai-vgc (commit fixo em `linux/instalar.sh`).
   Acrescenta `--server-url`/`--client-url` para jogar no servidor do time, `/savereplay` em cada
   partida do oficial (link do replay no `games.jsonl`), os nomes dos Pokémon e uma nova busca no

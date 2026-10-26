@@ -43,10 +43,12 @@ jobs:
         run: |
           commit=$(sed -n 's/^AIVGC_COMMIT=//p' linux/instalar.sh)
           repo=$(sed -n 's/^AIVGC_REPO=//p' linux/instalar.sh)
+          original=$(sed -n 's/^AIVGC_ORIGINAL=//p' linux/instalar.sh)
           git init -q /tmp/ai-vgc && cd /tmp/ai-vgc
           git remote add origin "$repo"
           git sparse-checkout set src/ai_vgc
-          git fetch -q --depth 1 --filter=blob:none origin "$commit"
+          git fetch -q --depth 1 --filter=blob:none origin "$commit" \
+            || git fetch -q --depth 1 --filter=blob:none "$original" "$commit"
           git checkout -q FETCH_HEAD
           git apply --check "$GITHUB_WORKSPACE/linux/ai-vgc-lor.patch"
           git apply "$GITHUB_WORKSPACE/linux/ai-vgc-lor.patch"
@@ -67,3 +69,24 @@ jobs:
             }
           }
           if ($falhou) { exit 1 }
+
+  # O painel e o instalador baixam da branch estavel, não da main: ela só anda depois que todos os
+  # testes passaram neste commit da main.
+  estavel:
+    needs: [painel_windows, testes]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Avança a branch estavel para este commit
+        run: |
+          # Dois merges seguidos: se a estavel já está num commit mais novo, não volta para trás.
+          if git fetch -q origin estavel 2>/dev/null && git merge-base --is-ancestor HEAD FETCH_HEAD; then
+            echo "estavel já está neste commit ou num mais novo"
+            exit 0
+          fi
+          git push origin "HEAD:refs/heads/estavel"

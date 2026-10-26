@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Baixa a versão mais nova deste repositório (GitHub, branch main) e reinstala por cima.
+# Baixa a versão mais nova deste repositório (GitHub, branch estavel: a main depois que os testes
+# passaram nela) e reinstala por cima.
 # Partidas, times salvos e configuração ficam. Se o bot estiver jogando, ele só reinicia
 # depois de terminar a partida/série atual.
 #
@@ -10,7 +11,7 @@ exec 8>/run/lor-atualizar.lock
 flock -n 8 || { echo "Já tem uma atualização rodando; esperando ela terminar..."; flock 8; }
 
 REPO=https://github.com/sierrific/lake-of-rage-battle-bots
-RAMO="${LOR_RAMO:-main}"  # outra branch só para testar uma versão antes de ir para a main
+RAMO="${LOR_RAMO:-estavel}"  # outra branch (main, ou uma de teste) só para testar uma versão
 FONTE=/opt/lor-bots/fonte
 
 nova="$(curl -fsSL --max-time 20 "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$RAMO/VERSION")"
