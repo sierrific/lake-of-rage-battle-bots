@@ -36,7 +36,9 @@ function Assert($condition, [string]$message) {
     if (-not $condition) { throw "Falhou: $message" }
 }
 function Fresh-State {
+    $script:logFalso = "Started lor-bot@bot`nteam: SolUgarte`nwin vs AdversarioTeste in 7 turns`nwatch: https://play.pokemonshowdown.com/battle-teste`nWARNING exemplo de aviso"
     $script:fake = @{
+        hoje_vitorias = '3'; hoje_derrotas = '1'; hoje_times = 'MC371 2-1, MC196 1-0'
         bot = 'active'; conta = 'LoRBotTeste'; senha = 'sim'; codigo = 'sim'; envio = 'active'
         formato = 'bo3'; timer = 'sim'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
         partida = 'https://play.pokemonshowdown.com/battle-teste'; desafio = ''; desafio_fase = ''
@@ -59,9 +61,12 @@ function Install-Fakes {
         if ($script:failure -eq $cmd) { return [pscustomobject]@{ Codigo = 1; Saida = 'erro=falha sintetica'; Erro = '' } }
         $out = 'ok=' + $cmd
         switch ($cmd) {
-            estado { $out = ($script:fake.Keys | Sort-Object | ForEach-Object { "$_=$($script:fake[$_])" }) -join "`n" }
+            estado {
+                $out = ($script:fake.Keys | Sort-Object | ForEach-Object { "$_=$($script:fake[$_])" }) -join "`n"
+                if ($Argumentos -contains '--log') { $out += "`n---log---`n" + $script:logFalso }
+            }
             times { $out = "SolUgarte`nOutroTime" }
-            log { $out = "Started lor-bot@bot`nteam: SolUgarte`nwin vs AdversarioTeste in 7 turns`nwatch: https://play.pokemonshowdown.com/battle-teste`nWARNING exemplo de aviso" }
+            log { $out = $script:logFalso }
             formato { $script:fake.formato = $Argumentos[1] }
             timer { $script:fake.timer = $Argumentos[1] }
             time { $script:fake.time = $Argumentos[1] }
@@ -231,7 +236,16 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         $fake.envio_status = 'fora'
         Atualizar-Tela
         Assert ($lResumoColeta.Text -eq 'Código salvo · coleta fora do ar') 'coleta fora do ar'
-        Fresh-State; Atualizar-Tela
+        Fresh-State
+        $script:commands.Clear()
+        Atualizar-Tela
+        Assert ((Has-Command 'estado|--log|80') -and -not (Has-Command 'log|80')) 'estado e log numa chamada so'
+        Assert (@($script:logLinhas).Count -eq 5) 'log veio junto com o estado'
+        if ($script:layout -ne 'refinado') {
+            Mostrar-Secao 'historico'
+            Assert ($lSubtitulo.Text -eq 'Hoje: 3V–1D · MC371 2-1, MC196 1-0') 'resumo do dia no historico'
+            Mostrar-Secao 'batalhas'
+        }
         $formSize = $form.ClientSize
         $bTecnico.PerformClick()
         Assert ($tLog.Visible -and -not $atividade.Visible) 'abrir log tecnico'

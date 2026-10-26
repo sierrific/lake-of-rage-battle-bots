@@ -59,6 +59,10 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   partida corre e o bot perde). A tela ainda apaga normalmente. Num notebook, fechar a tampa segue a
   configuração do Windows: deixe "Ao fechar a tampa: não fazer nada" se quiser jogar de tampa fechada.
 - **Ver ao vivo** (abre no navegador a partida em andamento) e **Abrir partidas** (replays e `games.jsonl`).
+- **Histórico** mostra o placar de hoje: vitórias e derrotas, e por time.
+- **Ícone na bandeja** (perto do relógio): o estado e o placar do dia ao passar o mouse, um aviso
+  quando o bot para com erro, e **Copiar diagnóstico**, que junta versão, estado e logs (sem senha
+  nem código) para colar no Discord quando precisar de ajuda.
 
 ## Cópia de segurança da coleta (só no PC de quem guarda a cópia)
 
