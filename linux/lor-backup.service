@@ -1,0 +1,12 @@
+[Unit]
+Description=Cópia de segurança das partidas da coleta do time (VPS -> este PC)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# root: a pasta da cópia costuma ficar no disco do Windows (/mnt/c/...), onde o usuário bots não escreve.
+# BACKUP_TOKEN=... e BACKUP_DIR=... (o painel.sh backup grava este arquivo)
+EnvironmentFile=/etc/lor-bots/backup.env
+ExecStart=/usr/bin/python3 /opt/lor-bots/backup-coleta.py
+MemoryMax=128M

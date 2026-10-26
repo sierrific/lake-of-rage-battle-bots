@@ -44,6 +44,8 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
 - **Ligar / Desligar (após a partida) / Desligar agora**. "Desligar" espera terminar a partida ou
   a série Bo3 atual, para o bot não perder por W.O.
 - **Conta do Showdown**: usuário e senha do bot. A senha fica só no seu PC.
+- **Código da coleta**: conferido na coleta ao salvar (o painel diz de quem é o código). Se depois a
+  coleta recusar o código ou estiver fora do ar, o aviso aparece ali mesmo.
 - **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em
   "Adicionar time…" cole um link do pokepast.es ou o export do Showdown; o time é validado antes
   de ser salvo. **Aplicar** passa a valer depois da partida atual.
@@ -53,7 +55,24 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
 - **Atualizar**: quando sai versão nova aqui no GitHub, o botão fica amarelo. Um clique baixa a
   versão nova do bot e do painel.
 - **Ligar o bot junto com o Windows**.
+- Enquanto o bot está ligado, o PC **não entra em suspensão** sozinho (com o PC dormindo, o timer da
+  partida corre e o bot perde). A tela ainda apaga normalmente. Num notebook, fechar a tampa segue a
+  configuração do Windows: deixe "Ao fechar a tampa: não fazer nada" se quiser jogar de tampa fechada.
 - **Ver ao vivo** (abre no navegador a partida em andamento) e **Abrir partidas** (replays e `games.jsonl`).
+
+## Cópia de segurança da coleta (só no PC de quem guarda a cópia)
+
+Uma vez por dia o PC baixa da coleta (VPS) as partidas de todos os membros que ainda não tem, para
+uma pasta do Windows. Precisa do token de backup, que sai de
+`sudo /opt/lor-sd-server/coleta/token-backup.sh` na VPS. No PowerShell (troque `TOKEN` e a pasta):
+
+```powershell
+"TOKEN" | wsl -d LoRBots -u root -e /opt/lor-bots/painel.sh backup 'C:\Users\Thiago\LoR-backup-coleta'
+```
+
+A primeira cópia começa na hora. O WSL só fica ligado junto com o bot, então uma cópia perdida roda
+quando o bot ligar de novo. `ultimo-backup.txt`, na pasta, diz quando foi a última.
+Para parar: `wsl -d LoRBots -u root -e /opt/lor-bots/painel.sh backup desligar`.
 
 ## Num servidor Linux (Oracle etc.)
 

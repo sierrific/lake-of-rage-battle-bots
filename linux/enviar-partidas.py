@@ -7,6 +7,9 @@ se a VPS estiver fora, tenta de novo no próximo ciclo sem perder nada.
 
     COLETA_CODIGO=... python3 enviar-partidas.py /opt/lor-bots/ai-vgc/data/live_games
 
+Grava em <pasta>/.coleta-status como foi o último contato com a coleta ("ok", "codigo" = código
+recusado, "fora" = sem resposta), para o painel mostrar se o envio funciona de verdade.
+
 Manda também as partidas de antes da primeira execução (servem para o treino), marcadas com
 "antigo" para o Discord não postar tudo de uma vez. Só biblioteca padrão.
 """
@@ -23,6 +26,35 @@ URL = os.environ.get("COLETA_URL", "https://showdown.sierverso.com.br/coleta/par
 POLL = 30  # segundos entre leituras
 LOTE = 3 * 1024 * 1024  # bytes por envio, juntando várias partidas
 LIMITE = 4 * 1024 * 1024  # o máximo que a coleta aceita por envio: uma partida maior vai para a quarentena
+STATUS: Path | None = None  # <pasta>/.coleta-status (definido no main)
+_membro: str | None = None  # o nome que a coleta deu a este código (resposta do ping)
+
+
+def status(situacao: str, nome: str | None = None) -> None:
+    """Anota o último contato com a coleta para o painel; nunca atrapalha o envio."""
+    global _membro
+    _membro = nome or _membro
+    if STATUS is None:
+        return
+    try:
+        tmp = STATUS.with_name(STATUS.name + ".tmp")
+        tmp.write_text(json.dumps({"time": time.time(), "status": situacao, "nome": _membro}))
+        os.replace(tmp, STATUS)
+    except OSError:
+        pass
+
+
+def testar(codigo: str) -> None:
+    """Confere o código em /coleta/ping ao começar, para o painel saber logo se ele vale."""
+    req = urllib.request.Request(URL.rsplit("/", 1)[0] + "/ping", headers={
+        "Authorization": f"Bearer {codigo}", "User-Agent": "lor-bots-envio"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            status("ok", json.loads(r.read()).get("nome"))
+    except urllib.error.HTTPError as e:
+        status("codigo" if e.code == 401 else "fora")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        status("fora")
 
 
 def enviar(codigo: str, corpo: bytes) -> dict:
@@ -39,6 +71,9 @@ def main() -> None:
         sys.exit(__doc__)
     raiz = Path(sys.argv[1])
     raiz.mkdir(parents=True, exist_ok=True)
+    global STATUS
+    STATUS = raiz / ".coleta-status"
+    testar(codigo)
     estado_arq = raiz / ".coleta-enviado"
     estado = _ler_estado(estado_arq)
     if estado is None:
@@ -197,15 +232,21 @@ def _mandar(codigo: str, lote: list[bytes]) -> str:
     try:
         r = enviar(codigo, b"".join(lote))
         print(f"enviadas {r.get('recebidas')} partidas ({r.get('novas')} novas)", flush=True)
+        status("ok")
         return "ok"
     except urllib.error.HTTPError as e:
         print(f"coleta recusou: {e.code} {e.read()[:200]!r}", flush=True)
         if e.code == 413:
+            status("ok")
             return "grande"
         if e.code == 401:
+            status("codigo")
             time.sleep(600)  # código errado: não adianta insistir a cada 30 s
+        else:
+            status("fora")
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         print(f"coleta fora do ar, tento de novo depois: {e}", flush=True)
+        status("fora")
     return "falha"
 
 

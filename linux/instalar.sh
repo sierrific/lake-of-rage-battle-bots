@@ -98,9 +98,12 @@ install -m 755 "$SRC/linux/rodar-bot.sh" "$DIR/rodar-bot.sh"
 install -m 755 "$SRC/linux/painel.sh" "$DIR/painel.sh"
 install -m 755 "$SRC/linux/atualizar.sh" "$DIR/atualizar.sh"
 install -m 755 "$SRC/linux/enviar-partidas.py" "$DIR/enviar-partidas.py"
+install -m 755 "$SRC/linux/backup-coleta.py" "$DIR/backup-coleta.py"
 install -m 644 "$SRC/VERSION" "$DIR/VERSION"
 install -m 644 "$SRC/linux/lor-bot@.service" /etc/systemd/system/lor-bot@.service
 install -m 644 "$SRC/linux/lor-envio.service" /etc/systemd/system/lor-envio.service
+install -m 644 "$SRC/linux/lor-backup.service" /etc/systemd/system/lor-backup.service
+install -m 644 "$SRC/linux/lor-backup.timer" /etc/systemd/system/lor-backup.timer
 [ -f /etc/lor-bots/exemplo.env ] || install -m 640 -g bots "$SRC/linux/exemplo.env" /etc/lor-bots/exemplo.env
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload

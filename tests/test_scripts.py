@@ -369,5 +369,62 @@ class TestPainelElo(TestPainelDesafio):
         self.assertEqual(self.elo()["elo"], "1235")
 
 
+# curl falso para o "codigo": responde como a coleta ao /coleta/ping, conforme $D/ping (200, 401 ou nada).
+CURL_PING = r'''#!/usr/bin/env bash
+out=""
+while [ $# -gt 0 ]; do [ "$1" = -o ] && { out="$2"; shift; }; shift; done
+codigo=$(cat "$D/ping" 2>/dev/null || echo 000)
+[ "$codigo" = 200 ] && echo '{"ok": true, "nome": "joao"}' >"$out"
+printf %s "$codigo"
+[ "$codigo" != 000 ]
+'''
+
+
+class TestPainelColeta(TestPainelDesafio):
+    """codigo: conferido na coleta antes de salvar; estado: como foi o último envio; backup."""
+
+    def setUp(self):
+        super().setUp()
+        (self.d / "curl").write_text(CURL_PING)
+        (self.d / "curl").chmod(0o755)
+        self.env["LOR_AIVGC"] = str(self.d / "ai")
+        (self.d / "ai" / "data" / "live_games").mkdir(parents=True)
+
+    def test_codigo_recusado_nao_salva(self):
+        (self.d / "ping").write_text("401")
+        self.assertIn("não reconheceu", self.painel("codigo", entrada="abcdefgh12\n", ok=False))
+        self.assertFalse((self.d / "coleta.env").exists())
+
+    def test_codigo_conferido_salva_e_diz_de_quem_e(self):
+        (self.d / "ping").write_text("200")
+        saida = self.painel("codigo", entrada="abcdefgh12\r\n")
+        self.assertIn("membro=joao", saida)
+        self.assertIn("ok=codigo", saida)
+        self.assertEqual((self.d / "coleta.env").read_text(), "COLETA_CODIGO=abcdefgh12\n")
+
+    def test_coleta_fora_salva_com_aviso(self):
+        saida = self.painel("codigo", entrada="abcdefgh12\n")
+        self.assertIn("aviso=", saida)
+        self.assertTrue((self.d / "coleta.env").exists())
+
+    def test_estado_mostra_o_ultimo_envio(self):
+        st = self.d / "ai" / "data" / "live_games" / ".coleta-status"
+        self.assertIn("envio_status=", self.painel("estado").splitlines())
+        st.write_text(json.dumps({"time": 1, "status": "codigo", "nome": None}))
+        self.assertIn("envio_status=codigo", self.painel("estado").splitlines())
+        st.write_text("{quebrado")
+        self.assertIn("envio_status=", self.painel("estado").splitlines())
+
+    def test_backup_grava_e_liga_o_timer(self):
+        self.assertIn("erro=", self.painel("backup", "relativa", entrada="x" * 20 + "\n", ok=False))
+        self.assertIn("erro=token", self.painel("backup", str(self.d / "copia"), entrada="curto\n", ok=False))
+        self.assertIn("ok=backup", self.painel("backup", str(self.d / "copia"), entrada="A" * 40 + "\n"))
+        env = (self.d / "backup.env").read_text()
+        self.assertIn("BACKUP_TOKEN=" + "A" * 40, env)
+        self.assertIn(f'BACKUP_DIR="{self.d / "copia"}"', env)
+        self.assertIn("systemctl enable --now lor-backup.timer", self.chamadas())
+        self.assertIn("ok=backup-desligado", self.painel("backup", "desligar"))
+
+
 if __name__ == "__main__":
     unittest.main()

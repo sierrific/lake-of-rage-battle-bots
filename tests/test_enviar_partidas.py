@@ -150,6 +150,19 @@ class TestEnvio(unittest.TestCase):
         self.ciclo()
         self.assertEqual(len(self.todas()), 1)
 
+    def test_status_para_o_painel(self):
+        enviar.STATUS = self.raiz / ".coleta-status"
+        try:
+            self.escrever(partida("2026-10-24 13:00:00"))
+            Coleta.fora = True
+            self.ciclo()
+            self.assertEqual(json.loads(enviar.STATUS.read_text())["status"], "fora")
+            Coleta.fora = False
+            self.ciclo()
+            self.assertEqual(json.loads(enviar.STATUS.read_text())["status"], "ok")
+        finally:
+            enviar.STATUS = None
+
     def test_linha_invalida_e_pulada(self):
         self.escrever(partida("2026-10-24 13:00:00"), b'{"time": "quebr\n', partida("2026-10-24 13:00:01"))
         self.ciclo()
