@@ -6,7 +6,9 @@
 #   <bot>.env    gerado a partir dos dois acima, lido pelo serviço lor-bot@<bot>
 #   coleta.env   o código para enviar as partidas à coleta do time
 #
-#   painel.sh estado                    chave=valor, para o painel
+#   painel.sh estado [--log N]          chave=valor, para o painel (com --log, depois de uma linha
+#                                       "---log---", as últimas N linhas do log: uma chamada só)
+#   painel.sh diagnostico               versão, estado e logs (sem senha nem código), para suporte
 #   painel.sh ligar | desligar | agora | reiniciar
 #   painel.sh conta                     stdin: usuário na 1ª linha, senha na 2ª
 #   painel.sh codigo                    stdin: o código da coleta (conferido na coleta antes de salvar)
@@ -226,6 +228,59 @@ nome_valido() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; }
 # O id do Showdown: só letras minúsculas e números ("Sier VGC" -> siervgc).
 id_showdown() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'; }
 
+# O dia de hoje: vitórias e derrotas da conta, no total e por time, das partidas de hoje no
+# games.jsonl (o bot grava na pasta do dia em que ligou, então olha também a de ontem). Recalcula só
+# quando um dos arquivos muda; senão lê o cache.
+hoje() {
+	local conta
+	conta="$(conf_get conta)"
+	[ -n "$conta" ] || { echo "hoje_vitorias="; return; }
+	python3 -I - "$AIVGC/data/live_games" "$conta" "${LOR_RUN:-/run}/lor-hoje-$BOT_ID.json" 2>/dev/null <<'PY' || echo "hoje_vitorias="
+import json, os, sys, time
+raiz, conta, cache = sys.argv[1], sys.argv[2], sys.argv[3]
+hoje = time.strftime("%Y-%m-%d")
+ontem = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
+arqs = [os.path.join(raiz, d, "games.jsonl") for d in (ontem, hoje)]
+chave = [hoje, conta] + [os.path.getmtime(a) if os.path.exists(a) else 0 for a in arqs]
+try:
+    c = json.load(open(cache))
+    if c.get("chave") != chave:
+        raise ValueError
+except (OSError, ValueError):
+    v = d = 0
+    times = {}
+    for a in arqs:
+        if not os.path.exists(a):
+            continue
+        with open(a, "rb") as f:
+            for linha in f:
+                try:
+                    r = json.loads(linha)
+                except ValueError:
+                    continue
+                if not str(r.get("time", "")).startswith(hoje) or r.get("user") != conta:
+                    continue
+                res = r.get("result")
+                if res not in ("win", "loss"):
+                    continue
+                t = times.setdefault(str(r.get("team") or "?").removeprefix("LOR-"), [0, 0])
+                t[res == "loss"] += 1
+                v += res == "win"
+                d += res == "loss"
+    c = {"chave": chave, "v": v, "d": d, "times": times}
+    try:
+        tmp = cache + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(c, f)
+        os.replace(tmp, cache)
+    except OSError:
+        pass
+print(f"hoje_vitorias={c['v']}")
+print(f"hoje_derrotas={c['d']}")
+print("hoje_times=" + ", ".join(f"{n} {a}-{b}" for n, (a, b) in sorted(c["times"].items(), key=lambda x: -sum(x[1]))))
+PY
+}
+
 desafio_ativo() { [[ "$(estado_unit "$DESAFIO")" =~ ^(active|activating|deactivating)$ ]]; }
 desafio_get() { cat "$DESAFIO_DIR/$1" 2>/dev/null || true; }
 desafio_set() { [ -d "$DESAFIO_DIR" ] && echo "$2" >"$DESAFIO_DIR/$1" || true; }
@@ -265,6 +320,7 @@ estado)
 	echo "partida=$p"
 	placar "$p"
 	elo
+	hoje
 	if desafio_ativo; then
 		echo "desafio=$(desafio_get alvo)"
 		echo "desafio_fase=$(desafio_get fase)"
@@ -272,6 +328,26 @@ estado)
 		echo "desafio="
 		echo "desafio_fase="
 	fi
+	if [ "${1:-}" = --log ] && [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+		echo "---log---"
+		journalctl -u "$UNIT" -u "$DESAFIO" -n "$2" -o cat --no-pager 2>/dev/null || true
+	fi
+	;;
+diagnostico)
+	# Para colar no Discord quando algo dá errado: nada de senha, código da coleta ou token.
+	echo "== LoR Bots $(cat /opt/lor-bots/VERSION 2>/dev/null || echo ?) · $(date '+%Y-%m-%d %H:%M:%S %z')"
+	echo "== estado"
+	bash "$0" estado 2>&1 || true
+	echo "== sistema"
+	uname -r
+	free -m | sed -n 1,2p
+	df -h /opt/lor-bots 2>/dev/null | tail -1
+	echo "== bot (últimas 200 linhas)"
+	journalctl -u "$UNIT" -u "$DESAFIO" -n 200 -o short-iso --no-pager 2>/dev/null || true
+	echo "== envio para a coleta (últimas 20)"
+	journalctl -u lor-envio -n 20 -o short-iso --no-pager 2>/dev/null || true
+	echo "== backup (últimas 10)"
+	journalctl -u lor-backup -n 10 -o short-iso --no-pager 2>/dev/null || true
 	;;
 ligar)
 	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
@@ -560,7 +636,7 @@ backup)
 	echo "ok=backup em $pasta (primeira cópia começando; depois uma vez por dia)"
 	;;
 *)
-	sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
 	exit 1
 	;;
 esac

@@ -1014,11 +1014,19 @@ function Invoke-Painel {
     [pscustomobject]@{ Codigo = $p.ExitCode; Saida = $saida.Trim(); Erro = $erro.Trim() }
 }
 
-function Ler-Estado {
-    $r = Invoke-Painel @('estado')
+function Ler-Estado($Resposta = $null) {
+    # Estado e log numa chamada só ao WSL; a resposta pode vir pronta da consulta em segundo plano.
+    $r = if ($Resposta) { $Resposta } else { Invoke-Painel @('estado', '--log', '80') }
     if ($r.Codigo -ne 0) { throw (($r.Saida + "`n" + $r.Erro).Trim()) }
+    $chaves = $r.Saida
+    $script:logLinhas = $null
+    $i = $chaves.IndexOf('---log---')
+    if ($i -ge 0) {
+        $script:logLinhas = @($chaves.Substring($i + 9).Trim() -split "`n")
+        $chaves = $chaves.Substring(0, $i)
+    }
     $e = @{}
-    foreach ($linha in $r.Saida -split "`n") {
+    foreach ($linha in $chaves -split "`n") {
         $i = $linha.IndexOf('=')
         if ($i -gt 0) { $e[$linha.Substring(0, $i)] = $linha.Substring($i + 1).Trim() }
     }
@@ -1410,6 +1418,7 @@ function Mostrar-Secao([string]$secao) {
         $subtitulos = @{ batalhas = 'Ladder oficial · Regulamento M-C'; times = 'Formato, timer e times das próximas partidas.'; historico = 'Resultados, replays e arquivos locais.'; ajustes = 'Conta do Showdown e envio de partidas.' }
         $lTitulo.Text = $titulos[$secao]
         $lSubtitulo.Text = $subtitulos[$secao]
+        if ($secao -eq 'historico' -and $script:resumoHoje) { $lSubtitulo.Text = $script:resumoHoje }
         foreach ($id in $Navegacao.Keys) { $Navegacao[$id].Selecionado = $id -eq $secao; $Navegacao[$id].Invalidate() }
         if ($secao -eq 'times') {
             $cJogo.SetBounds((S 170), (S 137), (S 834), (S 232))
@@ -1748,7 +1757,8 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
 }
 
 function Atualizar-Atividade {
-    $linhas = (Invoke-Painel @('log', '80')).Saida -split "`n"
+    # O log veio junto com o estado; só sem ele (resposta antiga) pede à parte.
+    $linhas = if ($null -ne $script:logLinhas) { $script:logLinhas } else { (Invoke-Painel @('log', '80')).Saida -split "`n" }
     $eventos = @(Ler-Atividade $linhas $cFiltro.Escolhido | Select-Object -First 4)
     $atividade.Definir([LoR.EventoAtividade[]]$eventos)
     $recentes = @(Ler-Atividade $linhas 'Partidas' | Select-Object -First 3)
@@ -1761,8 +1771,17 @@ function Atualizar-Atividade {
     }
 }
 
-function Atualizar-EstadoTela {
-    $e = Ler-Estado
+# "Hoje: 7V–4D · MC371 4-2, MC196 3-2" (vazio antes da primeira partida do dia).
+function Texto-Hoje($e) {
+    $v = [int]('0' + $e['hoje_vitorias']); $d = [int]('0' + $e['hoje_derrotas'])
+    if ($v + $d -eq 0) { return '' }
+    $t = "Hoje: ${v}V–${d}D"
+    if ($e['hoje_times']) { $t += " · $($e['hoje_times'])" }
+    $t
+}
+
+function Atualizar-EstadoTela($Resposta = $null) {
+    $e = Ler-Estado $Resposta
     # Se o WSL não respondeu na abertura, os seletores ainda estão no padrão: carrega antes de
     # reabilitar o Aplicar, senão ele gravaria BO3/Padrão por cima da configuração salva.
     if (-not $script:opcoesCarregadas) { Carregar-Opcoes }
@@ -1854,6 +1873,78 @@ function Atualizar-EstadoTela {
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
     foreach ($c in @($bAplicar, $bConta, $bCodigo, $bDesafiar)) { $c.Enabled = $true }
+    $script:resumoHoje = Texto-Hoje $e
+    if ($script:secao -eq 'historico') {
+        $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, replays e arquivos locais.' }
+    }
+    Avisar-Bandeja $bot
+}
+
+# Ícone na bandeja do Windows (criado no fim do arquivo, junto do timer): o resumo no tooltip e um
+# aviso quando o bot para com erro, para quem deixou o bot jogando e foi fazer outra coisa.
+function Avisar-Bandeja([string]$bot) {
+    if (-not $script:bandeja) { return }
+    $texto = "LoR Bots: $($lBot.Text)"
+    if ($script:resumoHoje) { $texto += " · $($script:resumoHoje -replace '^Hoje: ', '')" }
+    $script:bandeja.Text = if ($texto.Length -gt 63) { $texto.Substring(0, 62) + '…' } else { $texto }
+    if ($bot -eq 'failed' -and $script:botAnterior -and $script:botAnterior -ne 'failed') {
+        $script:bandeja.ShowBalloonTip(15000, 'LoR Bots: o bot parou com erro',
+            'Abra o painel e veja a atividade. Se precisar de ajuda, use "Copiar diagnóstico" no ícone da bandeja.', 'Warning')
+    }
+    $script:botAnterior = $bot
+}
+
+function Copiar-Diagnostico {
+    $r = Invoke-Painel @('diagnostico')
+    $texto = "Painel $(Versao-Painel) · Windows $([Environment]::OSVersion.Version)`r`n" + (($r.Saida + "`n" + $r.Erro).Trim() -replace "`r?`n", "`r`n")
+    try {
+        [System.Windows.Forms.Clipboard]::SetText($texto)
+        Mensagem 'Diagnóstico copiado (versão, estado e logs, sem senha nem código). Cole no Discord com Ctrl+V para quem for ajudar.'
+    } catch { Mensagem "Não consegui copiar: $($_.Exception.Message)" }
+}
+
+# A consulta do timer roda em segundo plano: o wsl.exe às vezes leva segundos (WSL acordando, PC
+# ocupado) e a janela não pode congelar enquanto isso. O mesmo que o Invoke-Painel faz.
+$ConsultaEstado = {
+    param($distro)
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'wsl.exe'
+    $psi.Arguments = "-d $distro -u root -e /opt/lor-bots/painel.sh estado --log 80"
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = $utf8
+    $psi.StandardErrorEncoding = $utf8
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Close()
+    $erro = $p.StandardError.ReadToEndAsync()
+    $saida = $p.StandardOutput.ReadToEnd()
+    $p.WaitForExit()
+    [pscustomobject]@{ Codigo = $p.ExitCode; Saida = $saida.Trim(); Erro = $erro.Result.Trim() }
+}
+$script:pedido = $null
+
+# Um passo do timer: pede o estado em segundo plano, ou mostra a resposta que chegou.
+function Atualizar-EmSegundoPlano {
+    if (-not $script:pedido) {
+        $ps = [PowerShell]::Create()
+        [void]$ps.AddScript($ConsultaEstado.ToString()).AddArgument($Distro)
+        $script:pedido = @{ PS = $ps; Handle = $ps.BeginInvoke() }
+        return
+    }
+    if (-not $script:pedido.Handle.IsCompleted) { return }
+    $pedido = $script:pedido
+    $script:pedido = $null
+    try {
+        $r = @($pedido.PS.EndInvoke($pedido.Handle))[0]
+        if (-not $r) { throw 'O WSL não respondeu.' }
+        Atualizar-EstadoTela $r
+    } catch {
+        Mostrar-Falha $_.Exception.Message
+    } finally { $pedido.PS.Dispose() }
 }
 
 function Mostrar-Falha([string]$erro) {
@@ -2120,7 +2211,18 @@ function Atualizar-Painel {
     # O Linux numa janela que mostra o progresso; o código de saída diz se deu certo.
     $p = Start-Process wsl.exe -PassThru -ArgumentList "-d $Distro -u root -e env LOR_RAMO=$Ramo /opt/lor-bots/painel.sh atualizar"
     [void]$p.Handle  # guarda o processo, senão o ExitCode volta vazio
-    $p.WaitForExit()
+    # Espera sem congelar a janela (a atualização leva minutos): o timer fica parado e os botões
+    # desligados até ela terminar.
+    $timer.Stop()
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $bDesafiar)) { $c.Enabled = $false }
+    $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
+    $lAtualizar.Enabled = $false
+    while (-not $p.HasExited) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 100
+    }
+    $lAtualizar.Enabled = $true
+    $timer.Start()
     if ($p.ExitCode -ne 0) {
         Remove-Item $novo -ErrorAction SilentlyContinue
         Mensagem ("A atualização do bot parou no meio (código $($p.ExitCode)). O painel continua nesta versão, e o bot " +
@@ -2156,10 +2258,23 @@ $lAtualizar.Add_Click({
 })
 
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 5000
+# Um passo pede e o seguinte mostra: a tela se renova a cada ~5 s, sem esperar o WSL.
+$timer.Interval = 2500
 $timer.Add_Tick({
-    try { Atualizar-Tela } catch { Mostrar-Falha $_.Exception.Message }
+    try { Atualizar-EmSegundoPlano } catch { Mostrar-Falha $_.Exception.Message }
 })
+
+$script:bandeja = New-Object System.Windows.Forms.NotifyIcon
+$script:bandeja.Icon = if ($form.Icon) { $form.Icon } else { [System.Drawing.SystemIcons]::Application }
+$script:bandeja.Text = 'Painel LoR Bots'
+$menuBandeja = New-Object System.Windows.Forms.ContextMenuStrip
+$abrirPainel = { $form.Show(); $form.WindowState = 'Normal'; $form.Activate() }
+[void]$menuBandeja.Items.Add('Abrir o painel', $null, $abrirPainel)
+[void]$menuBandeja.Items.Add('Copiar diagnóstico', $null, { Copiar-Diagnostico })
+$script:bandeja.ContextMenuStrip = $menuBandeja
+$script:bandeja.Add_DoubleClick($abrirPainel)
+$script:bandeja.Add_BalloonTipClicked($abrirPainel)
+$script:bandeja.Visible = $true
 
 $form.Add_Shown({
     $form.Cursor = 'WaitCursor'
@@ -2181,4 +2296,6 @@ $form.Add_Shown({
 
 [void]$form.ShowDialog()
 $timer.Stop()
+$script:bandeja.Visible = $false
+$script:bandeja.Dispose()
 try { $trava.ReleaseMutex() } catch { }

@@ -426,5 +426,42 @@ class TestPainelColeta(TestPainelDesafio):
         self.assertIn("ok=backup-desligado", self.painel("backup", "desligar"))
 
 
+class TestPainelHoje(TestPainelPlacar):
+    """estado: o placar do dia (vitórias e derrotas de hoje, por time) e o log na mesma chamada."""
+
+    def escrever(self, dia: str, *linhas: dict):
+        pasta = self.d / "ai" / "data" / "live_games" / dia
+        pasta.mkdir(exist_ok=True)
+        with open(pasta / "games.jsonl", "a") as f:
+            for linha in linhas:
+                f.write(json.dumps(linha) + "\n")
+
+    def hoje(self) -> dict[str, str]:
+        return dict(x.split("=", 1) for x in self.painel("estado").splitlines() if x.startswith("hoje_"))
+
+    def test_conta_so_hoje_e_a_conta(self):
+        hoje = time.strftime("%Y-%m-%d")
+        ontem = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
+        jogo = {"user": "LoR Bot1", "team": "MC371", "result": "win", "time": f"{hoje} 10:00:00"}
+        # O bot ligou ontem e passou da meia-noite: as partidas de hoje ainda caem na pasta de ontem.
+        self.escrever(ontem, {**jogo, "time": f"{ontem} 23:00:00"}, jogo, {**jogo, "result": "loss"})
+        self.escrever(hoje, {**jogo, "team": "LOR-NiceMeta"}, {**jogo, "user": "Outra"})
+        self.assertEqual(self.hoje(), {"hoje_vitorias": "2", "hoje_derrotas": "1",
+                                       "hoje_times": "MC371 1-1, NiceMeta 1-0"})
+        self.escrever(hoje, {**jogo, "result": "loss"})  # arquivo mudou: recalcula
+        self.assertEqual(self.hoje()["hoje_derrotas"], "2")
+
+    def test_sem_partidas(self):
+        self.assertEqual(self.hoje(), {"hoje_vitorias": "0", "hoje_derrotas": "0", "hoje_times": ""})
+
+    def test_log_na_mesma_chamada(self):
+        (self.d / "aceito").touch()  # o journalctl falso responde "watch: x"
+        saida = self.painel("estado", "--log", "80")
+        chaves, log = saida.split("---log---\n")
+        self.assertIn("bot=active", chaves)
+        self.assertEqual(log.strip(), "watch: x")
+        self.assertNotIn("---log---", self.painel("estado"))
+
+
 if __name__ == "__main__":
     unittest.main()
