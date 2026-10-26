@@ -12,7 +12,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'  # o Invoke-WebRequest fica 10x mais lento com a barra
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Ramo = if ($env:LOR_RAMO) { $env:LOR_RAMO } else { 'main' }  # outra branch so para testes
+# estavel = a main depois que os testes do GitHub passaram nela; outra branch so para testes
+$Ramo = if ($env:LOR_RAMO) { $env:LOR_RAMO } else { 'estavel' }
 $Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
 $Distro = 'LoRBots'
 $Pasta = Join-Path $env:LOCALAPPDATA 'LoRBots'
