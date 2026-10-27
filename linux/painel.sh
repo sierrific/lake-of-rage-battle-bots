@@ -47,6 +47,10 @@ ADAPTA="--change-after-loss --counter-t1 0.5"
 # Peso da política na busca (o bot.sh usa 0.1). Com 0.1 a busca quase nunca contraria a jogada
 # favorita da rede; em 1200 partidas locais de cada lado, 0.03 ganhou 83,5% contra 80,9%.
 BUSCA="--search-prior 0.03"
+# Modelo do oponente da busca ajustado com os jogos da coleta (linux/treino-oponente.py). Só existe
+# no PC onde foi treinado; nos outros a busca segue com o all-bo3-opp-v2 do bot.sh. Em 225 partidas
+# novas, fora do treino: acerta 59,0% da jogada do oponente, contra 55,5% do v2.
+OPONENTE=data/models/lor-opp-v1-tudo.pt
 # Um desafio roda numa unit à parte, que troca o lor-bot@<bot> para --challenge e depois volta.
 # O que ela precisa saber fica em $DESAFIO_DIR: alvo, partidas, fase (esperando = a partida do
 # ladder terminar, aguardando = o adversário aceitar, jogando, cancelando), voltar (1 = religar o
@@ -92,6 +96,7 @@ gerar_env() {
 		modo+=" --use $PADRAO"
 	fi
 	modo+=" --model $MODELO $ADAPTA $BUSCA"
+	if [ -f "$AIVGC/$OPONENTE" ]; then modo+=" --opp-model $OPONENTE"; fi
 	{
 		printf 'BOT="%s"\n' "$conta"
 		printf 'SENHA_ARQUIVO=%s\n' "$SENHA"

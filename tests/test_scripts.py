@@ -318,6 +318,20 @@ class TestPainelTimer(TestPainelDesafio):
         self.assertIn("erro=", self.painel("timer", "talvez", ok=False))
 
 
+class TestPainelOponente(TestPainelDesafio):
+    """O modelo do oponente treinado com a coleta entra só no PC que tem o arquivo."""
+
+    def test_usa_o_modelo_novo_so_se_existir(self):
+        self.env["LOR_AIVGC"] = str(self.d / "ai")
+        self.painel("formato", "bo3")
+        self.assertNotIn("--opp-model", (self.d / "bot.env").read_text())
+        modelo = self.d / "ai/data/models/lor-opp-v1-tudo.pt"
+        modelo.parent.mkdir(parents=True, exist_ok=True)
+        modelo.write_bytes(b"")
+        self.painel("formato", "bo3")
+        self.assertIn("--opp-model data/models/lor-opp-v1-tudo.pt", (self.d / "bot.env").read_text())
+
+
 
 class TestPainelElo(TestPainelDesafio):
     """estado: o Elo da conta no ladder oficial, lido de um cache que se atualiza em segundo plano."""
