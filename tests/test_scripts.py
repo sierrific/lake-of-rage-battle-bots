@@ -198,6 +198,13 @@ class TestPainelDesafio(unittest.TestCase):
         self.dir = d / "lor-desafio-bot"
 
     def tearDown(self):
+        # O "estado" lança em segundo plano (setsid) a consulta do Elo, que pode ainda estar gravando
+        # na pasta: espera ela terminar antes de apagar.
+        for _ in range(50):
+            try:
+                return self.tmp.cleanup()
+            except OSError:
+                time.sleep(0.1)
         self.tmp.cleanup()
 
     def painel(self, *args, entrada="", ok=True, **env) -> str:
