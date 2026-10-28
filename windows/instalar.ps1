@@ -162,10 +162,11 @@ function FaltaEspaco {
 }
 # O WSL guarda a memoria de troca (swap.vhdx, ate 1/4 da RAM) no TEMP do C:. Com o Linux em outro
 # disco por falta de espaco, ela vai junto. Vale para todo o WSL deste usuario, entao so mexe se o
-# .wslconfig ainda nao escolheu um lugar.
+# .wslconfig ainda nao escolheu um lugar. Le e grava em UTF-8 (sem BOM): outros caminhos do
+# arquivo, ou o nosso, podem ter acento (ex.: D:\Joao com til).
 function SwapForaDoC([string]$pastaWsl) {
     $cfg = Join-Path $env:USERPROFILE '.wslconfig'
-    $linhas = @(if (Test-Path $cfg) { Get-Content $cfg })
+    $linhas = @(if (Test-Path $cfg) { [IO.File]::ReadAllLines($cfg) })
     if ($linhas -match '^\s*swapFile\s*=') { return }
     $swap = [IO.Path]::Combine([IO.Path]::GetDirectoryName($pastaWsl.TrimEnd('\')), 'swap.vhdx') -replace '\\', '\\'
     $i = [array]::FindIndex([string[]]$linhas, [Predicate[string]]{ param($l) $l -match '^\s*\[wsl2\]\s*$' })
@@ -175,21 +176,35 @@ function SwapForaDoC([string]$pastaWsl) {
         if ($linhas.Count) { $linhas += '' }
         $linhas = $linhas + '[wsl2]' + "swapFile=$swap"
     }
-    Set-Content -Path $cfg -Value $linhas -Encoding ASCII
+    [IO.File]::WriteAllLines($cfg, [string[]]$linhas, (New-Object Text.UTF8Encoding $false))
 }
-# Muda a distribuicao ja criada para outra pasta (os bots param enquanto isso).
-function MoverDistro([string]$destino) {
+# Muda a distribuicao ja criada para outra pasta (os bots param enquanto isso). A original so e
+# apagada depois de conferir que o disco novo cabe o que vem a seguir.
+function MoverDistro([string]$destino, [string]$origem) {
+    $vhdx = Join-Path $origem 'ext4.vhdx'
+    $tamGB = if (Test-Path $vhdx) { [math]::Ceiling((Get-Item $vhdx).Length / $GB) } else { $PrecisaGB }
+    $disco = Unidade $destino
+    function SemEspaco($precisa) {
+        Falha ("O $disco tem $(LivreGB $disco) GB livres e a mudanca precisa de uns $precisa GB. Nada foi apagado: o Linux dos bots " +
+            "continua em $origem. Libere espaco no $disco (ou escolha outro com `$env:LOR_PASTA_WSL) e rode o instalador de novo.")
+    }
+    if ((LivreGB $disco) -lt $tamGB + 1) { SemEspaco ($tamGB + 1) }
     Passo "Mudando o Linux dos bots para $destino (os bots param por alguns minutos)"
     New-Item -ItemType Directory -Force -Path $destino | Out-Null
     Wsl --terminate $Distro | Out-Null
-    # WSL 2.3 ou mais novo tem o --move pronto.
+    # WSL 2.3 ou mais novo tem o --move pronto (precisa so do tamanho do disco virtual).
     Wsl --manage $Distro --move $destino
     if ($LASTEXITCODE -eq 0) { return }
-    # WSL antigo: exporta para um arquivo no disco novo, apaga a antiga e importa de novo. Se a
+    # WSL antigo: exporta para um arquivo no disco novo, apaga a antiga e importa de novo. O .tar e
+    # o disco virtual novo ficam juntos no destino por um tempo, entao precisa do dobro. Se a
     # importacao falhar, o arquivo fica la e o instalador o usa na proxima vez (ver passo 2).
+    if ((LivreGB $disco) -lt 2 * $tamGB + 1) { SemEspaco (2 * $tamGB + 1) }
     $tar = Join-Path $destino 'LoRBots-exportado.tar'
     Wsl --export $Distro $tar
     if ($LASTEXITCODE -ne 0) { Remove-Item $tar -ErrorAction SilentlyContinue; Falha 'Nao consegui copiar o Linux dos bots para o outro disco. Nada foi apagado; rode o instalador de novo.' }
+    # O disco virtual novo ocupa mais ou menos o tamanho do .tar: confere de novo com o .tar pronto.
+    $tarGB = [math]::Ceiling((Get-Item $tar).Length / $GB)
+    if ((LivreGB $disco) -lt $tarGB + 1) { Remove-Item $tar -ErrorAction SilentlyContinue; SemEspaco (2 * $tarGB + 1) }
     Wsl --unregister $Distro | Out-Null
     Wsl --import $Distro $destino $tar --version 2
     if ($LASTEXITCODE -ne 0) { Falha "Nao consegui terminar a mudanca de disco. A copia esta em ${tar}; rode o instalador de novo que ele a usa." }
@@ -230,7 +245,7 @@ if ($atual) {
         if ($destino -and (Unidade $destino) -eq $Sistema) { $destino = $null }
     }
     if ($destino) {
-        MoverDistro $destino
+        MoverDistro $destino $atual
         if ((Unidade $destino) -ne $Sistema) { SwapForaDoC $destino }
     }
 }

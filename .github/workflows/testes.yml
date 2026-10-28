@@ -46,6 +46,24 @@ jobs:
           if ($t -ne '[wsl2]|swapFile=E:\\LoRBots\\swap.vhdx|memory=4GB|[experimental]|x=1') { throw "existente: $t" }
           SwapForaDoC 'F:\LoRBots\wsl'
           if (((Get-Content $cfg) -join '|') -ne $t) { throw 'mexeu num swapFile que ja existia' }
+          # Acentos (no nosso caminho e no que ja estava no arquivo) sobrevivem; o arquivo fica UTF-8.
+          $jo = 'Jo' + [char]0x00E3 + 'o'
+          [IO.File]::WriteAllText($cfg, "[wsl2]`r`nkernel=C:\\$jo\\kernel`r`n", (New-Object Text.UTF8Encoding $false))
+          SwapForaDoC "D:\$jo\LoRBots\wsl"
+          $t = [IO.File]::ReadAllLines($cfg) -join '|'
+          if ($t -ne "[wsl2]|swapFile=D:\\$jo\\LoRBots\\swap.vhdx|kernel=C:\\$jo\\kernel") { throw "acento: $t" }
+          $b = [IO.File]::ReadAllBytes($cfg)
+          if ($b[0] -eq 0xEF) { throw 'gravou BOM no .wslconfig' }
+          if ([Text.Encoding]::UTF8.GetString($b) -notmatch $jo) { throw 'nao gravou em UTF-8' }
+          # Sem espaco no destino, a mudanca para antes de mexer na distribuicao.
+          function Wsl { throw "chamou o wsl: $args" }
+          function Falha($texto) { throw "FALHA: $texto" }
+          function Passo($texto) { }
+          $orig = "$env:RUNNER_TEMP\orig"; New-Item -ItemType Directory -Force $orig | Out-Null
+          $PrecisaGB = 1000000  # sem ext4.vhdx, o tamanho estimado e $PrecisaGB: nenhum disco cabe
+          try { MoverDistro "$env:SystemDrive\nao-cabe\wsl" $orig; throw 'devia ter falhado' }
+          catch { if ("$_" -notmatch '^FALHA: .*Nada foi apagado') { throw "mudanca sem espaco: $_" } }
+          if (Test-Path "$env:SystemDrive\nao-cabe") { throw 'criou a pasta antes de conferir o espaco' }
       - name: Painel nativo (PowerShell 5.1, C# 5, layouts, temas e comandos simulados)
         shell: powershell
         run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_panel_ui.ps1 -OutputDirectory "$env:RUNNER_TEMP/lor-panel-ui"
