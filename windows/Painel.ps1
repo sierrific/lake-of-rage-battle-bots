@@ -1335,6 +1335,15 @@ $lCodigo.Alinhar = [System.Windows.Forms.TextFormatFlags]'WordBreak, VerticalCen
 $lColetaAjuda = Novo-Rotulo 'As partidas alimentam o treino do time e o canal do Discord.' 20 166 373 44 $cColeta 'suave' 10
 $lColetaAjuda.Alinhar = [System.Windows.Forms.TextFormatFlags]'WordBreak'
 $bCodigo = Novo-Botao 'Salvar código' 'Neutro' '' 242 228 151 38 $cColeta
+# Postar as séries deste PC no Discord do time; desligado, as partidas ainda vão para o treino.
+$xDiscord = New-Object LoR.Chave
+$xDiscord.FundoNome = 'cartao'
+$xDiscord.Marcado = $true
+$xDiscord.AccessibleName = 'Postar as partidas no Discord'
+[void](Pos $xDiscord 20 237 36 20 $cColeta)
+$lDiscord = Novo-Rotulo 'Postar no Discord' 66 230 166 34 $cColeta 'texto' 9.5
+$lDiscord.Cursor = 'Hand'
+$ttTema.SetToolTip($lDiscord, 'Desligado, as partidas continuam indo para o treino do time, mas não aparecem no canal.')
 
 $cTimesAjuda = Novo-Cartao 'Gerenciar seus times' '' 170 384 834 180
 $r = Novo-Rotulo "Adicionar time: cole um link do pokepast.es ou o export do Showdown. O conteúdo é validado antes de salvar.`n`nPara trocar, escolha o time na lista e aplique. O bot conclui a partida ou série atual antes de usar a nova configuração." 20 51 794 109 $cTimesAjuda 'suave' 11
@@ -1404,6 +1413,7 @@ function Mostrar-Secao([string]$secao) {
         $lTitulo.Visible = $true
         $lSubtitulo.Visible = $true
         $lColetaAjuda.Visible = $true
+        $lDiscord.Alinhar = [System.Windows.Forms.TextFormatFlags]'Left, VerticalCenter'
         $lConfigStatus.Visible = $true
         $lateral.Visible = $true
         foreach ($c in $lateral.Controls) { $c.Visible = $true }
@@ -1578,6 +1588,9 @@ function Aplicar-Layout {
         $pCodigo.SetBounds((S 22), (S 88), (S 8), (S 8))
         $lCodigo.SetBounds((S 40), (S 84), (S 535), (S 16))
         $lColetaAjuda.Visible = $false
+        $lDiscord.SetBounds((S 330), (S 10), (S 199), (S 30))
+        $lDiscord.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
+        $xDiscord.SetBounds((S 539), (S 15), (S 36), (S 20))
         $cLog.SetBounds((S 13), (S 517), (S 998), (S 123))
     }
     if ($script:secao -eq 'batalhas') {
@@ -1872,7 +1885,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, replays e arquivos locais.' }
@@ -1958,7 +1971,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -1971,6 +1984,7 @@ function Carregar-Opcoes {
     $e = Ler-Estado
     $cFormato.Indice = if ($e['formato'] -eq 'bo1') { 1 } else { 0 }
     $cTimer.Indice = if ($e['timer'] -eq 'nao') { 1 } else { 0 }
+    $xDiscord.Marcado = $e['discord'] -ne 'nao'
     $cTime.Itens.Clear()
     $cTime.Itens.Add('Padrão (MC371/MC196)')
     foreach ($t in ((Invoke-Painel @('times')).Saida -split "`n")) { if ($t.Trim()) { $cTime.Itens.Add($t.Trim()) } }
@@ -2016,6 +2030,17 @@ $bCodigo.Add_Click({
     }
     Atualizar-Tela
 })
+
+# Vale já para a próxima partida enviada à coleta, sem reiniciar o bot.
+function Mudar-Discord {
+    $v = if ($xDiscord.Marcado) { 'sim' } else { 'nao' }
+    if (Resultado (Invoke-Painel @('discord', $v)) '') {
+        if ($xDiscord.Marcado) { Mensagem 'As próximas partidas deste PC voltam a ser postadas no Discord.' }
+        else { Mensagem 'As próximas partidas deste PC não serão postadas no Discord. Elas continuam indo para o treino do time.' }
+    } else { $xDiscord.Marcado = -not $xDiscord.Marcado }
+}
+$xDiscord.add_Mudou({ Mudar-Discord })
+$lDiscord.Add_Click({ if ($xDiscord.Enabled) { $xDiscord.Marcado = -not $xDiscord.Marcado; Mudar-Discord } })
 
 $bAplicar.Add_Click({
     $f = if ($cFormato.Indice -eq 1) { 'bo1' } else { 'bo3' }
@@ -2214,7 +2239,7 @@ function Atualizar-Painel {
     # Espera sem congelar a janela (a atualização leva minutos): o timer fica parado e os botões
     # desligados até ela terminar.
     $timer.Stop()
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {

@@ -54,6 +54,9 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   fim. Se ninguém aceitar em 5 minutos, o desafio é cancelado. O mesmo botão vira **Cancelar desafio**.
 - **Atualizar**: quando sai versão nova aqui no GitHub, o botão fica amarelo. Um clique baixa a
   versão nova do bot e do painel.
+- **Postar no Discord** (em Ajustes, no cartão da coleta): desligado, as séries deste PC não aparecem
+  no canal do Discord, mas as partidas continuam indo para a coleta e o treino. Vale já para a
+  próxima partida, sem reiniciar o bot.
 - **Ligar o bot junto com o Windows**.
 - Enquanto o bot está ligado, o PC **não entra em suspensão** sozinho (com o PC dormindo, o timer da
   partida corre e o bot perde). A tela ainda apaga normalmente. Num notebook, fechar a tampa segue a

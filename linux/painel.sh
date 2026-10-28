@@ -14,6 +14,8 @@
 #   painel.sh codigo                    stdin: o código da coleta (conferido na coleta antes de salvar)
 #   painel.sh formato bo3|bo1
 #   painel.sh timer sim|nao             o bot liga o timer no começo de cada partida (padrão: sim)
+#   painel.sh discord sim|nao           as séries deste PC são postadas no Discord do time (padrão:
+#                                       sim); com nao, as partidas seguem indo para a coleta e o treino
 #   painel.sh time top3|<nome>       top3 = o padrão (MC371 ou MC196)
 #   painel.sh times                     os times salvos (um por linha)
 #   painel.sh adicionar-time            stdin: nome na 1ª linha; depois o export do Showdown
@@ -67,6 +69,9 @@ COLETA_PING="${LOR_COLETA_PING:-https://showdown.sierverso.com.br/coleta/ping}"
 # Como foi o último contato do envio com a coleta (ok, codigo = código recusado, fora), gravado pelo
 # enviar-partidas.py.
 COLETA_STATUS="$AIVGC/data/live_games/.coleta-status"
+# Existe = não postar no Discord: o enviar-partidas.py marca as partidas que manda com "discord":
+# false (vale para todos os bots deste PC; a coleta continua recebendo tudo).
+SEM_DISCORD="$ETC/sem-discord"
 
 [ "$(id -u)" -eq 0 ] || { echo "erro=rode como root" >&2; exit 1; }
 
@@ -313,6 +318,7 @@ estado)
 	echo "time=${t:-top3}"
 	tm="$(conf_get timer)"
 	echo "timer=${tm:-sim}"
+	echo "discord=$([ -e "$SEM_DISCORD" ] && echo nao || echo sim)"
 	mem=$(systemctl show -p MemoryCurrent --value "$UNIT" 2>/dev/null || true)
 	[[ "$mem" =~ ^[0-9]+$ ]] && echo "memoria_mb=$((mem / 1024 / 1024))" || echo "memoria_mb="
 	# A batalha em andamento: a última anunciada no log ("watch: https://play.pokemonshowdown.com/battle-..."),
@@ -469,6 +475,15 @@ timer)
 	conf_set timer "$1"
 	gerar_env
 	echo ok=timer
+	;;
+discord)
+	# Vale já para a próxima partida enviada, sem reiniciar o bot nem o envio.
+	case "${1:-}" in
+	sim) rm -f "$SEM_DISCORD" ;;
+	nao) touch "$SEM_DISCORD" && chmod 644 "$SEM_DISCORD" ;;
+	*) echo "erro=use sim ou nao"; exit 1 ;;
+	esac
+	echo ok=discord
 	;;
 time)
 	t="${1:-top3}"

@@ -198,6 +198,13 @@ class TestPainelDesafio(unittest.TestCase):
         self.dir = d / "lor-desafio-bot"
 
     def tearDown(self):
+        # O "estado" lança em segundo plano (setsid) a consulta do Elo, que pode ainda estar gravando
+        # na pasta: espera ela terminar antes de apagar.
+        for _ in range(50):
+            try:
+                return self.tmp.cleanup()
+            except OSError:
+                time.sleep(0.1)
         self.tmp.cleanup()
 
     def painel(self, *args, entrada="", ok=True, **env) -> str:
@@ -316,6 +323,22 @@ class TestPainelTimer(TestPainelDesafio):
         self.painel("timer", "sim")
         self.assertNotIn("--no-timer", (self.d / "bot.env").read_text())
         self.assertIn("erro=", self.painel("timer", "talvez", ok=False))
+
+
+class TestPainelDiscord(TestPainelDesafio):
+    """discord sim|nao: o arquivo que o enviar-partidas.py lê para marcar as partidas."""
+
+    def test_discord_liga_por_padrao_e_desliga(self):
+        self.assertIn("discord=sim", self.painel("estado").splitlines())
+        self.assertIn("ok=discord", self.painel("discord", "nao"))
+        self.assertTrue((self.d / "sem-discord").exists())
+        self.assertIn("discord=nao", self.painel("estado").splitlines())
+        self.painel("discord", "nao")  # repetir não dá erro
+        self.painel("discord", "sim")
+        self.assertFalse((self.d / "sem-discord").exists())
+        self.assertIn("discord=sim", self.painel("estado").splitlines())
+        self.painel("discord", "sim")
+        self.assertIn("erro=", self.painel("discord", "talvez", ok=False))
 
 
 class TestPainelOponente(TestPainelDesafio):

@@ -71,6 +71,7 @@ class TestEnvio(unittest.TestCase):
         self.jsonl = self.raiz / "2026-10-24" / "games.jsonl"
         self.estado_arq = self.raiz / ".coleta-enviado"
         self.estado = {"desde": "2026-10-24 12:00:00", "enviados": {}}
+        enviar.SEM_DISCORD = self.raiz / "sem-discord"  # nunca o /etc/lor-bots do PC dos testes
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -98,6 +99,18 @@ class TestEnvio(unittest.TestCase):
         self.assertEqual(self.pos(), self.jsonl.stat().st_size)
         self.ciclo()  # nada novo: não reenvia
         self.assertEqual(len(self.todas()), 2)
+
+    def test_discord_desligado_marca_as_partidas(self):
+        self.escrever(partida("2026-10-24 13:00:00"))
+        self.ciclo()
+        enviar.SEM_DISCORD.touch()  # painel.sh discord nao: vale no ciclo seguinte, sem reiniciar
+        self.escrever(partida("2026-10-24 11:00:00"), partida("2026-10-24 13:00:01"))
+        self.ciclo()
+        enviar.SEM_DISCORD.unlink()
+        self.escrever(partida("2026-10-24 13:00:02"))
+        self.ciclo()
+        self.assertEqual([p.get("discord", True) for p in self.todas()], [True, False, False, True])
+        self.assertEqual([p.get("antigo", False) for p in self.todas()], [False, True, False, False])
 
     def test_lotes_limitados(self):
         self.escrever(*[partida("2026-10-24 13:00:00", 400_000) for _ in range(20)])  # ~8 MB
