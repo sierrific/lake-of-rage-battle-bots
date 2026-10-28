@@ -504,13 +504,27 @@ if __name__ == "__main__":
     unittest.main()
 
 
-# Um systemctl que guarda o estado dos bots em $D/estado-<bot> e anota tudo em $D/log.
+# Um systemctl que guarda o estado dos bots em $D/estado-<bot> e anota tudo em $D/log. Um desafio
+# ($D/desafio = quantas consultas ele ainda dura) termina como o do painel.sh: liga o bot de volta
+# só se $D/voltar for 1.
 SYSTEMCTL_ATUALIZAR = r'''#!/usr/bin/env bash
 echo "systemctl $*" >>"$D/log"
+estados=",active,activating,deactivating,"
+for a in "$@"; do [[ "$a" == --state=* ]] && estados=",${a#--state=},"; done
 case "$1" in
   list-units)
     if [[ "$*" == *"lor-bot@*"* ]]; then
-      for f in "$D"/estado-*; do [ "$(cat "$f")" = active ] && echo "lor-bot@${f##*/estado-}.service loaded active running x"; done
+      for f in "$D"/estado-*; do
+        [[ "$estados" == *",$(cat "$f"),"* ]] && echo "lor-bot@${f##*/estado-}.service loaded $(cat "$f") running x"
+      done
+    elif [[ "$*" == *"lor-desafio-*"* ]] && [ -f "$D/desafio" ]; then
+      n=$(cat "$D/desafio")
+      if ((n > 0)); then
+        echo $((n - 1)) >"$D/desafio"; echo "lor-desafio-bot.service loaded active running x"
+      else
+        rm "$D/desafio"
+        [ "$(cat "$D/voltar")" = 1 ] && echo active >"$D/estado-bot" || echo inactive >"$D/estado-bot"
+      fi
     fi ;;
   stop) for u in "${@:2}"; do [[ "$u" == lor-bot@* ]] && { b="${u#lor-bot@}"; echo inactive >"$D/estado-${b%.service}"; }; done ;;
   start) b="${2#lor-bot@}"; echo active >"$D/estado-${b%.service}" ;;
@@ -555,7 +569,7 @@ class TestAtualizar(unittest.TestCase):
         (d / "estado-bot").write_text("active")
         self.d = d
         self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "D": str(d),
-                    "LOR_DIR": str(self.opt), "LOR_RUN": str(d)}
+                    "LOR_DIR": str(self.opt), "LOR_RUN": str(d), "LOR_ESPERA": "0"}
         # Instalado: a versão 1, com a marca do que ela instalou.
         self.versao("1", patch="patch 1")
         self.atualizar("--forcar")
@@ -606,6 +620,38 @@ class TestAtualizar(unittest.TestCase):
         self.versao("2", patch="patch 2")
         self.assertEqual(self.atualizar().returncode, 0)
         self.assertFalse(any("start lor-bot@" in x or "painel" in x for x in self.chamadas()))
+
+    def test_bot_desligando_e_esperado_e_nao_religa(self):
+        # Desligar no painel: o bot termina a série (deactivating) ainda usando o Ai-vgc instalado.
+        (self.d / "estado-bot").write_text("deactivating")
+        self.versao("2", patch="patch 2")
+        r = self.atualizar()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        c = self.chamadas()
+        self.assertLess(c.index("systemctl stop lor-bot@bot.service"), c.index("instalar 2 bot=inactive"), c)
+        self.assertFalse(any("start lor-bot@" in x or "painel" in x for x in c), c)
+        self.assertEqual((self.d / "estado-bot").read_text().strip(), "inactive")
+
+    def test_desafio_volta_ao_ladder_so_se_ele_estava_ligado(self):
+        for voltar, fim in (("0", "inactive"), ("1", "active")):
+            with self.subTest(voltar=voltar):
+                (self.d / "log").unlink(missing_ok=True)
+                self.setUp_versao_instalada()
+                (self.d / "estado-bot").write_text("active")  # jogando o desafio
+                (self.d / "desafio").write_text("2")
+                (self.d / "voltar").write_text(voltar)
+                self.versao("3" + voltar, patch="patch novo " + voltar)
+                r = self.atualizar()
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                c = self.chamadas()
+                self.assertIn(f"instalar 3{voltar} bot=inactive", c)
+                self.assertEqual((self.d / "estado-bot").read_text().strip(), fim, c)
+
+    def setUp_versao_instalada(self):
+        # Volta a ter a versão 1 instalada (o subTest anterior instalou outra).
+        self.versao("1", patch="patch 1")
+        self.assertEqual(self.atualizar("--forcar").returncode, 0)
+        (self.d / "log").unlink(missing_ok=True)
 
     def test_falha_no_meio_volta_para_a_versao_anterior(self):
         for patch in ("patch 1", "patch 2"):

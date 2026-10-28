@@ -32,7 +32,23 @@ rm -rf "$FONTE.novo"
 mkdir -p "$FONTE.novo"
 curl -fsSL --max-time 300 "$REPO/archive/refs/heads/$RAMO.tar.gz" | tar xz -C "$FONTE.novo" --strip-components 1
 
-# Bots ligados agora (ou com um "Aplicar" esperando para religar): são os que voltam no fim.
+# Mesma conta do instalar.sh: muda quando muda o que um bot jogando usa.
+impressao() { cat "$1/linux/instalar.sh" "$1/linux/ai-vgc-lor.patch" | sha256sum | cut -d' ' -f1; }
+parar=0
+if [ "$(cat "$DIR/.lor-runtime" 2>/dev/null)" != "$(impressao "$FONTE.novo")" ]; then
+	parar=1
+fi
+
+if [ "$parar" = 1 ]; then
+	# Um desafio liga e desliga o bot por conta própria e, no fim, só volta ao ladder se ele estava
+	# ligado antes: espera ele acabar, e aí o estado do bot é o que o membro escolheu.
+	while systemctl list-units --plain --no-legend --state=active,activating,deactivating 'lor-desafio-*' | grep -q .; do
+		echo "==> Esperando o desafio em andamento terminar antes de atualizar..."
+		sleep "${LOR_ESPERA:-30}"
+	done
+fi
+
+# Bots ligados (ou com um "Aplicar" esperando para religar): são os que voltam no fim.
 ativos=()
 for unit in $(systemctl list-units --plain --no-legend --state=active,activating 'lor-bot@*' | awk '{print $1}'); do
 	unit="${unit#lor-bot@}"
@@ -42,13 +58,14 @@ for unit in $(systemctl list-units --plain --no-legend 'lor-reinicio-*' | awk '{
 	bot="$(sed -E 's/^lor-reinicio-(.*)-[0-9]+\.service$/\1/' <<<"$unit")"
 	[[ " ${ativos[*]} " == *" $bot "* ]] || ativos+=("$bot")
 done
-
-# Mesma conta do instalar.sh: muda quando muda o que um bot jogando usa.
-impressao() { cat "$1/linux/instalar.sh" "$1/linux/ai-vgc-lor.patch" | sha256sum | cut -d' ' -f1; }
-parar=0
-if [ "$(cat "$DIR/.lor-runtime" 2>/dev/null)" != "$(impressao "$FONTE.novo")" ]; then
-	parar=1
-fi
+# Bots desligando (Desligar no painel: terminam a série, até ~45 min): ainda jogam com o que está
+# instalado, então também são esperados, mas continuam desligados no fim.
+parando=()
+for unit in $(systemctl list-units --plain --no-legend --state=deactivating 'lor-bot@*' | awk '{print $1}'); do
+	unit="${unit#lor-bot@}"
+	bot="${unit%.service}"
+	[[ " ${ativos[*]} " == *" $bot "* ]] || parando+=("$bot")
+done
 
 religar() {
 	# Depois da troca: reiniciar refaz o .env do bot com o painel novo; parado, ele só liga de novo.
@@ -59,19 +76,15 @@ religar() {
 	systemctl try-restart lor-envio || true
 }
 
-if [ "$parar" = 1 ] && ((${#ativos[@]})); then
+if [ "$parar" = 1 ] && ((${#ativos[@]} + ${#parando[@]})); then
 	echo "==> Esta versão muda o Ai-vgc, as dependências ou o simulador: os bots terminam a partida/série"
-	echo "    atual e param antes da instalação (numa série Bo3 longa, até ~40 min); depois voltam sozinhos."
-	# Um desafio religaria o bot no meio da instalação: espera ele acabar.
-	while systemctl list-units --plain --no-legend --state=active,activating 'lor-desafio-*' | grep -q .; do
-		echo "    esperando o desafio em andamento terminar..."
-		sleep 30
-	done
+	echo "    atual e param antes da instalação (numa série Bo3 longa, até ~40 min); os que estavam"
+	echo "    ligados voltam sozinhos."
 	for unit in $(systemctl list-units --plain --no-legend 'lor-reinicio-*' | awk '{print $1}'); do
 		systemctl stop "$unit" || true
 	done
 	unidades=()
-	for bot in "${ativos[@]}"; do unidades+=("lor-bot@$bot.service"); done
+	for bot in "${ativos[@]}" "${parando[@]}"; do unidades+=("lor-bot@$bot.service"); done
 	systemctl stop "${unidades[@]}"
 	echo "    bots parados"
 fi
@@ -89,8 +102,8 @@ if ! bash "$FONTE/linux/instalar.sh"; then
 		mv "$FONTE.anterior" "$FONTE"
 		# A volta mexe no que um bot jogando usa se a nova chegou a mexer: com os bots parados.
 		[ "$(cat "$DIR/.lor-runtime" 2>/dev/null)" = "$(impressao "$FONTE")" ] || parar=1
-		if [ "$parar" = 1 ] && ((${#ativos[@]})); then
-			for bot in "${ativos[@]}"; do systemctl stop "lor-bot@$bot.service" || true; done
+		if [ "$parar" = 1 ]; then
+			for bot in "${ativos[@]}" "${parando[@]}"; do systemctl stop "lor-bot@$bot.service" || true; done
 		fi
 		if bash "$FONTE/linux/instalar.sh"; then
 			echo "==> Voltou para $atual."
