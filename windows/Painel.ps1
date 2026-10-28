@@ -1213,12 +1213,15 @@ $lNavConta.FundoNome = 'log'
 $lNavEstado = Novo-Rotulo 'Configure em Ajustes' 18 539 118 23 $lateral 'suave' 8.5
 $lNavEstado.FundoNome = 'log'
 
-$lTitulo = Novo-Rotulo 'Central de batalhas' 170 76 610 34 $form 'texto' 18 $true
+$lTitulo = Novo-Rotulo 'Central de batalhas' 170 76 426 34 $form 'texto' 18 $true
 $lTitulo.FundoNome = 'fundo'
-$lSubtitulo = Novo-Rotulo 'Ladder oficial · Regulamento M-C' 170 111 630 22 $form 'suave' 9.5
+$lSubtitulo = Novo-Rotulo 'Ladder oficial · Regulamento M-C' 170 111 426 22 $form 'suave' 9.5
 $lSubtitulo.FundoNome = 'fundo'
 $bDesafiar = Novo-Botao 'Desafiar jogador' 'Neutro' ([string][char]0xE7C1) 812 82 192 38 $form
 $bDesafiar.FundoNome = 'fundo'
+# Atalho direto para os replays do bot no Showdown, à vista em qualquer seção.
+$bReplays = Novo-Botao 'Histórico de partidas' 'Neutro' ([string][char]0xE81C) 608 82 192 38 $form
+$bReplays.FundoNome = 'fundo'
 
 # Partida atual: a identidade, o placar e os comandos não disputam a mesma linha.
 $cStatus = Novo-Cartao '' '' 170 137 520 270
@@ -1412,6 +1415,7 @@ function Mostrar-Secao([string]$secao) {
         $bAbrirHistorico.Text = 'Ver histórico e replays'
         $lTitulo.Visible = $true
         $lSubtitulo.Visible = $true
+        $bReplays.Visible = $true
         $lColetaAjuda.Visible = $true
         $lDiscord.Alinhar = [System.Windows.Forms.TextFormatFlags]'Left, VerticalCenter'
         $lConfigStatus.Visible = $true
@@ -1504,10 +1508,11 @@ function Aplicar-Layout {
         foreach ($c in $lateral.Controls) { $c.Visible = $c -is [LoR.Botao] }
         $i = 0
         foreach ($n in $Navegacao.Values) { $n.SetBounds((S (20 + $i * 160)), (S 4), (S 145), (S 40)); $i++ }
-        $lTitulo.SetBounds((S 22), (S 116), (S 750), (S 34))
+        $lTitulo.SetBounds((S 22), (S 116), (S 570), (S 34))
         if ($script:secao -eq 'batalhas') { $lTitulo.Text = 'Arena de batalhas' }
-        $lSubtitulo.SetBounds((S 22), (S 151), (S 750), (S 22))
+        $lSubtitulo.SetBounds((S 22), (S 151), (S 570), (S 22))
         $bDesafiar.SetBounds((S 812), (S 122), (S 192), (S 38))
+        $bReplays.SetBounds((S 608), (S 122), (S 192), (S 38))
         if ($script:secao -eq 'batalhas') {
             $cStatus.SetBounds((S 22), (S 181), (S 612), (S 270))
             $lBot.Width = S 548
@@ -1545,7 +1550,8 @@ function Aplicar-Layout {
         }
     } else {
         # Painel refinado mantém tudo na mesma tela, com a densidade do painel clássico.
-        $lateral.Visible = $false; $lTitulo.Visible = $false; $lSubtitulo.Visible = $false
+        # Sem cabeçalho aqui: o botão Histórico do cartão de atividade já abre os replays.
+        $lateral.Visible = $false; $lTitulo.Visible = $false; $lSubtitulo.Visible = $false; $bReplays.Visible = $false
         $cResumoColeta.Visible = $false; $cResumoConta.Visible = $false
         $cConta.Visible = $true; $cColeta.Visible = $true
         $cStatus.SetBounds((S 13), (S 69), (S 998), (S 150))
@@ -2185,6 +2191,7 @@ $bHistorico.Add_Click({
     if ($conta) { Start-Process ('https://replay.pokemonshowdown.com/?user=' + [Uri]::EscapeDataString($conta)) }
     else { Start-Process explorer.exe "\\wsl$\$Distro\opt\lor-bots\ai-vgc\data\live_games" }
 })
+$bReplays.Add_Click({ $bHistorico.PerformClick() })
 $bPastaPartidas.Add_Click({ Start-Process explorer.exe "\\wsl$\$Distro\opt\lor-bots\ai-vgc\data\live_games" })
 
 $cFiltro.add_Escolheu({ $tLog.Caixa.Text = ''; Atualizar-Tela })
