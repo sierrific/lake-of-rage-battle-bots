@@ -192,7 +192,7 @@ function MoverDistro([string]$destino) {
     if ($LASTEXITCODE -ne 0) { Remove-Item $tar -ErrorAction SilentlyContinue; Falha 'Nao consegui copiar o Linux dos bots para o outro disco. Nada foi apagado; rode o instalador de novo.' }
     Wsl --unregister $Distro | Out-Null
     Wsl --import $Distro $destino $tar --version 2
-    if ($LASTEXITCODE -ne 0) { Falha "Nao consegui terminar a mudanca de disco. A copia esta em $tar: rode o instalador de novo que ele a usa." }
+    if ($LASTEXITCODE -ne 0) { Falha "Nao consegui terminar a mudanca de disco. A copia esta em ${tar}; rode o instalador de novo que ele a usa." }
     Remove-Item $tar
 }
 
