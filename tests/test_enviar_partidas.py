@@ -4,7 +4,9 @@
 """
 
 import importlib.util
+import itertools
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -19,8 +21,13 @@ spec.loader.exec_module(enviar)
 MB = 1024 * 1024
 
 
+TAG = re.compile(r"^battle-[a-z0-9-]{1,120}$")  # o da coleta (LOR-SD-Server coleta/coleta.py)
+_numero = itertools.count(1)
+
+
 class Coleta(BaseHTTPRequestHandler):
-    """Como a coleta da VPS: recusa (413) envios acima de 4 MB; `fora` simula a VPS caída."""
+    """Como a coleta da VPS: recusa (413) envios acima de 4 MB e (400) o envio inteiro se uma linha
+    não for um objeto JSON com tag battle-...; `fora` simula a VPS caída."""
 
     recebidos: list[list[dict]] = []
     fora = False
@@ -32,7 +39,12 @@ class Coleta(BaseHTTPRequestHandler):
             return self._responder(503, {"erro": "fora"})
         if tamanho > enviar.LIMITE:
             return self._responder(413, {"erro": "grande"})
-        linhas = [json.loads(x) for x in corpo.splitlines() if x.strip()]
+        try:
+            linhas = [json.loads(x) for x in corpo.splitlines() if x.strip()]
+        except ValueError:
+            return self._responder(400, {"erro": "linha que não é JSON"})
+        if not all(isinstance(x, dict) and TAG.match(str(x.get("tag", ""))) for x in linhas):
+            return self._responder(400, {"erro": "cada linha precisa de um tag battle-..."})
         Coleta.recebidos.append(linhas)
         self._responder(200, {"recebidas": len(linhas), "novas": len(linhas)})
 
@@ -48,7 +60,8 @@ class Coleta(BaseHTTPRequestHandler):
 
 
 def partida(hora: str, tamanho: int = 100) -> bytes:
-    return json.dumps({"time": hora, "log": "x" * tamanho}).encode() + b"\n"
+    tag = f"battle-gen9vgc2026regmc-{next(_numero)}"
+    return json.dumps({"time": hora, "tag": tag, "log": "x" * tamanho}).encode() + b"\n"
 
 
 class TestEnvio(unittest.TestCase):
@@ -181,6 +194,19 @@ class TestEnvio(unittest.TestCase):
         self.ciclo()
         self.assertEqual(len(self.todas()), 2)
         self.assertEqual(self.pos(), self.jsonl.stat().st_size)
+
+    def test_linha_sem_formato_de_partida_vai_para_quarentena(self):
+        # A coleta recusaria o lote inteiro; antes, [] ou null derrubavam o envio no mesmo ponto.
+        ruins = [b"[]\n", b"null\n", b'"texto"\n', b"42\n", b'{"time": "2026-10-24 13:00:00", "log": "x"}\n',
+                 b'{"tag": "outra-coisa", "log": "x"}\n']
+        self.escrever(partida("2026-10-24 13:00:00"), *ruins, partida("2026-10-24 13:00:01"))
+        self.ciclo()
+        self.assertEqual([p["time"] for p in self.todas()], ["2026-10-24 13:00:00", "2026-10-24 13:00:01"])
+        self.assertEqual(self.pos(), self.jsonl.stat().st_size)
+        guardadas = sorted((self.raiz / ".coleta-quarentena").iterdir(), key=lambda g: int(g.name.rsplit("-", 1)[1]))
+        self.assertEqual([g.read_bytes() for g in guardadas], ruins)
+        self.ciclo()  # e não volta a elas
+        self.assertEqual(len(self.todas()), 2)
 
     def test_registro_corrompido(self):
         self.escrever(partida("2026-10-24 13:00:00"))

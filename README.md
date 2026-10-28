@@ -53,7 +53,9 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   (ou série) atual do ladder, desafia no formato e com o time escolhidos, e volta ao ladder no
   fim. Se ninguém aceitar em 5 minutos, o desafio é cancelado. O mesmo botão vira **Cancelar desafio**.
 - **Atualizar**: quando sai versão nova aqui no GitHub, o botão fica amarelo. Um clique baixa a
-  versão nova do bot e do painel.
+  versão nova do bot e do painel. O bot que estava jogando termina a partida/série antes de reiniciar;
+  quando a versão muda o próprio Ai-vgc ou o simulador, ele para antes da instalação e volta no fim.
+  Se algo falhar no meio, a versão anterior é reinstalada e o bot volta como estava.
 - **Postar no Discord** (em Ajustes, no cartão da coleta): desligado, as séries deste PC não aparecem
   no canal do Discord, mas as partidas continuam indo para a coleta e o treino. Vale já para a
   próxima partida, sem reiniciar o bot.
