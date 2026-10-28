@@ -17,6 +17,12 @@ vão para a coleta do time, que alimenta o treino e o canal do Discord.
    Na primeira vez ele pode pedir para reiniciar o PC (para ligar o WSL); depois de reiniciar ele
    continua sozinho. A instalação leva uns 10–20 min e ocupa ~3 GB.
 
+   **C: cheio?** Com menos de 15 GB livres no C:, o instalador põe o Linux dos bots sozinho no
+   disco com mais espaço (`D:\LoRBots\wsl`, por exemplo) e muda para lá uma instalação que já
+   estava no C:. No C: fica só o próprio WSL do Windows (~1 GB) e o painel (poucos KB). Para
+   escolher a pasta, rode pelo PowerShell (como administrador):
+   `$env:LOR_PASTA_WSL='D:\LoRBots'; irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/main/windows/instalar.ps1 | iex`
+
    <details><summary>Ou pelo PowerShell</summary>
 
    ```powershell

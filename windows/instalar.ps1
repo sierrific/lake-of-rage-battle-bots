@@ -6,6 +6,11 @@
 # O que ele faz: liga o WSL (se preciso), cria uma distribuicao Linux so para os bots
 # ("LoRBots", Ubuntu 24.04), instala o bot dentro dela e poe o "Painel LoR Bots" na Area de
 # Trabalho. Rodar de novo e seguro: ele pula o que ja esta pronto.
+#
+# O Linux dos bots (~3 GB, cresce com o tempo) fica no C: se sobrar espaco; com o C: apertado vai
+# sozinho para o disco com mais espaco livre (X:\LoRBots\wsl) e, se ja estava no C:, e mudado de
+# disco. Para escolher a pasta na mao:
+#   $env:LOR_PASTA_WSL='D:\LoRBots'; irm .../windows/instalar.ps1 | iex
 # (Arquivo sem acentos de proposito: o "irm | iex" do PowerShell 5 nao gosta.)
 
 $ErrorActionPreference = 'Stop'
@@ -16,7 +21,11 @@ $ProgressPreference = 'SilentlyContinue'  # o Invoke-WebRequest fica 10x mais le
 $Ramo = if ($env:LOR_RAMO) { $env:LOR_RAMO } else { 'estavel' }
 $Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
 $Distro = 'LoRBots'
+# Painel, versao e marcas (poucos KB) ficam sempre aqui; o Linux dos bots pode ir para outro disco.
 $Pasta = Join-Path $env:LOCALAPPDATA 'LoRBots'
+$GB = 1GB
+$PrecisaGB = 8     # Linux dos bots (~3 GB) + o Ubuntu baixado durante a criacao + folga para crescer
+$CApertadoGB = 15  # com menos que isto livre no C:, a distribuicao vai para outro disco
 $Rootfs = 'https://cloud-images.ubuntu.com/wsl/releases/24.04/current/ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz'
 $RootfsSums = 'https://cloud-images.ubuntu.com/wsl/releases/24.04/current/SHA256SUMS'
 
@@ -46,6 +55,7 @@ function EAdmin {
 }
 # O comando que roda o instalador de novo (na mesma branch, se era um teste).
 $Volta = "`$env:LOR_RAMO='$Ramo'; irm $Raw/windows/instalar.ps1 | iex"
+if ($env:LOR_PASTA_WSL) { $Volta = "`$env:LOR_PASTA_WSL='$($env:LOR_PASTA_WSL)'; $Volta" }
 # Depois de reiniciar, o instalador abre sozinho para continuar.
 function ContinuarDepoisDeReiniciar {
     New-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'LoRBots' -Force `
@@ -115,6 +125,77 @@ function NoLinux([string]$comando) {
     if ($LASTEXITCODE -ne 0) { Falha "Falhou dentro do Linux (codigo $LASTEXITCODE): $comando" }
 }
 
+# --- Em que disco fica o Linux dos bots ---
+$Sistema = $env:SystemDrive.TrimEnd('\').ToUpper()  # "C:"
+function LivreGB([string]$unidade) {
+    $d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$unidade'" -ErrorAction SilentlyContinue
+    if ($d) { [math]::Round($d.FreeSpace / $GB, 1) } else { 0 }
+}
+# Pasta padrao da distribuicao: no C: se ha espaco; se nao, no disco local (NTFS, nao removivel)
+# com mais espaco livre. Devolve $null se nenhum disco tem $PrecisaGB livres.
+function PastaWslPadrao {
+    if ($env:LOR_PASTA_WSL) { return (Join-Path $env:LOR_PASTA_WSL 'wsl') }
+    $noC = Join-Path $Pasta 'wsl'
+    if ((LivreGB $Sistema) -ge $CApertadoGB) { return $noC }
+    $outro = Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue |
+        Where-Object { $_.DeviceID -ne $Sistema -and $_.FileSystem -eq 'NTFS' -and $_.FreeSpace -ge $PrecisaGB * $GB } |
+        Sort-Object FreeSpace -Descending | Select-Object -First 1
+    if ($outro) { return (Join-Path ($outro.DeviceID + '\') 'LoRBots\wsl') }
+    if ((LivreGB $Sistema) -ge $PrecisaGB) { return $noC }
+    return $null
+}
+# Onde esta a distribuicao LoRBots ja criada (registro do WSL), ou $null.
+function PastaWslAtual {
+    $chaves = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' -ErrorAction SilentlyContinue
+    foreach ($c in $chaves) {
+        $p = Get-ItemProperty $c.PSPath -ErrorAction SilentlyContinue
+        if ($p.DistributionName -eq $Distro -and $p.BasePath) { return ($p.BasePath -replace '^\\\\\?\\', '') }
+    }
+    return $null
+}
+function Unidade([string]$caminho) { ([IO.Path]::GetPathRoot($caminho)).TrimEnd('\').ToUpper() }
+function MesmaPasta($a, $b) { ([IO.Path]::GetFullPath($a).TrimEnd('\')) -eq ([IO.Path]::GetFullPath($b).TrimEnd('\')) }
+function FaltaEspaco {
+    Falha ("Falta espaco em disco: o Linux dos bots precisa de uns $PrecisaGB GB livres e o $Sistema tem $(LivreGB $Sistema) GB, " +
+        "sem outro disco com espaco.`nLibere espaco (Configuracoes > Sistema > Armazenamento > Arquivos temporarios) ou ligue um HD/SSD " +
+        "e rode o instalador de novo.")
+}
+# O WSL guarda a memoria de troca (swap.vhdx, ate 1/4 da RAM) no TEMP do C:. Com o Linux em outro
+# disco por falta de espaco, ela vai junto. Vale para todo o WSL deste usuario, entao so mexe se o
+# .wslconfig ainda nao escolheu um lugar.
+function SwapForaDoC([string]$pastaWsl) {
+    $cfg = Join-Path $env:USERPROFILE '.wslconfig'
+    $linhas = @(if (Test-Path $cfg) { Get-Content $cfg })
+    if ($linhas -match '^\s*swapFile\s*=') { return }
+    $swap = (Join-Path (Split-Path $pastaWsl -Parent) 'swap.vhdx') -replace '\\', '\\'
+    $i = [array]::FindIndex([string[]]$linhas, [Predicate[string]]{ param($l) $l -match '^\s*\[wsl2\]\s*$' })
+    if ($i -ge 0) {
+        $linhas = @($linhas[0..$i]) + "swapFile=$swap" + @($linhas | Select-Object -Skip ($i + 1))
+    } else {
+        if ($linhas.Count) { $linhas += '' }
+        $linhas = $linhas + '[wsl2]' + "swapFile=$swap"
+    }
+    Set-Content -Path $cfg -Value $linhas -Encoding ASCII
+}
+# Muda a distribuicao ja criada para outra pasta (os bots param enquanto isso).
+function MoverDistro([string]$destino) {
+    Passo "Mudando o Linux dos bots para $destino (os bots param por alguns minutos)"
+    New-Item -ItemType Directory -Force -Path $destino | Out-Null
+    Wsl --terminate $Distro | Out-Null
+    # WSL 2.3 ou mais novo tem o --move pronto.
+    Wsl --manage $Distro --move $destino
+    if ($LASTEXITCODE -eq 0) { return }
+    # WSL antigo: exporta para um arquivo no disco novo, apaga a antiga e importa de novo. Se a
+    # importacao falhar, o arquivo fica la e o instalador o usa na proxima vez (ver passo 2).
+    $tar = Join-Path $destino 'LoRBots-exportado.tar'
+    Wsl --export $Distro $tar
+    if ($LASTEXITCODE -ne 0) { Remove-Item $tar -ErrorAction SilentlyContinue; Falha 'Nao consegui copiar o Linux dos bots para o outro disco. Nada foi apagado; rode o instalador de novo.' }
+    Wsl --unregister $Distro | Out-Null
+    Wsl --import $Distro $destino $tar --version 2
+    if ($LASTEXITCODE -ne 0) { Falha "Nao consegui terminar a mudanca de disco. A copia esta em $tar: rode o instalador de novo que ele a usa." }
+    Remove-Item $tar
+}
+
 Write-Host 'Instalador dos bots da Lake of Rage' -ForegroundColor Green
 New-Item -ItemType Directory -Force -Path $Pasta | Out-Null
 
@@ -137,10 +218,55 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 2. Distribuicao LoRBots
+$atual = if ((Distros) -contains $Distro) { PastaWslAtual } else { $null }
+if ($atual) {
+    # Ja existe. Muda de disco se pediram outra pasta, ou se esta no C: e o C: esta quase cheio.
+    $destino = $null
+    if ($env:LOR_PASTA_WSL) {
+        $destino = Join-Path $env:LOR_PASTA_WSL 'wsl'
+        if (MesmaPasta $destino $atual) { $destino = $null }
+    } elseif ((Unidade $atual) -eq $Sistema -and (LivreGB $Sistema) -lt 5) {
+        $destino = PastaWslPadrao
+        if ($destino -and (Unidade $destino) -eq $Sistema) { $destino = $null }
+    }
+    if ($destino) {
+        MoverDistro $destino
+        if ((Unidade $destino) -ne $Sistema) { SwapForaDoC $destino }
+    }
+}
 if ((Distros) -notcontains $Distro) {
-    $arq = Join-Path $Pasta 'ubuntu-24.04.rootfs.tar.gz'
+    # Sobras de uma tentativa que falhou (ex.: C: cheio no meio): sem distribuicao registrada, a
+    # pasta e so nossa, e o Ubuntu baixado antes no C: ocupa ~350 MB.
+    $velhaNoC = Join-Path $Pasta 'wsl'
+    if (Test-Path (Join-Path $velhaNoC 'ext4.vhdx')) { Remove-Item (Join-Path $velhaNoC 'ext4.vhdx') -Force -ErrorAction SilentlyContinue }
+    # Uma mudanca de disco que parou no meio deixou a copia: usa ela em vez de comecar do zero.
+    $pastasCopia = @($velhaNoC) + @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue |
+        ForEach-Object { Join-Path ($_.DeviceID + '\') 'LoRBots\wsl' })
+    if ($env:LOR_PASTA_WSL) { $pastasCopia = @(Join-Path $env:LOR_PASTA_WSL 'wsl') + $pastasCopia }
+    $PastaWsl = $pastasCopia | Where-Object { Test-Path (Join-Path $_ 'LoRBots-exportado.tar') } | Select-Object -First 1
+    if (-not $PastaWsl) { $PastaWsl = PastaWslPadrao }
+    if (-not $PastaWsl) { FaltaEspaco }
+    New-Item -ItemType Directory -Force -Path $PastaWsl | Out-Null
+    if (-not (MesmaPasta $PastaWsl $velhaNoC)) {
+        Remove-Item (Join-Path $Pasta 'ubuntu-24.04.rootfs.tar.gz'), (Join-Path $Pasta 'SHA256SUMS') -ErrorAction SilentlyContinue
+    }
+    if ((Unidade $PastaWsl) -ne $Sistema) {
+        Write-Host "O $Sistema tem $(LivreGB $Sistema) GB livres: o Linux dos bots vai ficar em $PastaWsl." -ForegroundColor Yellow
+        SwapForaDoC $PastaWsl
+    }
+    $copia = Join-Path $PastaWsl 'LoRBots-exportado.tar'
+    if (Test-Path $copia) {
+        Passo "Recriando a distribuicao $Distro a partir de $copia"
+        Wsl --import $Distro $PastaWsl $copia --version 2
+        if ($LASTEXITCODE -ne 0) { Falha "Nao consegui recriar a distribuicao a partir de $copia. Reinicie o computador e rode o instalador de novo." }
+        Remove-Item $copia
+    }
+}
+if ((Distros) -notcontains $Distro) {
+    # O Ubuntu baixado (~350 MB) fica no mesmo disco da distribuicao, nao no C: apertado.
+    $arq = Join-Path $PastaWsl 'ubuntu-24.04.rootfs.tar.gz'
     # O SHA256SUMS vem como binario para o PowerShell 5; salvar em arquivo e ler como texto.
-    $somas = Join-Path $Pasta 'SHA256SUMS'
+    $somas = Join-Path $PastaWsl 'SHA256SUMS'
     Invoke-WebRequest -UseBasicParsing -Uri $RootfsSums -OutFile $somas
     $linha = Get-Content $somas | Where-Object { $_ -match '^([0-9a-fA-F]{64})\s+\*?ubuntu-noble-wsl-amd64-24\.04lts\.rootfs\.tar\.gz$' } | Select-Object -First 1
     if (-not $linha) { Falha 'Nao achei a soma SHA256 do Ubuntu no site da Canonical. Tente de novo mais tarde.' }
@@ -154,14 +280,14 @@ if ((Distros) -notcontains $Distro) {
     if ($obtido -ne $esperado) { Falha "O download do Ubuntu veio corrompido (SHA256 $obtido, esperado $esperado). Rode o instalador de novo." }
     if (ConferirVirtualizacao) { return }
     Passo "Criando a distribuicao $Distro"
-    Wsl --import $Distro (Join-Path $Pasta 'wsl') $arq --version 2
+    Wsl --import $Distro $PastaWsl $arq --version 2
     if ($LASTEXITCODE -ne 0) {
         if (ConferirVirtualizacao -DepoisDeFalhar) { return }
         # WSL recem-ligado as vezes ainda nao tem o kernel: atualiza e tenta de novo.
         # (Aqui ainda nao ha bot nenhum rodando, entao o --update nao derruba partida.)
         Passo 'Atualizando o WSL'
         Wsl --update
-        Wsl --import $Distro (Join-Path $Pasta 'wsl') $arq --version 2
+        Wsl --import $Distro $PastaWsl $arq --version 2
     }
     if ($LASTEXITCODE -ne 0) { Falha 'Nao consegui criar a distribuicao do WSL. Reinicie o computador e rode o instalador de novo.' }
     Remove-Item $arq, $somas

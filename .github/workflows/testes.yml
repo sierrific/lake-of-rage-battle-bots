@@ -17,6 +17,35 @@ jobs:
           $erros = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\windows\instalar.ps1", [ref]$null, [ref]$erros)
           if ($erros.Count) { throw ($erros | Out-String) }
+      - name: Instalador em outro disco (escolha da pasta e .wslconfig)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile("$PWD\windows\instalar.ps1", [ref]$null, [ref]$null)
+          foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+            . ([scriptblock]::Create($f.Extent.Text))
+          }
+          $GB = 1GB; $PrecisaGB = 8; $Pasta = "$env:RUNNER_TEMP\lor"; $Sistema = $env:SystemDrive.ToUpper()
+          $CApertadoGB = 0
+          if ((PastaWslPadrao) -ne "$Pasta\wsl") { throw "com espaco no C: devia ficar no C: ($(PastaWslPadrao))" }
+          $env:LOR_PASTA_WSL = 'D:\X'
+          if ((PastaWslPadrao) -ne 'D:\X\wsl') { throw "LOR_PASTA_WSL ignorada ($(PastaWslPadrao))" }
+          $env:LOR_PASTA_WSL = $null
+          $CApertadoGB = 1000000; $PrecisaGB = 1000000
+          if ($null -ne (PastaWslPadrao)) { throw 'sem espaco em disco nenhum devia devolver nada' }
+          if ((Unidade 'd:\LoRBots\wsl') -ne 'D:') { throw 'Unidade' }
+          if (-not (MesmaPasta 'C:\a\b\' 'c:\a\b')) { throw 'MesmaPasta' }
+          $env:USERPROFILE = "$env:RUNNER_TEMP\perfil"; New-Item -ItemType Directory -Force $env:USERPROFILE | Out-Null
+          $cfg = "$env:USERPROFILE\.wslconfig"
+          SwapForaDoC 'D:\LoRBots\wsl'
+          $t = (Get-Content $cfg) -join '|'
+          if ($t -ne '[wsl2]|swapFile=D:\\LoRBots\\swap.vhdx') { throw "novo: $t" }
+          Set-Content $cfg "[wsl2]`nmemory=4GB`n[experimental]`nx=1"
+          SwapForaDoC 'E:\LoRBots\wsl'
+          $t = (Get-Content $cfg) -join '|'
+          if ($t -ne '[wsl2]|swapFile=E:\\LoRBots\\swap.vhdx|memory=4GB|[experimental]|x=1') { throw "existente: $t" }
+          SwapForaDoC 'F:\LoRBots\wsl'
+          if (((Get-Content $cfg) -join '|') -ne $t) { throw 'mexeu num swapFile que ja existia' }
       - name: Painel nativo (PowerShell 5.1, C# 5, layouts, temas e comandos simulados)
         shell: powershell
         run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_panel_ui.ps1 -OutputDirectory "$env:RUNNER_TEMP/lor-panel-ui"
