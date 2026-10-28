@@ -40,6 +40,76 @@ function WslQuieto {
     try { & wsl.exe @args 2>$null } catch { $global:LASTEXITCODE = 1 } finally { $ErrorActionPreference = $antes }
 }
 function Distros() { (WslQuieto -l -q) -replace "`0", '' | Where-Object { $_ } | ForEach-Object { $_.Trim() } }
+function EAdmin {
+    ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+# O comando que roda o instalador de novo (na mesma branch, se era um teste).
+$Volta = "`$env:LOR_RAMO='$Ramo'; irm $Raw/windows/instalar.ps1 | iex"
+# Depois de reiniciar, o instalador abre sozinho para continuar.
+function ContinuarDepoisDeReiniciar {
+    New-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'LoRBots' -Force `
+        -Value "powershell.exe -NoExit -ExecutionPolicy Bypass -Command `"$Volta`"" | Out-Null
+}
+function PedirReinicio($texto) {
+    ContinuarDepoisDeReiniciar
+    Write-Host "`n$texto REINICIE o computador; o instalador continua sozinho depois." -ForegroundColor Yellow
+    [void](Read-Host 'Aperte Enter para fechar')
+}
+# Abre o instalador de novo como administrador (o Windows pergunta "Sim/Nao"). Devolve $true se
+# abriu outra janela, e entao esta para por aqui.
+function ReabrirComoAdmin($motivo) {
+    if (EAdmin) { return $false }
+    Write-Host "`n$motivo O Windows vai perguntar se pode abrir como administrador: clique em Sim." -ForegroundColor Yellow
+    try {
+        Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoExit -ExecutionPolicy Bypass -Command `"$Volta`""
+    } catch {
+        Falha 'Sem permissao de administrador nao da para continuar. Rode o instalador de novo e clique em Sim.'
+    }
+    Write-Host 'O instalador continua na janela nova; esta pode ser fechada.' -ForegroundColor Yellow
+    return $true
+}
+# O WSL 2 precisa da "Plataforma de Maquina Virtual" do Windows e da virtualizacao ligada na BIOS.
+# Sem elas o "wsl --import" falha com HCS_E_SERVICE_NOT_AVAILABLE. Liga o que o Windows consegue
+# ligar sozinho e pede para reiniciar. Devolve $true se o instalador deve parar (reinicio pendente).
+function ConferirVirtualizacao([switch]$DepoisDeFalhar) {
+    $marca = Join-Path $Pasta 'virtualizacao-tentada.txt'
+    $tentado = if (Test-Path $marca) { (Get-Content $marca) } else { @() }
+    $recurso = try { (Get-CimInstance Win32_OptionalFeature -Filter "Name='VirtualMachinePlatform'").InstallState } catch { 1 }
+    if ($recurso -ne 1) {
+        if ($tentado -contains 'recurso') { Falha 'Liguei a Plataforma de Maquina Virtual, mas o Windows ainda nao a ativou. Reinicie o computador (Reiniciar, nao Desligar) e rode o instalador de novo.' }
+        if (ReabrirComoAdmin 'Falta ligar a Plataforma de Maquina Virtual do Windows.') { return $true }
+        Passo 'Ligando a Plataforma de Maquina Virtual do Windows'
+        & dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Null
+        # 3010 = ligado, falta reiniciar
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) { Falha "Nao consegui ligar a Plataforma de Maquina Virtual (dism codigo $LASTEXITCODE)." }
+        Add-Content $marca 'recurso'
+        PedirReinicio 'Plataforma de Maquina Virtual ligada.'
+        return $true
+    }
+    # So depois de o WSL falhar: num PC que ja roda WSL 2 o hypervisor esta sempre presente.
+    if (-not $DepoisDeFalhar) { return $false }
+    $hypervisor = try { (Get-CimInstance Win32_ComputerSystem).HypervisorPresent } catch { $true }
+    if ($hypervisor) { return $false }
+    $bios = try { (Get-CimInstance Win32_Processor | Select-Object -First 1).VirtualizationFirmwareEnabled } catch { $null }
+    if ($bios -eq $false) {
+        ContinuarDepoisDeReiniciar
+        Falha ("A virtualizacao do processador esta DESLIGADA na BIOS deste PC, e o Windows nao consegue ligar isso sozinho.`n" +
+            "1. Reinicie e, logo ao ligar, aperte a tecla da BIOS (geralmente Del, F2, F10 ou F1; em notebook as vezes Esc ou F12).`n" +
+            "2. Procure 'Intel Virtualization Technology' / 'VT-x' (Intel) ou 'SVM Mode' / 'AMD-V' (AMD), normalmente em Advanced ou CPU Configuration.`n" +
+            "3. Mude para Enabled, salve (geralmente F10) e saia.`n" +
+            'Quando o Windows abrir, o instalador continua sozinho.')
+    }
+    # Virtualizacao ligada mas o Windows nao subiu o hypervisor (hypervisorlaunchtype off).
+    if ($tentado -contains 'hypervisor') { Falha 'O Windows nao esta ligando a virtualizacao mesmo depois de reiniciar. Confira se ela esta ligada na BIOS (Intel VT-x ou AMD SVM) e rode o instalador de novo.' }
+    if (ReabrirComoAdmin 'O Windows esta com a virtualizacao desligada.') { return $true }
+    Passo 'Ligando a virtualizacao do Windows (hypervisor)'
+    & bcdedit.exe /set hypervisorlaunchtype auto | Out-Null
+    if ($LASTEXITCODE -ne 0) { Falha "Nao consegui ligar o hypervisor do Windows (bcdedit codigo $LASTEXITCODE)." }
+    Add-Content $marca 'hypervisor'
+    PedirReinicio 'Virtualizacao ligada.'
+    return $true
+}
 function NoLinux([string]$comando) {
     Wsl -d $Distro -u root -e bash -lc $comando
     if ($LASTEXITCODE -ne 0) { Falha "Falhou dentro do Linux (codigo $LASTEXITCODE): $comando" }
@@ -53,11 +123,7 @@ Passo 'Verificando o WSL'
 $global:LASTEXITCODE = 1
 WslQuieto --status | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator)
-    if (-not $admin) {
-        Falha 'O WSL ainda nao esta instalado. Feche esta janela, abra o PowerShell como administrador (botao direito > Executar como administrador) e rode o comando de novo.'
-    }
+    if (ReabrirComoAdmin 'O WSL ainda nao esta instalado.') { return }
     Passo 'Instalando o WSL (o Windows pode pedir para reiniciar)'
     Wsl --install --no-distribution
     if ($LASTEXITCODE -ne 0) {
@@ -66,12 +132,7 @@ if ($LASTEXITCODE -ne 0) {
         & dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart | Out-Null
         & dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Null
     }
-    # Depois de reiniciar, o instalador abre sozinho para continuar (na mesma branch, se era um teste).
-    $volta = "`$env:LOR_RAMO='$Ramo'; irm $Raw/windows/instalar.ps1 | iex"
-    New-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'LoRBots' -Force `
-        -Value "powershell.exe -NoExit -ExecutionPolicy Bypass -Command `"$volta`"" | Out-Null
-    Write-Host "`nWSL instalado. REINICIE o computador; o instalador continua sozinho depois." -ForegroundColor Yellow
-    Read-Host 'Aperte Enter para fechar'
+    PedirReinicio 'WSL instalado.'
     return
 }
 
@@ -91,9 +152,11 @@ if ((Distros) -notcontains $Distro) {
     }
     $obtido = (Get-FileHash -Algorithm SHA256 $arq).Hash
     if ($obtido -ne $esperado) { Falha "O download do Ubuntu veio corrompido (SHA256 $obtido, esperado $esperado). Rode o instalador de novo." }
+    if (ConferirVirtualizacao) { return }
     Passo "Criando a distribuicao $Distro"
     Wsl --import $Distro (Join-Path $Pasta 'wsl') $arq --version 2
     if ($LASTEXITCODE -ne 0) {
+        if (ConferirVirtualizacao -DepoisDeFalhar) { return }
         # WSL recem-ligado as vezes ainda nao tem o kernel: atualiza e tenta de novo.
         # (Aqui ainda nao ha bot nenhum rodando, entao o --update nao derruba partida.)
         Passo 'Atualizando o WSL'
@@ -150,6 +213,8 @@ foreach ($d in $destinos) {
     $atalho.Save()
 }
 
+# Se sobrou um "continuar depois de reiniciar" (ex.: o aviso da BIOS), nao precisa mais.
+Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'LoRBots' -ErrorAction SilentlyContinue
 Write-Host "`nPronto! Abrindo o Painel LoR Bots (tambem tem um atalho na Area de Trabalho)." -ForegroundColor Green
 Write-Host 'No painel: coloque a conta e a senha do Showdown do bot, o codigo da coleta que o Thiago passou, e clique em Ligar.'
 Start-Process $wscript -ArgumentList "`"$vbs`""
