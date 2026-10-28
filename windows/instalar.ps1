@@ -307,6 +307,17 @@ if ((Distros) -notcontains $Distro) {
     if ($LASTEXITCODE -ne 0) { Falha 'Nao consegui criar a distribuicao do WSL. Reinicie o computador e rode o instalador de novo.' }
     Remove-Item $arq, $somas
 }
+# Fora do C:, a pasta herda as permissoes da raiz do disco, que as vezes nao deixam o WSL abrir o
+# disco virtual (MountVhd/HCS/E_ACCESSDENIED). Da controle total ao usuario e ao sistema na pasta
+# (o instalador roda como administrador, entao consegue), e tira o "somente leitura" do .vhdx.
+# Rodar de novo o instalador conserta uma instalacao que ja esta com esse erro.
+$onde = PastaWslAtual
+if ($onde -and (Unidade $onde) -ne $Sistema) {
+    $eu = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls.exe $onde /grant "${eu}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' /T /C /Q | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Host "Aviso: nao consegui ajustar as permissoes de $onde (icacls codigo $LASTEXITCODE)." -ForegroundColor Yellow }
+    Get-ChildItem $onde -Filter *.vhdx -ErrorAction SilentlyContinue | ForEach-Object { $_.IsReadOnly = $false }
+}
 # systemd ligado (os bots rodam como servicos) e root como usuario padrao.
 NoLinux "printf '[boot]\nsystemd=true\n[user]\ndefault=root\n' > /etc/wsl.conf"
 Wsl --terminate $Distro | Out-Null
