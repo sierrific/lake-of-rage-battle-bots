@@ -88,15 +88,26 @@ else
 	# Em PC (x86) o PyTorch padrão traz CUDA (~5 GB); o bot só usa CPU, então instala a versão
 	# CPU (~1 GB). O rodar-bot.sh usa UV_NO_SYNC=1 para o uv não trocar de volta. A versão do torch é
 	# a mesma do uv.lock do Ai-vgc (sem ela, cada instalação nova pegaria o torch mais novo).
-	if [ "$(uname -m)" = x86_64 ]; then
-		as_bots "cd $DIR/ai-vgc && $UV venv -q --allow-existing && $UV export -q --extra nn --no-hashes --no-emit-project --frozen > /tmp/lor-req-todos.txt \
-			&& grep -vE '^(torch|triton|nvidia-|cuda-)' /tmp/lor-req-todos.txt > /tmp/lor-req.txt \
-			&& torch=\$(grep -oE '^torch==[^ ;]+' /tmp/lor-req-todos.txt | head -1) \
-			&& $UV pip install -q -r /tmp/lor-req.txt \
-			&& $UV pip install -q \"\${torch:-torch}\" --index-url https://download.pytorch.org/whl/cpu \
-			&& $UV pip install -q --no-deps -e ."
-	else
-		as_bots "cd $DIR/ai-vgc && $UV sync -q --extra nn"
+	dependencias() {
+		if [ "$(uname -m)" = x86_64 ]; then
+			as_bots "cd $DIR/ai-vgc && $UV venv -q --allow-existing && $UV export -q --extra nn --no-hashes --no-emit-project --frozen > /tmp/lor-req-todos.txt \
+				&& grep -vE '^(torch|triton|nvidia-|cuda-)' /tmp/lor-req-todos.txt > /tmp/lor-req.txt \
+				&& torch=\$(grep -oE '^torch==[^ ;]+' /tmp/lor-req-todos.txt | head -1) \
+				&& $UV pip install -q -r /tmp/lor-req.txt \
+				&& $UV pip install -q \"\${torch:-torch}\" --index-url https://download.pytorch.org/whl/cpu \
+				&& $UV pip install -q --no-deps -e ."
+		else
+			as_bots "cd $DIR/ai-vgc && $UV sync -q --extra nn"
+		fi
+	}
+	# Uma instalação que parou no meio (disco cheio, PC desligado) pode deixar o .venv com arquivo
+	# vazio ("Failed to read metadata ... EOF"), e aí o uv falha sempre. Na falha, apaga o .venv e o
+	# cache do uv (que pode ter ficado pela metade também) e instala do zero uma vez.
+	if ! dependencias; then
+		echo "    o ambiente Python estava quebrado: apagando e instalando do zero (baixa tudo de novo)"
+		rm -rf "$DIR/ai-vgc/.venv"
+		as_bots "$UV cache clean -q" || true
+		dependencias
 	fi
 
 	echo "==> Simulador do Showdown ($PS_COMMIT; a busca de jogadas roda nele)"
