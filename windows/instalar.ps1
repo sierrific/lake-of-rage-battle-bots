@@ -134,13 +134,13 @@ function LivreGB([string]$unidade) {
 # Pasta padrao da distribuicao: no C: se ha espaco; se nao, no disco local (NTFS, nao removivel)
 # com mais espaco livre. Devolve $null se nenhum disco tem $PrecisaGB livres.
 function PastaWslPadrao {
-    if ($env:LOR_PASTA_WSL) { return (Join-Path $env:LOR_PASTA_WSL 'wsl') }
+    if ($env:LOR_PASTA_WSL) { return [IO.Path]::Combine($env:LOR_PASTA_WSL, 'wsl') }
     $noC = Join-Path $Pasta 'wsl'
     if ((LivreGB $Sistema) -ge $CApertadoGB) { return $noC }
     $outro = Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue |
         Where-Object { $_.DeviceID -ne $Sistema -and $_.FileSystem -eq 'NTFS' -and $_.FreeSpace -ge $PrecisaGB * $GB } |
         Sort-Object FreeSpace -Descending | Select-Object -First 1
-    if ($outro) { return (Join-Path ($outro.DeviceID + '\') 'LoRBots\wsl') }
+    if ($outro) { return [IO.Path]::Combine($outro.DeviceID + '\', 'LoRBots\wsl') }
     if ((LivreGB $Sistema) -ge $PrecisaGB) { return $noC }
     return $null
 }
@@ -167,7 +167,7 @@ function SwapForaDoC([string]$pastaWsl) {
     $cfg = Join-Path $env:USERPROFILE '.wslconfig'
     $linhas = @(if (Test-Path $cfg) { Get-Content $cfg })
     if ($linhas -match '^\s*swapFile\s*=') { return }
-    $swap = (Join-Path (Split-Path $pastaWsl -Parent) 'swap.vhdx') -replace '\\', '\\'
+    $swap = [IO.Path]::Combine([IO.Path]::GetDirectoryName($pastaWsl.TrimEnd('\')), 'swap.vhdx') -replace '\\', '\\'
     $i = [array]::FindIndex([string[]]$linhas, [Predicate[string]]{ param($l) $l -match '^\s*\[wsl2\]\s*$' })
     if ($i -ge 0) {
         $linhas = @($linhas[0..$i]) + "swapFile=$swap" + @($linhas | Select-Object -Skip ($i + 1))
@@ -223,7 +223,7 @@ if ($atual) {
     # Ja existe. Muda de disco se pediram outra pasta, ou se esta no C: e o C: esta quase cheio.
     $destino = $null
     if ($env:LOR_PASTA_WSL) {
-        $destino = Join-Path $env:LOR_PASTA_WSL 'wsl'
+        $destino = [IO.Path]::Combine($env:LOR_PASTA_WSL, 'wsl')
         if (MesmaPasta $destino $atual) { $destino = $null }
     } elseif ((Unidade $atual) -eq $Sistema -and (LivreGB $Sistema) -lt 5) {
         $destino = PastaWslPadrao
@@ -241,9 +241,9 @@ if ((Distros) -notcontains $Distro) {
     if (Test-Path (Join-Path $velhaNoC 'ext4.vhdx')) { Remove-Item (Join-Path $velhaNoC 'ext4.vhdx') -Force -ErrorAction SilentlyContinue }
     # Uma mudanca de disco que parou no meio deixou a copia: usa ela em vez de comecar do zero.
     $pastasCopia = @($velhaNoC) + @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue |
-        ForEach-Object { Join-Path ($_.DeviceID + '\') 'LoRBots\wsl' })
-    if ($env:LOR_PASTA_WSL) { $pastasCopia = @(Join-Path $env:LOR_PASTA_WSL 'wsl') + $pastasCopia }
-    $PastaWsl = $pastasCopia | Where-Object { Test-Path (Join-Path $_ 'LoRBots-exportado.tar') } | Select-Object -First 1
+        ForEach-Object { [IO.Path]::Combine($_.DeviceID + '\', 'LoRBots\wsl') })
+    if ($env:LOR_PASTA_WSL) { $pastasCopia = @([IO.Path]::Combine($env:LOR_PASTA_WSL, 'wsl')) + $pastasCopia }
+    $PastaWsl = $pastasCopia | Where-Object { Test-Path ([IO.Path]::Combine($_, 'LoRBots-exportado.tar')) } | Select-Object -First 1
     if (-not $PastaWsl) { $PastaWsl = PastaWslPadrao }
     if (-not $PastaWsl) { FaltaEspaco }
     New-Item -ItemType Directory -Force -Path $PastaWsl | Out-Null
