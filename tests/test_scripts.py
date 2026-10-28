@@ -318,6 +318,22 @@ class TestPainelTimer(TestPainelDesafio):
         self.assertIn("erro=", self.painel("timer", "talvez", ok=False))
 
 
+class TestPainelDiscord(TestPainelDesafio):
+    """discord sim|nao: o arquivo que o enviar-partidas.py lê para marcar as partidas."""
+
+    def test_discord_liga_por_padrao_e_desliga(self):
+        self.assertIn("discord=sim", self.painel("estado").splitlines())
+        self.assertIn("ok=discord", self.painel("discord", "nao"))
+        self.assertTrue((self.d / "sem-discord").exists())
+        self.assertIn("discord=nao", self.painel("estado").splitlines())
+        self.painel("discord", "nao")  # repetir não dá erro
+        self.painel("discord", "sim")
+        self.assertFalse((self.d / "sem-discord").exists())
+        self.assertIn("discord=sim", self.painel("estado").splitlines())
+        self.painel("discord", "sim")
+        self.assertIn("erro=", self.painel("discord", "talvez", ok=False))
+
+
 class TestPainelOponente(TestPainelDesafio):
     """O modelo do oponente treinado com a coleta entra só no PC que tem o arquivo."""
 

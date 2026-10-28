@@ -11,7 +11,9 @@ Grava em <pasta>/.coleta-status como foi o último contato com a coleta ("ok", "
 recusado, "fora" = sem resposta), para o painel mostrar se o envio funciona de verdade.
 
 Manda também as partidas de antes da primeira execução (servem para o treino), marcadas com
-"antigo" para o Discord não postar tudo de uma vez. Só biblioteca padrão.
+"antigo" para o Discord não postar tudo de uma vez. Com o Discord desligado no painel (existe
+SEM_DISCORD), as partidas vão com "discord": false: a coleta guarda para o treino e não posta.
+Só biblioteca padrão.
 """
 
 import json
@@ -26,6 +28,7 @@ URL = os.environ.get("COLETA_URL", "https://showdown.sierverso.com.br/coleta/par
 POLL = 30  # segundos entre leituras
 LOTE = 3 * 1024 * 1024  # bytes por envio, juntando várias partidas
 LIMITE = 4 * 1024 * 1024  # o máximo que a coleta aceita por envio: uma partida maior vai para a quarentena
+SEM_DISCORD = Path(os.environ.get("LOR_SEM_DISCORD", "/etc/lor-bots/sem-discord"))  # painel.sh discord
 STATUS: Path | None = None  # <pasta>/.coleta-status (definido no main)
 _membro: str | None = None  # o nome que a coleta deu a este código (resposta do ping)
 
@@ -89,6 +92,8 @@ def ciclo(codigo: str, raiz: Path, estado_arq: Path, estado: dict) -> None:
     """Uma leitura: manda o que houver de novo em cada games.jsonl."""
     # Partidas de antes da instalação vão para o treino, mas não para o Discord.
     desde: str = estado["desde"]
+    # Relido a cada ciclo: o painel liga e desliga sem reiniciar o envio.
+    discord = not SEM_DISCORD.exists()
     enviados: dict[str, int] = estado["enviados"]
     for jsonl in sorted(raiz.glob("*/games.jsonl")):
         chave = str(jsonl.relative_to(raiz))
@@ -116,7 +121,7 @@ def ciclo(codigo: str, raiz: Path, estado_arq: Path, estado: dict) -> None:
                     _gravar(estado_arq, estado)
                     continue
                 inicio, falhou = pos, False
-                for lote, ate in _lotes(bloco[:fim], desde, chave, raiz, inicio):
+                for lote, ate in _lotes(bloco[:fim], desde, chave, raiz, inicio, discord):
                     if lote:
                         r = _mandar(codigo, lote)
                         if r == "grande":
@@ -131,14 +136,14 @@ def ciclo(codigo: str, raiz: Path, estado_arq: Path, estado: dict) -> None:
                     break
 
 
-def _lotes(bloco: bytes, desde: str, chave: str, raiz: Path, base: int):
+def _lotes(bloco: bytes, desde: str, chave: str, raiz: Path, base: int, discord: bool = True):
     """Divide as linhas completas de `bloco` em lotes de até LOTE bytes (uma partida maior que
     LOTE vai sozinha). Devolve (lote, fim): fim é onde o lote termina dentro de `bloco`. Uma
     partida acima de LIMITE, que a coleta recusaria, vai para a quarentena."""
     lote: list[bytes] = []
     soma = desloc = 0
     for original in bloco.splitlines(keepends=True):
-        linha = _marcar(original, desde, chave) if original.strip() else None
+        linha = _marcar(original, desde, chave, discord) if original.strip() else None
         if linha is not None and len(linha) > LIMITE:
             _quarentena(raiz, chave, base + desloc, [original])
             linha = None
@@ -187,15 +192,18 @@ def _quarentena_arquivo(raiz: Path, chave: str, f, de: int, ate: int) -> None:
           flush=True)
 
 
-def _marcar(linha: bytes, desde: str, chave: str) -> bytes | None:
+def _marcar(linha: bytes, desde: str, chave: str, discord: bool = True) -> bytes | None:
     try:
         row = json.loads(linha)
     except ValueError:
         print(f"{chave}: linha inválida (gravação interrompida?), pulando", flush=True)
         return None
+    extra = {}
     if str(row.get("time", "")) < desde:
-        return json.dumps({**row, "antigo": True}).encode() + b"\n"
-    return linha
+        extra["antigo"] = True
+    if not discord:
+        extra["discord"] = False
+    return json.dumps({**row, **extra}).encode() + b"\n" if extra else linha
 
 
 def _ler_estado(arq: Path) -> dict | None:
