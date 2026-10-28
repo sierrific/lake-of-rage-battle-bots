@@ -121,7 +121,14 @@ else
 	if [ "$(cat "$MARCA" 2>/dev/null)" != "$PS_COMMIT" ]; then
 		echo "    baixando e compilando o simulador (leva alguns minutos, sem mostrar nada)"
 		rm -f "$MARCA"
-		as_bots "git -C $PS fetch -q --depth 1 origin $PS_COMMIT && git -C $PS checkout -q -f FETCH_HEAD"
+		# Um download que parou no meio (disco cheio) pode deixar o .git do simulador estragado, e o
+		# GitHub passa a recusar o fetch ("not our ref"). Na falha, apaga a pasta e baixa do zero uma vez.
+		if ! as_bots "git -C $PS fetch -q --depth 1 origin $PS_COMMIT && git -C $PS checkout -q -f FETCH_HEAD"; then
+			echo "    a cópia do simulador estava quebrada: apagando e baixando do zero"
+			rm -rf "$PS"
+			as_bots "git init -q $PS && git -C $PS remote add origin https://github.com/smogon/pokemon-showdown"
+			as_bots "git -C $PS fetch -q --depth 1 origin $PS_COMMIT && git -C $PS checkout -q -f FETCH_HEAD"
+		fi
 		as_bots "cd $PS && npm ci --no-audit --no-fund --loglevel=error && cp -n config/config-example.js config/config.js && node build"
 		as_bots "echo $PS_COMMIT > $MARCA"
 	fi
