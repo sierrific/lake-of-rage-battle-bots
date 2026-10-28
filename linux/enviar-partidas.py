@@ -18,6 +18,7 @@ Só biblioteca padrão.
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -28,6 +29,7 @@ URL = os.environ.get("COLETA_URL", "https://showdown.sierverso.com.br/coleta/par
 POLL = 30  # segundos entre leituras
 LOTE = 3 * 1024 * 1024  # bytes por envio, juntando várias partidas
 LIMITE = 4 * 1024 * 1024  # o máximo que a coleta aceita por envio: uma partida maior vai para a quarentena
+TAG = re.compile(r"^battle-[a-z0-9-]{1,120}$")  # o mesmo que a coleta exige em cada linha
 SEM_DISCORD = Path(os.environ.get("LOR_SEM_DISCORD", "/etc/lor-bots/sem-discord"))  # painel.sh discord
 STATUS: Path | None = None  # <pasta>/.coleta-status (definido no main)
 _membro: str | None = None  # o nome que a coleta deu a este código (resposta do ping)
@@ -144,7 +146,11 @@ def _lotes(bloco: bytes, desde: str, chave: str, raiz: Path, base: int, discord:
     soma = desloc = 0
     for original in bloco.splitlines(keepends=True):
         linha = _marcar(original, desde, chave, discord) if original.strip() else None
-        if linha is not None and len(linha) > LIMITE:
+        if linha is None and original.strip():
+            # A coleta recusaria o lote inteiro por causa dela (e o envio voltaria ao mesmo ponto
+            # para sempre): fica guardada à parte e as outras seguem.
+            _quarentena(raiz, chave, base + desloc, [original], "inválida(s)")
+        elif linha is not None and len(linha) > LIMITE:
             _quarentena(raiz, chave, base + desloc, [original])
             linha = None
         if linha is not None and lote and soma + len(linha) > LOTE:
@@ -157,14 +163,14 @@ def _lotes(bloco: bytes, desde: str, chave: str, raiz: Path, base: int, discord:
     yield lote, desloc
 
 
-def _quarentena(raiz: Path, chave: str, pos: int, linhas: list[bytes]) -> None:
-    # Partidas que a coleta não aceita (grandes demais) ficam guardadas aqui em vez de travar o
+def _quarentena(raiz: Path, chave: str, pos: int, linhas: list[bytes], motivo: str = "grande(s) demais") -> None:
+    # Partidas que a coleta não aceita (grandes demais ou inválidas) ficam guardadas aqui em vez de travar o
     # envio das outras ou se perderem; dá para mandar à mão depois.
     pasta = raiz / ".coleta-quarentena"
     pasta.mkdir(exist_ok=True)
     arq = pasta / f"{chave.replace('/', '_')}-{pos}"
     arq.write_bytes(b"".join(linhas))
-    print(f"{chave}: {len(linhas)} partida(s) grande(s) demais para a coleta, guardada(s) em {arq}", flush=True)
+    print(f"{chave}: {len(linhas)} partida(s) {motivo} para a coleta, guardada(s) em {arq}", flush=True)
 
 
 def _fim_da_linha(f, de: int) -> int | None:
@@ -193,10 +199,14 @@ def _quarentena_arquivo(raiz: Path, chave: str, f, de: int, ate: int) -> None:
 
 
 def _marcar(linha: bytes, desde: str, chave: str, discord: bool = True) -> bytes | None:
+    """A linha pronta para a coleta, ou None se ela a recusaria (não é um objeto JSON com tag)."""
     try:
         row = json.loads(linha)
     except ValueError:
-        print(f"{chave}: linha inválida (gravação interrompida?), pulando", flush=True)
+        print(f"{chave}: linha que não é JSON (gravação interrompida?)", flush=True)
+        return None
+    if not isinstance(row, dict) or not TAG.match(str(row.get("tag", ""))):
+        print(f"{chave}: linha sem o formato de partida (objeto com tag battle-...)", flush=True)
         return None
     extra = {}
     if str(row.get("time", "")) < desde:

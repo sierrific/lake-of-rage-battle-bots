@@ -34,13 +34,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: zsh (o bot.sh do Ai-vgc é zsh)
-        run: sudo apt-get update -q && sudo apt-get install -y -q zsh
+      - name: zsh (o bot.sh do Ai-vgc é zsh) e numpy (treino-oponente.py)
+        run: sudo apt-get update -q && sudo apt-get install -y -q zsh python3-numpy
 
       - name: Sintaxe dos scripts
         run: |
           for f in linux/*.sh; do bash -n "$f"; done
-          python3 -m py_compile linux/enviar-partidas.py
+          python3 -m py_compile linux/enviar-partidas.py linux/treino-oponente.py linux/backup-coleta.py
 
       - name: Testes (envio de partidas, parada do bot, reinício do painel)
         run: python3 -m unittest discover -s tests -v

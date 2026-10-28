@@ -502,3 +502,174 @@ class TestPainelHoje(TestPainelPlacar):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Um systemctl que guarda o estado dos bots em $D/estado-<bot> e anota tudo em $D/log. Um desafio
+# ($D/desafio = quantas consultas ele ainda dura) termina como o do painel.sh: liga o bot de volta
+# só se $D/voltar for 1.
+SYSTEMCTL_ATUALIZAR = r'''#!/usr/bin/env bash
+echo "systemctl $*" >>"$D/log"
+estados=",active,activating,deactivating,"
+for a in "$@"; do [[ "$a" == --state=* ]] && estados=",${a#--state=},"; done
+case "$1" in
+  list-units)
+    if [[ "$*" == *"lor-bot@*"* ]]; then
+      for f in "$D"/estado-*; do
+        [[ "$estados" == *",$(cat "$f"),"* ]] && echo "lor-bot@${f##*/estado-}.service loaded $(cat "$f") running x"
+      done
+    elif [[ "$*" == *"lor-desafio-*"* ]] && [ -f "$D/desafio" ]; then
+      n=$(cat "$D/desafio")
+      if ((n > 0)); then
+        echo $((n - 1)) >"$D/desafio"; echo "lor-desafio-bot.service loaded active running x"
+      else
+        rm "$D/desafio"
+        [ "$(cat "$D/voltar")" = 1 ] && echo active >"$D/estado-bot" || echo inactive >"$D/estado-bot"
+      fi
+    fi ;;
+  stop) for u in "${@:2}"; do [[ "$u" == lor-bot@* ]] && { b="${u#lor-bot@}"; echo inactive >"$D/estado-${b%.service}"; }; done ;;
+  start) b="${2#lor-bot@}"; echo active >"$D/estado-${b%.service}" ;;
+esac
+exit 0
+'''
+
+# O "GitHub": VERSION e o .tar.gz de $D/github (o que a versão nova tem).
+CURL_FALSO = r'''#!/usr/bin/env bash
+url="${@: -1}"
+case "$url" in
+  */VERSION) cat "$D/github/VERSION" ;;
+  *.tar.gz) tar cz -C "$D" --transform 's,^github,repo-estavel,' github ;;
+  *) exit 22 ;;
+esac
+'''
+
+# instalar.sh falso: anota com que estado dos bots rodou e grava a marca como o de verdade.
+INSTALAR_FALSO = r'''#!/usr/bin/env bash
+set -e
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
+echo "instalar $(cat "$SRC/VERSION") bot=$(cat "$D/estado-bot")" >>"$D/log"
+[ ! -f "$SRC/falhar" ] || exit 1
+cat "$SRC/linux/instalar.sh" "$SRC/linux/ai-vgc-lor.patch" | sha256sum | cut -d' ' -f1 >"$LOR_DIR/.lor-runtime"
+cp "$SRC/VERSION" "$LOR_DIR/VERSION"
+'''
+
+
+class TestAtualizar(unittest.TestCase):
+    """O atualizar.sh só mexe no que o bot jogando usa com ele parado, e volta à versão anterior numa falha."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        for nome, corpo in (("systemctl", SYSTEMCTL_ATUALIZAR), ("curl", CURL_FALSO)):
+            (d / nome).write_text(corpo)
+            (d / nome).chmod(0o755)
+        self.opt = d / "opt"
+        self.opt.mkdir()
+        (self.opt / "painel.sh").write_text('#!/bin/sh\necho "painel $LOR_BOT $*" >>"$D/log"\n')
+        (self.opt / "painel.sh").chmod(0o755)
+        (d / "estado-bot").write_text("active")
+        self.d = d
+        self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "D": str(d),
+                    "LOR_DIR": str(self.opt), "LOR_RUN": str(d), "LOR_ESPERA": "0"}
+        # Instalado: a versão 1, com a marca do que ela instalou.
+        self.versao("1", patch="patch 1")
+        self.atualizar("--forcar")
+        (d / "log").unlink()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def versao(self, numero: str, patch: str, falhar: bool = False):
+        g = self.d / "github"
+        shutil.rmtree(g, ignore_errors=True)
+        (g / "linux").mkdir(parents=True)
+        (g / "VERSION").write_text(numero)
+        (g / "linux" / "instalar.sh").write_text(INSTALAR_FALSO)
+        (g / "linux" / "ai-vgc-lor.patch").write_text(patch)
+        if falhar:
+            (g / "falhar").touch()
+
+    def atualizar(self, *args) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(RAIZ_REPO / "linux" / "atualizar.sh"), *args],
+                              env=self.env, capture_output=True, text=True)
+
+    def chamadas(self) -> list[str]:
+        return (self.d / "log").read_text().splitlines()
+
+    def test_so_scripts_novos_nao_param_o_bot_antes(self):
+        self.versao("2", patch="patch 1")
+        r = self.atualizar()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        c = self.chamadas()
+        self.assertIn("instalar 2 bot=active", c)  # segue jogando; reinicia no fim da partida
+        self.assertFalse(any(x.startswith("systemctl stop lor-bot@") for x in c), c)
+        self.assertIn("painel bot reiniciar", c)
+        self.assertEqual((self.opt / "VERSION").read_text(), "2")
+
+    def test_ai_vgc_novo_para_o_bot_antes_e_religa(self):
+        self.versao("2", patch="patch 2")
+        r = self.atualizar()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        c = self.chamadas()
+        parou = c.index("systemctl stop lor-bot@bot.service")
+        self.assertLess(parou, c.index("instalar 2 bot=inactive"), c)
+        self.assertEqual(c[-2:], ["systemctl start lor-bot@bot.service", "systemctl try-restart lor-envio"], c)
+        self.assertEqual((self.d / "estado-bot").read_text().strip(), "active")
+
+    def test_bot_desligado_continua_desligado(self):
+        (self.d / "estado-bot").write_text("inactive")
+        self.versao("2", patch="patch 2")
+        self.assertEqual(self.atualizar().returncode, 0)
+        self.assertFalse(any("start lor-bot@" in x or "painel" in x for x in self.chamadas()))
+
+    def test_bot_desligando_e_esperado_e_nao_religa(self):
+        # Desligar no painel: o bot termina a série (deactivating) ainda usando o Ai-vgc instalado.
+        (self.d / "estado-bot").write_text("deactivating")
+        self.versao("2", patch="patch 2")
+        r = self.atualizar()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        c = self.chamadas()
+        self.assertLess(c.index("systemctl stop lor-bot@bot.service"), c.index("instalar 2 bot=inactive"), c)
+        self.assertFalse(any("start lor-bot@" in x or "painel" in x for x in c), c)
+        self.assertEqual((self.d / "estado-bot").read_text().strip(), "inactive")
+
+    def test_desafio_volta_ao_ladder_so_se_ele_estava_ligado(self):
+        for voltar, fim in (("0", "inactive"), ("1", "active")):
+            with self.subTest(voltar=voltar):
+                (self.d / "log").unlink(missing_ok=True)
+                self.setUp_versao_instalada()
+                (self.d / "estado-bot").write_text("active")  # jogando o desafio
+                (self.d / "desafio").write_text("2")
+                (self.d / "voltar").write_text(voltar)
+                self.versao("3" + voltar, patch="patch novo " + voltar)
+                r = self.atualizar()
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                c = self.chamadas()
+                self.assertIn(f"instalar 3{voltar} bot=inactive", c)
+                self.assertEqual((self.d / "estado-bot").read_text().strip(), fim, c)
+
+    def setUp_versao_instalada(self):
+        # Volta a ter a versão 1 instalada (o subTest anterior instalou outra).
+        self.versao("1", patch="patch 1")
+        self.assertEqual(self.atualizar("--forcar").returncode, 0)
+        (self.d / "log").unlink(missing_ok=True)
+
+    def test_falha_no_meio_volta_para_a_versao_anterior(self):
+        for patch in ("patch 1", "patch 2"):
+            with self.subTest(patch=patch):
+                (self.d / "log").unlink(missing_ok=True)
+                (self.d / "estado-bot").write_text("active")
+                self.versao("2", patch=patch, falhar=True)
+                r = self.atualizar()
+                self.assertNotEqual(r.returncode, 0)  # o painel do Windows não troca de versão
+                c = self.chamadas()
+                self.assertEqual([x for x in c if x.startswith("instalar")][-1].split()[:2], ["instalar", "1"], c)
+                self.assertEqual((self.opt / "VERSION").read_text(), "1")
+                self.assertEqual((self.opt / "fonte" / "VERSION").read_text(), "1")
+                self.assertEqual((self.d / "estado-bot").read_text().strip(), "active")
+
+    def test_mesma_conta_que_o_instalar(self):
+        # Se as duas contas divergirem, toda atualização pararia os bots (ou nenhuma pararia).
+        conta = 'cat "$SRC/linux/instalar.sh" "$SRC/linux/ai-vgc-lor.patch" | sha256sum | cut -d\' \' -f1'
+        self.assertIn(conta, (RAIZ_REPO / "linux" / "instalar.sh").read_text())
+        self.assertIn(conta.replace("$SRC", "$1"), (RAIZ_REPO / "linux" / "atualizar.sh").read_text())
+        self.assertIn('"$DIR/.lor-runtime"', (RAIZ_REPO / "linux" / "instalar.sh").read_text())

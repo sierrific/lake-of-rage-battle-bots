@@ -103,21 +103,41 @@ def _lote(itens):
     return {k: np.concatenate([p[k] for p in partes]) for k in partes[0]} if partes else None
 
 
-def dados(args) -> None:
-    from ai_vgc.nn.encode import vocab
-    from ai_vgc.nn.series import series_key
-
-    vocab()
+def _ler_backup(backup: Path) -> dict[str, dict]:
+    """Partidas únicas (pela tag) de <backup>/*/games.jsonl; linhas quebradas ou incompletas ficam de fora."""
     jogos: dict[str, dict] = {}
-    for arq in sorted(args.backup.glob("*/games.jsonl")):
+    for arq in sorted(backup.glob("*/games.jsonl")):
         with open(arq, encoding="utf-8", errors="replace") as f:
             for linha in f:
                 try:
                     row = json.loads(linha)
                 except ValueError:
                     continue
-                if row.get("log") and row.get("tag") and row.get("user") and row.get("format"):
-                    jogos.setdefault(row["tag"].removeprefix("battle-"), row)
+                if not isinstance(row, dict) or not all(isinstance(row.get(k), str) and row[k]
+                                                        for k in ("log", "tag", "user", "format")):
+                    continue
+                jogos.setdefault(row["tag"].removeprefix("battle-"), row)
+    return jogos
+
+
+def _contexto(serie: list[tuple[int, str]], jogos: dict[str, dict]) -> list[tuple[str, list[str]]]:
+    """(tag, logs dos jogos anteriores) de cada jogo da série, na ordem. Sem algum jogo anterior no
+    backup (só o jogo 2, ou o 1 e o 3), o jogo vai sem contexto, como no dataset.py."""
+    num = dict(serie)
+    saida = []
+    for n, tag in sorted(serie):
+        anteriores = range(1, n)
+        antes = [jogos[num[i]]["log"] for i in anteriores] if all(i in num for i in anteriores) else []
+        saida.append((tag, antes))
+    return saida
+
+
+def dados(args) -> None:
+    from ai_vgc.nn.encode import vocab
+    from ai_vgc.nn.series import series_key
+
+    vocab()
+    jogos = _ler_backup(args.backup)
     print(f"{len(jogos)} jogos únicos em {args.backup}", flush=True)
     # Agrupa em séries (um jogo solto é uma série de um) e ordena pela hora do primeiro jogo.
     series: dict[str, list[tuple[int, str]]] = {}
@@ -125,16 +145,12 @@ def dados(args) -> None:
         row["log"] = _limpa(row["log"])
         chave = series_key(row["log"])
         series.setdefault(chave[0] if chave else tag, []).append((chave[1] if chave else 1, tag))
-    ordem = sorted(series.values(), key=lambda s: min(jogos[t]["time"] for _, t in s))
+    ordem = sorted(series.values(), key=lambda s: min(str(jogos[t].get("time", "")) for _, t in s))
     corte = int(round(len(ordem) * (1 - args.teste)))
     for nome, parte in (("treino", ordem[:corte]), ("teste", ordem[corte:])):
         por_formato: dict[str, list] = {}
         for s in parte:
-            num = dict(s)
-            for n, tag in sorted(s):
-                antes = [jogos[num[i]]["log"] for i in range(1, n)]
-                if len(antes) != n - 1 or any(i not in num for i in range(1, n)):
-                    antes = []  # série sem um jogo anterior: sem contexto, como no dataset.py
+            for tag, antes in _contexto(s, jogos):
                 row = jogos[tag]
                 por_formato.setdefault(row["format"], []).append((tag, row["log"], row["user"], antes))
         for fmt, itens in sorted(por_formato.items()):
