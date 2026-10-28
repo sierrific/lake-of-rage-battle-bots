@@ -11,6 +11,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Sintaxe do instalador (PowerShell 5.1)
+        shell: powershell
+        run: |
+          $erros = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\windows\instalar.ps1", [ref]$null, [ref]$erros)
+          if ($erros.Count) { throw ($erros | Out-String) }
       - name: Painel nativo (PowerShell 5.1, C# 5, layouts, temas e comandos simulados)
         shell: powershell
         run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_panel_ui.ps1 -OutputDirectory "$env:RUNNER_TEMP/lor-panel-ui"
