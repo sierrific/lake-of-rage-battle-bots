@@ -80,8 +80,12 @@ else
 		as_bots "git -C $DIR/ai-vgc fetch -q --depth 1 origin $AIVGC_COMMIT || git -C $DIR/ai-vgc fetch -q --depth 1 $AIVGC_ORIGINAL $AIVGC_COMMIT"
 		as_bots "git -C $DIR/ai-vgc checkout -q -f FETCH_HEAD"
 	fi
-	install -o bots -g bots -m 644 "$SRC/linux/ai-vgc-lor.patch" "$DIR/ai-vgc-lor.patch"
-	as_bots "cd $DIR/ai-vgc && git apply ../ai-vgc-lor.patch"
+	# O patch instalado só é trocado depois que o novo aplicou: o reaplicar-patch.sh usa os dois
+	# para apagar os arquivos que eles criam (sem isso, a segunda aplicação falharia).
+	install -o bots -g bots -m 644 "$SRC/linux/ai-vgc-lor.patch" "$DIR/ai-vgc-lor.novo.patch"
+	install -o bots -g bots -m 755 "$SRC/linux/reaplicar-patch.sh" "$DIR/reaplicar-patch.sh"
+	as_bots "$DIR/reaplicar-patch.sh $DIR/ai-vgc $DIR/ai-vgc-lor.patch $DIR/ai-vgc-lor.novo.patch"
+	mv -f "$DIR/ai-vgc-lor.novo.patch" "$DIR/ai-vgc-lor.patch"
 
 	echo "==> Dependências Python (PyTorch etc.; a primeira vez demora)"
 	# Os modelos (mc-bo3-rnad-v5 e companhia) já vêm no repositório do Ai-vgc, em data/models.
