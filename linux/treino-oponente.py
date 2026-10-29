@@ -29,6 +29,7 @@ import json
 import math
 import multiprocessing
 import os
+import re
 import time
 import zlib
 from concurrent.futures import ProcessPoolExecutor
@@ -47,22 +48,32 @@ def _limpa(log: str) -> str:
     return "\n".join(linhas[ini:])
 
 
-def _jogo(item: tuple[str, str, str, list[str]]) -> dict[str, np.ndarray] | None:
+def _papel(nomes: dict[str, str], usuario: str, adversario: str) -> str | None:
+    """O lado ("p1"/"p2") do nosso bot. Pelo nome da conta; se ele não aparece (o bot perdeu o login
+    e jogou como "Guest 123"), o lado que não é o adversário registrado na partida."""
+    for r, n in nomes.items():
+        if _id(n) == _id(usuario):
+            return r
+    outros = [r for r, n in nomes.items() if _id(n) != _id(adversario)] if adversario else []
+    return outros[0] if len(outros) == 1 else None
+
+
+def _jogo(item: tuple[str, str, str, list[str], str]) -> dict[str, np.ndarray] | None:
     """Um jogo pela visão do nosso bot; item = (tag, log, nosso usuário, logs dos jogos anteriores
-    da série)."""
+    da série, adversário registrado)."""
     from poke_env import to_id_str
 
     from ai_vgc.nn.encode import encode
     from ai_vgc.nn.replay import player_info, replay, winner
     from ai_vgc.nn.series import Context
 
-    tag, log, usuario, antes = item
+    tag, log, usuario, antes, adversario = item
     try:
         venc = winner(log)
         nomes = {r: player_info(log, r) for r in ("p1", "p2")}
     except Exception:
         return None
-    papel = next((r for r, (n, _) in nomes.items() if to_id_str(n) == to_id_str(usuario)), None)
+    papel = _papel({r: n for r, (n, _) in nomes.items()}, usuario, adversario)
     if venc is None or papel is None:
         return None
     nome, rating = nomes[papel]
@@ -120,6 +131,23 @@ def _ler_backup(backup: Path) -> dict[str, dict]:
     return jogos
 
 
+def _id(nome: str) -> str:
+    """O id do Showdown (como poke_env.to_id_str): só letras e números, minúsculas."""
+    return re.sub(r"[^a-z0-9]", "", nome.lower())
+
+
+def _sem_nossos_bots(jogos: dict[str, dict], extras: list[str]) -> tuple[dict[str, dict], int]:
+    """Tira os jogos contra contas dos nossos bots (todas as que aparecem como "user" no backup, mais
+    `extras`): ali o "oponente" é outro bot nosso, e o modelo aprenderia a prever a si mesmo."""
+    nossos = {_id(r["user"]) for r in jogos.values()} | {_id(x) for x in extras}
+    fica = {}
+    for tag, row in jogos.items():
+        jogadores = {_id(n) for n in re.findall(r"^\|player\|p[12]\|([^|\n]*)", row["log"], re.M)}
+        if not (jogadores - {_id(row["user"])}) & nossos:
+            fica[tag] = row
+    return fica, len(jogos) - len(fica)
+
+
 def _contexto(serie: list[tuple[int, str]], jogos: dict[str, dict]) -> list[tuple[str, list[str]]]:
     """(tag, logs dos jogos anteriores) de cada jogo da série, na ordem. Sem algum jogo anterior no
     backup (só o jogo 2, ou o 1 e o 3), o jogo vai sem contexto, como no dataset.py."""
@@ -139,6 +167,9 @@ def dados(args) -> None:
     vocab()
     jogos = _ler_backup(args.backup)
     print(f"{len(jogos)} jogos únicos em {args.backup}", flush=True)
+    if not args.com_nossos_bots:
+        jogos, fora = _sem_nossos_bots(jogos, args.excluir)
+        print(f"{fora} jogos contra os nossos próprios bots ficaram de fora; sobram {len(jogos)}", flush=True)
     # Agrupa em séries (um jogo solto é uma série de um) e ordena pela hora do primeiro jogo.
     series: dict[str, list[tuple[int, str]]] = {}
     for tag, row in jogos.items():
@@ -152,7 +183,8 @@ def dados(args) -> None:
         for s in parte:
             for tag, antes in _contexto(s, jogos):
                 row = jogos[tag]
-                por_formato.setdefault(row["format"], []).append((tag, row["log"], row["user"], antes))
+                por_formato.setdefault(row["format"], []).append((tag, row["log"], row["user"], antes,
+                                                                  str(row.get("opponent") or "")))
         for fmt, itens in sorted(por_formato.items()):
             lotes = [itens[i:i + 50] for i in range(0, len(itens), 50)]
             t = time.time()
@@ -245,6 +277,9 @@ def main() -> None:
     d.add_argument("--backup", type=Path, required=True, help="pasta com <membro>/games.jsonl")
     d.add_argument("--out", type=Path, default=Path("data/lor-opp"))
     d.add_argument("--teste", type=float, default=0.15, help="fração das séries mais novas para o teste")
+    d.add_argument("--com-nossos-bots", action="store_true",
+                   help="mantém os jogos entre bots nossos (por padrão saem: o oponente ali não é humano)")
+    d.add_argument("--excluir", nargs="*", default=[], help="outras contas de bot a tratar como nossas")
     d.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     d.set_defaults(func=dados)
     t = sub.add_parser("treinar", help="ajuste fino da cabeça do oponente")
