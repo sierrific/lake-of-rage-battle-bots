@@ -48,22 +48,32 @@ def _limpa(log: str) -> str:
     return "\n".join(linhas[ini:])
 
 
-def _jogo(item: tuple[str, str, str, list[str]]) -> dict[str, np.ndarray] | None:
+def _papel(nomes: dict[str, str], usuario: str, adversario: str) -> str | None:
+    """O lado ("p1"/"p2") do nosso bot. Pelo nome da conta; se ele não aparece (o bot perdeu o login
+    e jogou como "Guest 123"), o lado que não é o adversário registrado na partida."""
+    for r, n in nomes.items():
+        if _id(n) == _id(usuario):
+            return r
+    outros = [r for r, n in nomes.items() if _id(n) != _id(adversario)] if adversario else []
+    return outros[0] if len(outros) == 1 else None
+
+
+def _jogo(item: tuple[str, str, str, list[str], str]) -> dict[str, np.ndarray] | None:
     """Um jogo pela visão do nosso bot; item = (tag, log, nosso usuário, logs dos jogos anteriores
-    da série)."""
+    da série, adversário registrado)."""
     from poke_env import to_id_str
 
     from ai_vgc.nn.encode import encode
     from ai_vgc.nn.replay import player_info, replay, winner
     from ai_vgc.nn.series import Context
 
-    tag, log, usuario, antes = item
+    tag, log, usuario, antes, adversario = item
     try:
         venc = winner(log)
         nomes = {r: player_info(log, r) for r in ("p1", "p2")}
     except Exception:
         return None
-    papel = next((r for r, (n, _) in nomes.items() if to_id_str(n) == to_id_str(usuario)), None)
+    papel = _papel({r: n for r, (n, _) in nomes.items()}, usuario, adversario)
     if venc is None or papel is None:
         return None
     nome, rating = nomes[papel]
@@ -173,7 +183,8 @@ def dados(args) -> None:
         for s in parte:
             for tag, antes in _contexto(s, jogos):
                 row = jogos[tag]
-                por_formato.setdefault(row["format"], []).append((tag, row["log"], row["user"], antes))
+                por_formato.setdefault(row["format"], []).append((tag, row["log"], row["user"], antes,
+                                                                  str(row.get("opponent") or "")))
         for fmt, itens in sorted(por_formato.items()):
             lotes = [itens[i:i + 50] for i in range(0, len(itens), 50)]
             t = time.time()

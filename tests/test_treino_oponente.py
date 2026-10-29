@@ -53,6 +53,13 @@ class TestTreinoOponente(unittest.TestCase):
         fica, fora = treino._sem_nossos_bots(jogos, ["Hey Sidet"])
         self.assertEqual((sorted(fica), fora), (["a", "c"], 2))
 
+    def test_lado_do_bot_que_jogou_sem_login(self):
+        nomes = {"p1": "Guest 3506156", "p2": "Humano X"}
+        self.assertEqual(treino._papel(nomes, "the bugcather", "Humano X"), "p1")
+        self.assertEqual(treino._papel({"p1": "the bugcather", "p2": "H"}, "The Bugcather", "H"), "p1")
+        self.assertIsNone(treino._papel(nomes, "the bugcather", ""))
+        self.assertIsNone(treino._papel(nomes, "the bugcather", "Outro"))
+
 
 if __name__ == "__main__":
     unittest.main()
