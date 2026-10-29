@@ -6,6 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=bots
+# Para ler o journal dos lor-bot@ (a partida em andamento vai no sinal de vida para a coleta).
+SupplementaryGroups=systemd-journal
 # COLETA_CODIGO=... (o código que o Thiago passa para cada membro; o painel salva aqui)
 EnvironmentFile=/etc/lor-bots/coleta.env
 ExecStart=/usr/bin/python3 /opt/lor-bots/enviar-partidas.py /opt/lor-bots/ai-vgc/data/live_games
