@@ -10,6 +10,10 @@ se a VPS estiver fora, tenta de novo no próximo ciclo sem perder nada.
 Grava em <pasta>/.coleta-status como foi o último contato com a coleta ("ok", "codigo" = código
 recusado, "fora" = sem resposta), para o painel mostrar se o envio funciona de verdade.
 
+A cada minuto manda também um sinal de vida para /coleta/sinal: as contas de bot deste PC, se
+cada uma está ligada e a partida em andamento (do journal do lor-bot@<bot>). É o que a página de
+admin da coleta usa para mostrar quem está online agora.
+
 Manda também as partidas de antes da primeira execução (servem para o treino), marcadas com
 "antigo" para o Discord não postar tudo de uma vez. Com o Discord desligado no painel (existe
 SEM_DISCORD), as partidas vão com "discord": false: a coleta guarda para o treino e não posta.
@@ -19,6 +23,7 @@ Só biblioteca padrão.
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -31,6 +36,9 @@ LOTE = 3 * 1024 * 1024  # bytes por envio, juntando várias partidas
 LIMITE = 4 * 1024 * 1024  # o máximo que a coleta aceita por envio: uma partida maior vai para a quarentena
 TAG = re.compile(r"^battle-[a-z0-9-]{1,120}$")  # o mesmo que a coleta exige em cada linha
 SEM_DISCORD = Path(os.environ.get("LOR_SEM_DISCORD", "/etc/lor-bots/sem-discord"))  # painel.sh discord
+ETC = Path(os.environ.get("LOR_ETC", "/etc/lor-bots"))  # um <bot>.env por bot (BOT=conta, SERVIDOR=...)
+VERSAO = Path(os.environ.get("LOR_VERSAO", "/opt/lor-bots/VERSION"))
+SINAL_A_CADA = 60  # segundos entre sinais de vida; a página considera offline depois de 3 min sem
 STATUS: Path | None = None  # <pasta>/.coleta-status (definido no main)
 _membro: str | None = None  # o nome que a coleta deu a este código (resposta do ping)
 
@@ -85,9 +93,93 @@ def main() -> None:
         print("primeira execução: enviando também as partidas que já existiam", flush=True)
         estado = {"desde": time.strftime("%Y-%m-%d %H:%M:%S"), "enviados": {}}
         _gravar(estado_arq, estado)
+    ultimo_sinal = 0.0
     while True:
         ciclo(codigo, raiz, estado_arq, estado)
+        if time.monotonic() - ultimo_sinal >= SINAL_A_CADA:
+            sinal(codigo)
+            ultimo_sinal = time.monotonic()
         time.sleep(POLL)
+
+
+def _rodar(cmd: list[str]) -> str:
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _ler_env(arq: Path) -> dict[str, str]:
+    """chave=valor do <bot>.env, sem executar nada."""
+    conf = {}
+    try:
+        for linha in arq.read_text().splitlines():
+            chave, igual, valor = linha.partition("=")
+            if igual and re.fullmatch(r"[A-Z_]+", chave.strip()):
+                conf[chave.strip()] = valor.strip().strip('"\'')
+    except OSError:
+        pass
+    return conf
+
+
+def partida_atual(log: str) -> str:
+    """A última partida anunciada no log ("watch: <url>") se depois dela não veio o resultado
+    (o mesmo que o painel.sh estado faz)."""
+    p = ""
+    for linha in log.splitlines():
+        if linha.startswith("watch: "):
+            p = linha.split()[1] if len(linha.split()) > 1 else ""
+        elif re.match(r"^(win|loss|tie) vs ", linha):
+            p = ""
+    return p
+
+
+def bots_deste_pc(rodar=_rodar) -> list[dict]:
+    """As contas configuradas neste PC e o estado de cada uma (ActiveState do lor-bot@<bot>)."""
+    bots = []
+    for env in sorted(ETC.glob("*.env")):
+        bot_id = env.stem
+        if bot_id in ("coleta", "backup"):
+            continue
+        conf = _ler_env(env)
+        if not conf.get("BOT"):
+            continue
+        unit = f"lor-bot@{bot_id}"
+        estado = rodar(["systemctl", "show", "-p", "ActiveState", "--value", unit]).strip() or "desconhecido"
+        partida = ""
+        if estado in ("active", "deactivating"):
+            partida = partida_atual(rodar(["journalctl", "-u", unit, "-n", "300", "-o", "cat", "--no-pager"]))
+        desafio = rodar(["systemctl", "show", "-p", "ActiveState", "--value", f"lor-desafio-{bot_id}"]).strip()
+        bots.append({"conta": conf["BOT"], "estado": estado, "partida": partida,
+                     "servidor": conf.get("SERVIDOR") or "oficial",
+                     "desafio": desafio in ("active", "activating", "deactivating")})
+    return bots
+
+
+_sinal_anterior: str | None = None
+
+
+def sinal(codigo: str) -> None:
+    """Sinal de vida para a página de admin. Nunca atrapalha o envio; só avisa no log quando muda
+    (uma coleta antiga, sem /coleta/sinal, responde 404: fica quieto)."""
+    global _sinal_anterior
+    try:
+        versao = VERSAO.read_text().strip()
+    except OSError:
+        versao = ""
+    corpo = json.dumps({"versao": versao, "bots": bots_deste_pc()}).encode()
+    req = urllib.request.Request(URL.rsplit("/", 1)[0] + "/sinal", data=corpo, headers={
+        "Authorization": f"Bearer {codigo}", "Content-Type": "application/json", "User-Agent": "lor-bots-envio"})
+    try:
+        with urllib.request.urlopen(req, timeout=20):
+            agora = "ok"
+    except urllib.error.HTTPError as e:
+        agora = f"recusado ({e.code})"
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        agora = f"sem resposta ({e})"
+    if agora != _sinal_anterior and not agora.startswith("recusado (404"):
+        print(f"sinal de vida para a coleta: {agora}", flush=True)
+    _sinal_anterior = agora
 
 
 def ciclo(codigo: str, raiz: Path, estado_arq: Path, estado: dict) -> None:

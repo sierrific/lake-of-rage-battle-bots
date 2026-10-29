@@ -222,5 +222,49 @@ class TestEnvio(unittest.TestCase):
         self.assertEqual([p.name for p in self.raiz.iterdir() if p.name.endswith(".tmp")], [])
 
 
+class TestSinal(unittest.TestCase):
+    """O sinal de vida: as contas deste PC e o estado de cada uma, para a página de admin."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.etc = Path(self.tmp.name)
+        enviar.ETC = self.etc
+        (self.etc / "bot.env").write_text('BOT=MadMage\nSERVIDOR=oficial\nMODO="--ladder"\n')
+        (self.etc / "treino.env").write_text("BOT=LoR Sierra\nSERVIDOR=lor\n")
+        (self.etc / "coleta.env").write_text("COLETA_CODIGO=segredo\n")
+        (self.etc / "vazio.env").write_text("SERVIDOR=lor\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_partida_atual(self):
+        log = "watch: https://play.pokemonshowdown.com/battle-a-1\nwin vs X\nwatch: https://play.pokemonshowdown.com/battle-a-2\n"
+        self.assertEqual(enviar.partida_atual(log), "https://play.pokemonshowdown.com/battle-a-2")
+        self.assertEqual(enviar.partida_atual(log + "loss vs Y\n"), "")
+        self.assertEqual(enviar.partida_atual(""), "")
+
+    def test_bots_deste_pc(self):
+        def rodar(cmd):
+            if cmd[0] == "journalctl":
+                return "watch: https://play.pokemonshowdown.com/battle-x-9\n" if "lor-bot@bot" in cmd else ""
+            return {"lor-bot@bot": "active\n", "lor-bot@treino": "inactive\n",
+                    "lor-desafio-bot": "inactive\n", "lor-desafio-treino": "inactive\n"}[cmd[-1]]
+        bots = enviar.bots_deste_pc(rodar)
+        self.assertEqual(bots, [
+            {"conta": "MadMage", "estado": "active", "partida": "https://play.pokemonshowdown.com/battle-x-9",
+             "servidor": "oficial", "desafio": False},
+            {"conta": "LoR Sierra", "estado": "inactive", "partida": "", "servidor": "lor", "desafio": False},
+        ])  # sem coleta.env (o código nunca vai no sinal) nem .env sem conta
+
+    def test_sinal_nunca_derruba_o_envio(self):
+        url, bots = enviar.URL, enviar.bots_deste_pc
+        enviar.URL = "http://127.0.0.1:9/partidas"  # ninguém ouvindo
+        enviar.bots_deste_pc = lambda rodar=None: []
+        try:
+            enviar.sinal("codigo")
+        finally:
+            enviar.URL, enviar.bots_deste_pc = url, bots
+
+
 if __name__ == "__main__":
     unittest.main()
