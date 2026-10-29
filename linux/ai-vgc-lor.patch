@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..aaf0252 100644
+index eb60a97..6e327d8 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -275,7 +275,16 @@ index eb60a97..aaf0252 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -913,9 +1079,10 @@ def main() -> None:
+@@ -857,6 +1023,8 @@ def main() -> None:
+     ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
+     ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
+     ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
++    ap.add_argument("--search-protect", action="store_true",
++                    help="always score lines where a slot uses Protect/Wide Guard, however unlikely the policy finds them")
+     ap.add_argument("--adapt", action="store_true",
+                     help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
+     ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
+@@ -913,9 +1081,10 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -288,7 +297,7 @@ index eb60a97..aaf0252 100644
      # The sim bridge (search) still needs the local Showdown checkout, but not a local server.
      proc = None if public else ensure_server(args.port, args.showdown)
      common = dict(
-@@ -923,7 +1090,8 @@ def main() -> None:
+@@ -923,7 +1092,8 @@ def main() -> None:
          ping_interval=20.0, ping_timeout=60.0,
          battle_format=args.format, max_concurrent_battles=args.concurrency,
          accept_open_team_sheet=not args.closed_sheets,
@@ -298,7 +307,16 @@ index eb60a97..aaf0252 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -967,8 +1135,11 @@ def main() -> None:
+@@ -949,7 +1119,7 @@ def main() -> None:
+                                             showdown=args.showdown or "pokemon-showdown", k=args.search_k,
+                                             opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
+                                             depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
+-                                            seeds2=args.search_seeds2, prior=args.search_prior, **kw)
++                                            seeds2=args.search_seeds2, prior=args.search_prior, protect=args.search_protect, **kw)
+                 bot.formats = formats
+                 bot.counter_t1 = args.counter_t1
+                 if public and not args.no_munchstats:
+@@ -967,8 +1137,11 @@ def main() -> None:
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
              bot.logs_dir = args.logs_dir
@@ -311,7 +329,7 @@ index eb60a97..aaf0252 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -986,32 +1157,33 @@ def main() -> None:
+@@ -986,32 +1159,33 @@ def main() -> None:
                  threading.Thread(target=watchdog, daemon=True).start()
              if args.from_:
                  bot.allowed = {to_id_str(u) for u in args.from_}
@@ -363,3 +381,206 @@ index eb60a97..aaf0252 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
+@@ -1035,7 +1209,7 @@ def main() -> None:
+                               showdown=args.showdown or "pokemon-showdown", k=args.search_k,
+                               opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
+                               depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
+-                              seeds2=args.search_seeds2, prior=args.search_prior, **kw)
++                              seeds2=args.search_seeds2, prior=args.search_prior, protect=args.search_protect, **kw)
+             me.counter_t1 = args.counter_t1
+         else:
+             me = NNPlayer(args.model, args.rating, args.greedy, rules=not args.no_rules,
+diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
+index 9d7a515..a640f2a 100644
+--- a/src/ai_vgc/nn/search.py
++++ b/src/ai_vgc/nn/search.py
+@@ -624,6 +624,45 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
+     return sorted(out, key=lambda c: -c[1])[:k]
+ 
+ 
++# Moves the policy tends to rank far below attacks even when they're the right play (a Wide Guard
++# against a boosted spread move, see the 2026-10-29 replay analysis); search should always score them.
++PROTECTIVE = {"protect", "detect", "wideguard", "quickguard", "spikyshield", "kingsshield",
++              "banefulbunker", "silktrap", "burningbulwark", "obstruct"}
++
++
++@torch.no_grad()
++def protective_candidates(model: Policy, battle: DoubleBattle, obs: dict[str, np.ndarray], mask: np.ndarray,
++                          have: list[tuple[np.ndarray, float]]) -> list[tuple[np.ndarray, float]]:
++    """For each slot with a usable protective move: that move with the partner's most likely
++    action, unless `have` already has a candidate where the slot uses it."""
++    b = {key: torch.from_numpy(np.ascontiguousarray(v))[None] for key, v in obs.items()}
++    m = torch.from_numpy(mask)[None]
++    enc = model.encode(b)
++    lp_a = F.log_softmax(masked(model.slot_logits(enc, b, 0), m[:, 0]), -1)[0]
++    out = []
++    for pos, mon in enumerate(battle.active_pokemon):
++        if mon is None:
++            continue
++        for k, move in enumerate(list(mon.moves.values())[:4]):
++            act = 7 + 5 * k + 2  # a move with no target
++            if move.id not in PROTECTIVE or not mask[pos, act] or any(a[pos] == act for a, _ in have + out):
++                continue
++            if pos == 0:
++                prev = torch.tensor([act])
++                lp_b = F.log_softmax(masked(model.slot_logits(enc, b, 1, prev), slot_b_mask(m[:, 1], prev)), -1)[0]
++                a1 = int(lp_b.argmax())
++                out.append((np.array([act, a1]), (lp_a[act] + lp_b[a1]).item()))
++                continue
++            for a0 in lp_a.topk(min(4, int(mask[0].sum()))).indices.tolist():
++                prev = torch.tensor([a0])
++                mb = slot_b_mask(m[:, 1], prev)
++                if mb[0, act]:
++                    lp_b = F.log_softmax(masked(model.slot_logits(enc, b, 1, prev), mb), -1)[0]
++                    out.append((np.array([a0, act]), (lp_a[a0] + lp_b[act]).item()))
++                    break
++    return out
++
++
+ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
+                   probs: tuple[np.ndarray, np.ndarray] | None) -> list[tuple[str, float]]:
+     """(choice, probability) for one opposing slot, from the opponent head's (move-or-switch,
+@@ -780,16 +819,20 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
+ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: DoubleBattle,
+            mask: np.ndarray, fmt: str, teams_dir: str, rating: float, k: int = 6, opp_k: int = 6,
+            seeds: int = 2, prior: float = 0.0, n_worlds: int = 1, depth: int = 1, k2: int = 3,
+-           opp_k2: int = 3, seeds2: int = 1) -> tuple[np.ndarray, dict] | None:
++           opp_k2: int = 3, seeds2: int = 1, protect: bool = False) -> tuple[np.ndarray, dict] | None:
+     """(our chosen action, details) by one-turn search, or None when the position can't be
+     rebuilt. With closed team sheets the opponent's hidden sets are guessed `n_worlds` ways
+     (`worlds`); each candidate is scored in every world and the scores averaged by how likely
+     each world is, so a play has to hold up against the sets they commonly run, not just one.
+     With `depth` 2, each turn-1 playout is scored after a second turn (`_second_turn`) instead
+     of by the value head right after turn 1.
++    With `protect`, lines where a slot uses Protect/Wide Guard (`protective_candidates`) are
++    scored too, however unlikely the policy finds them.
+     `M` and `q` in the details are the most likely world's."""
+     obs = encode(battle, rating)
+     ours = our_candidates(model, obs | {"mask": mask}, mask, k)
++    if protect:
++        ours += protective_candidates(model, battle, obs | {"mask": mask}, mask, ours)
+     if len(ours) < 2:
+         return None
+     choices = [DoublesEnv.action_to_order(a, battle, strict=False).message.removeprefix("/choose ")
+@@ -842,8 +885,9 @@ class SearchPlayer(NNPlayer):
+     def __init__(self, *args, opp_model: Policy | str | Path | None = None, fmt: str,
+                  teams_dir: str | Path, showdown: str | Path = "pokemon-showdown", k: int = 6,
+                  opp_k: int = 6, seeds: int = 2, prior: float = 0.0, worlds: int = 1, depth: int = 1,
+-                 k2: int = 3, opp_k2: int = 3, seeds2: int = 1, **kwargs):
++                 k2: int = 3, opp_k2: int = 3, seeds2: int = 1, protect: bool = False, **kwargs):
+         super().__init__(*args, battle_format=fmt, **kwargs)
++        self.protect = protect
+         self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
+         self.fmt, self.teams_dir = fmt, str(teams_dir)
+         self.bridge = Bridge(showdown)
+@@ -889,7 +933,7 @@ class SearchPlayer(NNPlayer):
+             out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
+                                           self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
+                                           self.seeds, self.prior, self.worlds, self.depth, self.k2,
+-                                          self.opp_k2, self.seeds2)
++                                          self.opp_k2, self.seeds2, self.protect)
+         except Exception as e:  # a position the bridge can't handle: play the policy
+             self.logger.warning("search failed on turn %s: %r", battle.turn, e)
+             out = None
+diff --git a/src/ai_vgc/nn/sim_bridge.js b/src/ai_vgc/nn/sim_bridge.js
+index bf07ddc..7909614 100644
+--- a/src/ai_vgc/nn/sim_bridge.js
++++ b/src/ai_vgc/nn/sim_bridge.js
+@@ -111,6 +111,23 @@ function tryChoose(battle, side, choice) {
+   return `default for ${choice}`;
+ }
+ 
++// A pivot (U-turn, Flip Turn, Parting Shot...) or Emergency Exit stops the turn with a switch
++// request for a Pokemon that is still alive; without an answer the rest of the turn (usually the
++// other side's moves) never happens and the playout is scored mid-turn. Answer those with the
++// first legal switch-in ("default") until the turn ends. Replacements for fainted Pokemon come
++// after the turn and are left as before.
++function finishTurn(battle) {
++  for (let i = 0; i < 8 && !battle.ended && battle.midTurn; i++) {
++    const pending = battle.sides.filter(side => {
++      const req = side.activeRequest;
++      return req && !req.wait && req.forceSwitch &&
++        side.active.some((p, j) => req.forceSwitch[j] && p && !p.fainted);
++    });
++    if (!pending.length) return;
++    for (const side of pending) battle.choose(side.id, 'default');
++  }
++}
++
+ function dump(battle) {
+   return battle.sides.map(side => side.pokemon.map(p => [
+     p.name, p.species.id, p.hp, p.maxhp, p.status, p.item, p.ability,
+@@ -159,6 +176,7 @@ function play(json, sides, pairs, seeds, keep) {
+       let err = '';
+       try {
+         err = [tryChoose(b, sides.us, us), tryChoose(b, sides.them, them)].filter(Boolean).join('; ');
++        finishTurn(b);
+       } catch (e) {
+         err = String(e && e.message || e);
+       }
+diff --git a/tests/fixtures/pivot_state.json b/tests/fixtures/pivot_state.json
+new file mode 100644
+index 0000000..8e21caa
+--- /dev/null
++++ b/tests/fixtures/pivot_state.json
+@@ -0,0 +1 @@
++{"format": "gen9championsvgc2026regmcbo3", "turn": 2, "role": "p2", "sides": {"us": {"mons": [{"set": {"name": "Annihilape", "species": "annihilape", "item": "choicescarf", "ability": "defiant", "moves": ["closecombat", "icepunch", "shadowclaw", "uturn"], "nature": "Jolly", "level": 50, "evs": {"hp": 2, "atk": 32, "def": 0, "spa": 0, "spd": 0, "spe": 32}, "ivs": {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31}}, "fainted": false, "firstTurn": false, "protect": 0, "boosts": {"accuracy": 0, "atk": 0, "def": 0, "evasion": 0, "spa": 0, "spd": 0, "spe": 0}, "item": "choicescarf", "status": "", "statusTurns": 0, "volatiles": [], "stats": {"hp": 185, "atk": 135, "def": 100, "spa": 63, "spd": 110, "spe": 121}, "hpFrac": 1.0}, {"set": {"name": "Archaludon", "species": "archaludon", "item": "leftovers", "ability": "stamina", "moves": ["electroshot", "dragonpulse", "flashcannon", "protect"], "nature": "Calm", "level": 50, "evs": {"hp": 30, "atk": 0, "def": 0, "spa": 1, "spd": 25, "spe": 10}, "ivs": {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31}}, "fainted": false, "firstTurn": false, "protect": 1, "boosts": {"accuracy": 0, "atk": 0, "def": 0, "evasion": 0, "spa": 0, "spd": 0, "spe": 0}, "item": "leftovers", "status": "", "statusTurns": 0, "volatiles": [], "stats": {"hp": 165, "atk": 112, "def": 150, "spa": 145, "spd": 93, "spe": 105}, "hpFrac": 1.0}, {"set": {"name": "Pelipper", "species": "pelipper", "item": "sitrusberry", "ability": "drizzle", "moves": ["weatherball", "hurricane", "tailwind", "wideguard"], "nature": "Bold", "level": 50, "evs": {"hp": 30, "atk": 0, "def": 11, "spa": 7, "spd": 7, "spe": 11}, "ivs": {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31}}, "fainted": false, "firstTurn": false, "protect": 0, "boosts": {"accuracy": 0, "atk": 0, "def": 0, "evasion": 0, "spa": 0, "spd": 0, "spe": 0}, "item": "sitrusberry", "status": "", "statusTurns": 0, "volatiles": [], "stats": {"hp": 135, "atk": 63, "def": 120, "spa": 126, "spd": 90, "spe": 85}, "hpFrac": 1.0}, {"set": {"name": "Incineroar", "species": "incineroar", "item": "chopleberry", "ability": "intimidate", "moves": ["fakeout", "flareblitz", "snarl", "partingshot"], "nature": "Impish", "level": 50, "evs": {"hp": 32, "atk": 0, "def": 11, "spa": 0, "spd": 22, "spe": 1}, "ivs": {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31}}, "fainted": false, "firstTurn": false, "protect": 0, "boosts": {"accuracy": 0, "atk": 0, "def": 0, "evasion": 0, "spa": 0, "spd": 0, "spe": 0}, "item": "chopleberry", "status": "", "statusTurns": 0, "volatiles": [], "stats": {"hp": 170, "atk": 135, "def": 121, "spa": 90, "spd": 110, "spe": 80}, "hpFrac": 1.0}], "conditions": {}, "megaUsed": false}, "them": {"mons": [{"set": {"name": "Sylveon", "species": "sylveon", "item": "fairyfeather", "ability": "pixilate", "moves": ["hypervoice", "moonblast", "yawn", "protect"], "nature": "Modest", "level": 50, "evs": {"hp": 19, "atk": 0, "def": 26, "spa": 20, "spd": 0, "spe": 1}, "ivs": {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31}}, "fainted": false, "firstTurn": false, "protect": 1, "boosts": {"accuracy": 0, "atk": 0, "def": 0, "evasion": 0, "spa": 0, "spd": 0, "spe": 0}, "item": "fairyfeather", "status": "", "statusTurns": 0, "volatiles": [], "hpFrac": 1.0}, {"set": {"name": "Charizard", "species": "charizard", "item": "charizarditey", "ability": "blaze", "moves": ["heatwave", "weatherball", "ancientpower", "protect"], "nature": "Modest", "level": 50, "evs": {"hp": 32, "atk": 0, "def": 9, "spa": 1, "spd": 24, "spe": 0}, "ivs": {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31}}, "fainted": false, "firstTurn": false, "protect": 1, "boosts": {"accuracy": 0, "atk": 0, "def": 0, "evasion": 0, "spa": 0, "spd": 0, "spe": 0}, "item": "charizarditey", "status": "", "statusTurns": 0, "volatiles": [], "hpFrac": 1.0}, {"set": {"name": "Farigiraf", "species": "farigiraf", "item": "sitrusberry", "ability": "armortail", "moves": ["psychic", "thunderbolt", "helpinghand", "trickroom"], "nature": "Quiet", "level": 50, "evs": {"hp": 31, "atk": 0, "def": 14, "spa": 0, "spd": 21, "spe": 0}, "ivs": {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31}}, "fainted": false, "firstTurn": false, "protect": 0, "boosts": {"accuracy": 0, "atk": 0, "def": 0, "evasion": 0, "spa": 0, "spd": 0, "spe": 0}, "item": "sitrusberry", "status": "", "statusTurns": 0, "volatiles": [], "hpFrac": 1.0}, {"set": {"name": "Incineroar", "species": "incineroar", "item": "chopleberry", "ability": "intimidate", "moves": ["flareblitz", "darkestlariat", "partingshot", "fakeout"], "nature": "Adamant", "level": 50, "evs": {"hp": 31, "atk": 15, "def": 5, "spa": 0, "spd": 13, "spe": 2}, "ivs": {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31}}, "fainted": false, "firstTurn": false, "protect": 0, "boosts": {"accuracy": 0, "atk": 0, "def": 0, "evasion": 0, "spa": 0, "spd": 0, "spe": 0}, "item": "chopleberry", "status": "", "statusTurns": 0, "volatiles": [], "hpFrac": 1.0}], "conditions": {}, "megaUsed": false}}, "pseudo": {}}
+\ No newline at end of file
+diff --git a/tests/test_sim_bridge_pivot.py b/tests/test_sim_bridge_pivot.py
+new file mode 100644
+index 0000000..d8affee
+--- /dev/null
++++ b/tests/test_sim_bridge_pivot.py
+@@ -0,0 +1,52 @@
++"""sim_bridge.js finishes a turn that a pivot (U-turn) interrupts.
++
++    PYTHONPATH=src uv run --extra nn python -m unittest tests/test_sim_bridge_pivot.py
++
++Fixture: Ynokmon G3 T2 from the 2026-10-28 ladder (we are p2: Annihilape + Archaludon vs
++Sylveon + Charizard). Annihilape's Scarf U-turn moves first and asks for a switch mid-turn;
++the opponent's attacks come after it.
++"""
++
++import json
++import unittest
++from pathlib import Path
++
++from ai_vgc.nn.search import Bridge
++
++STATE = json.loads((Path(__file__).parent / "fixtures" / "pivot_state.json").read_text())
++SHOWDOWN = "pokemon-showdown-mc"
++THEM = "move hypervoice, move heatwave"
++
++
++class TestPivot(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.bridge = Bridge(SHOWDOWN)
++
++    @classmethod
++    def tearDownClass(cls):
++        cls.bridge.close()
++
++    def play(self, us: str) -> list[dict]:
++        return self.bridge.run(STATE, [(us, THEM)], [1, 2, 3])
++
++    def test_uturn_turn_finishes(self):
++        for r in self.play("move uturn 1, move protect"):
++            self.assertEqual(r["err"], "")
++            text = "\n".join(r["lines"])
++            self.assertIn("|move|p2a: Annihilape|U-turn|", text)
++            self.assertRegex(text, r"\|switch\|p2a: ", "the U-turn switch-in never happened")
++            self.assertRegex(text, r"\|move\|p1[ab]: [^|]+\|(Hyper Voice|Heat Wave)\|",
++                             "the opponent's attacks never happened")
++            # End of turn: residuals ran (a faint then leaves a replacement pending, as before).
++            self.assertRegex(text, r"\|upkeep|\|turn\|3|\|win\|", "the turn did not end")
++
++    def test_ordinary_turn_unchanged(self):
++        # No pivot: the turn ends as before (sanity check that finishTurn is a no-op here).
++        for r in self.play("move closecombat 1, move protect"):
++            self.assertEqual(r["err"], "")
++            self.assertRegex("\n".join(r["lines"]), r"\|upkeep|\|turn\|3|\|win\|")
++
++
++if __name__ == "__main__":
++    unittest.main()
