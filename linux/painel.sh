@@ -242,8 +242,9 @@ nome_valido() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; }
 id_showdown() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'; }
 
 # O dia de hoje: vitórias e derrotas da conta, no total e por time, das partidas de hoje no
-# games.jsonl (o bot grava na pasta do dia em que ligou, então olha também a de ontem). Recalcula só
-# quando um dos arquivos muda; senão lê o cache.
+# games.jsonl. O bot grava na pasta do dia em que ligou (um bot ligado na segunda ainda grava na
+# dela na quarta), então olha todas as pastas cujo games.jsonl mudou desde a meia-noite. Recalcula
+# só quando um desses arquivos muda; senão lê o cache.
 hoje() {
 	local conta
 	conta="$(conf_get conta)"
@@ -252,9 +253,16 @@ hoje() {
 import json, os, sys, time
 raiz, conta, cache = sys.argv[1], sys.argv[2], sys.argv[3]
 hoje = time.strftime("%Y-%m-%d")
-ontem = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
-arqs = [os.path.join(raiz, d, "games.jsonl") for d in (ontem, hoje)]
-chave = [hoje, conta] + [os.path.getmtime(a) if os.path.exists(a) else 0 for a in arqs]
+meia_noite = time.mktime(time.strptime(hoje, "%Y-%m-%d"))
+arqs = []
+for d in sorted(os.listdir(raiz)) if os.path.isdir(raiz) else []:
+    a = os.path.join(raiz, d, "games.jsonl")
+    try:
+        if os.path.getmtime(a) >= meia_noite:
+            arqs.append(a)
+    except OSError:
+        pass
+chave = [hoje, conta] + [[a, os.path.getmtime(a)] for a in arqs]
 try:
     c = json.load(open(cache))
     if c.get("chave") != chave:
@@ -524,14 +532,17 @@ adicionar-time)
 		echo "$saida" | head -20
 		exit 1
 	fi
-	install -o bots -g bots -m 644 "$tmp" "$TIMES/LOR-$nome.txt"
-	# A busca de jogadas adivinha sets pela pasta reg_mc; o time também vai para lá.
-	install -o bots -g bots -m 644 "$tmp" "$AIVGC/data/teams/reg_mc/LOR-$nome.txt"
+	# As pastas do Ai-vgc são do usuário bots: quem grava nelas é ele, não o root (um link posto
+	# ali não faz o root escrever fora). A busca de jogadas adivinha sets pela pasta reg_mc; o time
+	# também vai para lá.
+	chmod 644 "$tmp"
+	sudo -u bots install -m 644 "$tmp" "$TIMES/LOR-$nome.txt"
+	sudo -u bots install -m 644 "$tmp" "$AIVGC/data/teams/reg_mc/LOR-$nome.txt"
 	echo ok=time-adicionado
 	;;
 remover-time)
 	nome_valido "${1:-}" || { echo "erro=nome inválido"; exit 1; }
-	rm -f "$TIMES/LOR-$1.txt" "$AIVGC/data/teams/reg_mc/LOR-$1.txt"
+	sudo -u bots rm -f "$TIMES/LOR-$1.txt" "$AIVGC/data/teams/reg_mc/LOR-$1.txt"
 	if [ "$(conf_get time)" = "$1" ]; then
 		conf_set time top3
 		gerar_env
@@ -616,16 +627,21 @@ log)
 manter-vivo)
 	# O WSL desliga a distribuição quando nenhum programa do Windows a usa, mesmo com serviços
 	# rodando; o painel deixa este comando aberto (escondido) enquanto o bot estiver ligado.
-	exec 9>/run/lor-manter-vivo.lock
+	exec 9>"${LOR_RUN:-/run}/lor-manter-vivo.lock"
 	flock -n 9 || exit 0
+	ligado() {
+		case "$(estado_unit "$UNIT")" in
+		inactive | failed) desafio_ativo ;; # um desafio religa o bot daqui a pouco
+		esac
+	}
 	sleep 20
 	while :; do
-		case "$(estado_unit "$UNIT")" in
-		inactive | failed) desafio_ativo || break ;; # um desafio religa o bot daqui a pouco
-		esac
-		sleep 30
+		while ligado; do sleep 30; done
+		sleep 120 # o envio manda as últimas partidas
+		# Desligar e Ligar seguidos: o guardião que o Ligar abriu saiu sem a trava, que ainda era
+		# deste. Então este confere de novo e, com o bot de volta, continua segurando.
+		ligado || break
 	done
-	sleep 120 # o envio manda as últimas partidas
 	;;
 atualizar)
 	exec /opt/lor-bots/atualizar.sh

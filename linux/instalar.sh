@@ -45,8 +45,17 @@ fi
 
 echo "==> Usuário bots"
 id bots >/dev/null 2>&1 || useradd --system --create-home --shell /bin/bash bots
+# /opt/lor-bots é do root: os scripts dela (painel.sh, atualizar.sh, fonte/) rodam como root, e
+# quem pode escrever na pasta pode trocar um arquivo dela, mesmo de outro dono. O usuário bots só
+# escreve dentro de ai-vgc/ (partidas, times, ambiente Python, simulador).
 mkdir -p "$DIR" /etc/lor-bots
-chown bots:bots "$DIR"
+chown root:root "$DIR"
+chmod 755 "$DIR"
+install -d -o bots -g bots "$DIR/ai-vgc"
+# Instalações antigas deixavam a pasta com o bots: um link posto por ele no lugar de um arquivo
+# sai, e o resto volta para o root.
+find "$DIR" -mindepth 1 -maxdepth 1 -type l -delete
+find "$DIR" -mindepth 1 -maxdepth 1 ! -name ai-vgc -exec chown -hR root:root {} +
 chown root:bots /etc/lor-bots
 chmod 750 /etc/lor-bots
 
@@ -82,8 +91,8 @@ else
 	fi
 	# O patch instalado só é trocado depois que o novo aplicou: o reaplicar-patch.sh usa os dois
 	# para apagar os arquivos que eles criam (sem isso, a segunda aplicação falharia).
-	install -o bots -g bots -m 644 "$SRC/linux/ai-vgc-lor.patch" "$DIR/ai-vgc-lor.novo.patch"
-	install -o bots -g bots -m 755 "$SRC/linux/reaplicar-patch.sh" "$DIR/reaplicar-patch.sh"
+	install -m 644 "$SRC/linux/ai-vgc-lor.patch" "$DIR/ai-vgc-lor.novo.patch"
+	install -m 755 "$SRC/linux/reaplicar-patch.sh" "$DIR/reaplicar-patch.sh"
 	as_bots "$DIR/reaplicar-patch.sh $DIR/ai-vgc $DIR/ai-vgc-lor.patch $DIR/ai-vgc-lor.novo.patch"
 	mv -f "$DIR/ai-vgc-lor.novo.patch" "$DIR/ai-vgc-lor.patch"
 
@@ -158,6 +167,16 @@ install -m 644 "$SRC/linux/lor-backup.timer" /etc/systemd/system/lor-backup.time
 [ -f /etc/lor-bots/exemplo.env ] || install -m 640 -g bots "$SRC/linux/exemplo.env" /etc/lor-bots/exemplo.env
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload
+fi
+
+# Instalado direto de um clone (sudo linux/instalar.sh, num servidor): guarda esta versão em
+# fonte/, que é para onde o atualizar.sh volta se a primeira atualização falhar no meio.
+if [ "$(readlink -f "$SRC")" != "$(readlink -f "$DIR/fonte")" ]; then
+	rm -rf "$DIR/fonte.tmp"
+	mkdir "$DIR/fonte.tmp"
+	tar -C "$SRC" --exclude=.git -cf - . | tar -C "$DIR/fonte.tmp" -xf - --no-same-owner
+	rm -rf "$DIR/fonte"
+	mv "$DIR/fonte.tmp" "$DIR/fonte"
 fi
 
 apt-get clean

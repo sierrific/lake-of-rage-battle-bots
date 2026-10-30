@@ -17,6 +17,8 @@ Roda na pasta do Ai-vgc, com o ambiente dele (no PC: /opt/lor-bots/ai-vgc, usuá
 dados: lê <backup>/*/games.jsonl (uma linha por partida, com o log completo), ordena as séries pela
 hora do primeiro jogo e guarda as mais antigas em <out>/treino e as mais novas (--teste) em
 <out>/teste, um .npz por formato, no formato do ai_vgc.nn.dataset. Uma série nunca fica dividida.
+Para não misturar com uma geração anterior (o treinar carrega todo .npz da pasta), recusa uma <out>
+que já tem .npz; --substituir apaga os de lá antes. Grava <out>/manifesto.json com o que gerou.
 
 treinar: parte de --init e guarda em --out o melhor checkpoint pela perda da cabeça do oponente
 numa parte do treino separada por jogo (--val-frac), só se for melhor que o --init.
@@ -160,10 +162,31 @@ def _contexto(serie: list[tuple[int, str]], jogos: dict[str, dict]) -> list[tupl
     return saida
 
 
+def _preparar_saida(out: Path, substituir: bool) -> None:
+    """Uma geração nova não pode deixar .npz da anterior: um formato que sumiu (filtrado agora) ou
+    uma divisão treino/teste diferente misturaria jogos velhos, ou os mesmos nas duas partes."""
+    velhos = sorted(p for nome in ("treino", "teste") for p in (out / nome).glob("*.npz"))
+    if velhos and not substituir:
+        raise SystemExit(f"{out} já tem dados de uma geração anterior ({', '.join(str(p.relative_to(out)) for p in velhos)}); "
+                         "use outra --out ou --substituir")
+    for p in velhos:
+        p.unlink()
+    (out / "manifesto.json").unlink(missing_ok=True)
+
+
+def _conferir_particoes(treino: int, validacao: int, minimo: int) -> None:
+    """Sem decisões de validação, nenhuma época "melhora" e nada é salvo; sem treino, o scheduler
+    divide por zero passos. Melhor parar antes, dizendo o porquê."""
+    if treino < minimo or validacao < minimo:
+        raise SystemExit(f"poucos dados: {treino} decisões de treino e {validacao} de validação (mínimo {minimo} "
+                         "em cada); colete mais jogos, ajuste --val-frac ou --minimo")
+
+
 def dados(args) -> None:
     from ai_vgc.nn.encode import vocab
     from ai_vgc.nn.series import series_key
 
+    _preparar_saida(args.out, args.substituir)
     vocab()
     jogos = _ler_backup(args.backup)
     print(f"{len(jogos)} jogos únicos em {args.backup}", flush=True)
@@ -178,6 +201,7 @@ def dados(args) -> None:
         series.setdefault(chave[0] if chave else tag, []).append((chave[1] if chave else 1, tag))
     ordem = sorted(series.values(), key=lambda s: min(str(jogos[t].get("time", "")) for _, t in s))
     corte = int(round(len(ordem) * (1 - args.teste)))
+    gerados: dict[str, dict] = {"treino": {}, "teste": {}}
     for nome, parte in (("treino", ordem[:corte]), ("teste", ordem[corte:])):
         por_formato: dict[str, list] = {}
         for s in parte:
@@ -199,8 +223,14 @@ def dados(args) -> None:
             pasta.mkdir(parents=True, exist_ok=True)
             np.savez(pasta / f"{fmt}.npz", **d)
             rot = (d["opp"][..., 0] >= 0).sum()
+            gerados[nome][fmt] = {"jogos": int(len(np.unique(d["game"]))), "decisoes": int(len(d["opp"]))}
             print(f"  {nome}/{fmt}: {len(np.unique(d['game']))} de {len(itens)} jogos, {len(d['opp'])} decisões, "
                   f"{rot} jogadas do oponente rotuladas, {time.time() - t:.0f}s", flush=True)
+    args.out.mkdir(parents=True, exist_ok=True)
+    manifesto = {"backup": str(args.backup), "teste": args.teste, "series": {"treino": corte, "teste": len(ordem) - corte},
+                 "com_nossos_bots": args.com_nossos_bots, "excluir": args.excluir, "gerado": time.strftime("%Y-%m-%d %H:%M:%S"),
+                 **gerados}
+    (args.out / "manifesto.json").write_text(json.dumps(manifesto, ensure_ascii=False, indent=1) + "\n")
 
 
 def treinar(args) -> None:
@@ -216,6 +246,7 @@ def treinar(args) -> None:
     val = (data["game"].long() % 1000) < args.val_frac * 1000
     tem = (data["opp"][..., 0] >= 0).any(-1)
     tr, va = torch.nonzero(~val & tem)[:, 0], torch.nonzero(val & tem)[:, 0]
+    _conferir_particoes(len(tr), len(va), args.minimo)
     ckpt = torch.load(args.init, map_location="cpu", weights_only=False)
     if not ckpt["config"].get("aux"):
         raise SystemExit(f"{args.init} não tem cabeça do oponente")
@@ -280,6 +311,7 @@ def main() -> None:
     d.add_argument("--com-nossos-bots", action="store_true",
                    help="mantém os jogos entre bots nossos (por padrão saem: o oponente ali não é humano)")
     d.add_argument("--excluir", nargs="*", default=[], help="outras contas de bot a tratar como nossas")
+    d.add_argument("--substituir", action="store_true", help="apaga os .npz de uma geração anterior em --out")
     d.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     d.set_defaults(func=dados)
     t = sub.add_parser("treinar", help="ajuste fino da cabeça do oponente")
@@ -291,6 +323,8 @@ def main() -> None:
     t.add_argument("--lr", type=float, default=3e-5)
     t.add_argument("--wd", type=float, default=0.01)
     t.add_argument("--val-frac", type=float, default=0.1)
+    t.add_argument("--minimo", type=int, default=100,
+                   help="decisões rotuladas mínimas no treino e na validação para começar")
     t.add_argument("--so-cabeca", action="store_true", help="treina só a cabeça do oponente (opp_*)")
     t.add_argument("--threads", type=int, default=2, help="threads do torch (deixe CPU para o bot)")
     t.add_argument("--seed", type=int, default=0)

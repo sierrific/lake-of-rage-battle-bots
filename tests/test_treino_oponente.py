@@ -60,6 +60,28 @@ class TestTreinoOponente(unittest.TestCase):
         self.assertIsNone(treino._papel(nomes, "the bugcather", ""))
         self.assertIsNone(treino._papel(nomes, "the bugcather", "Outro"))
 
+    def test_saida_com_geracao_anterior_e_recusada_ou_limpa(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            treino._preparar_saida(out, False)  # vazia: segue
+            (out / "treino").mkdir()
+            (out / "teste").mkdir()
+            (out / "treino" / "gen9vgc2026regmc.npz").write_bytes(b"x")
+            (out / "teste" / "formato-que-sumiu.npz").write_bytes(b"x")
+            (out / "manifesto.json").write_text("{}")
+            with self.assertRaises(SystemExit):
+                treino._preparar_saida(out, False)
+            self.assertTrue((out / "teste" / "formato-que-sumiu.npz").exists())
+            treino._preparar_saida(out, True)
+            self.assertEqual(list(out.rglob("*.npz")), [])
+            self.assertFalse((out / "manifesto.json").exists())
+
+    def test_particao_vazia_para_antes_de_treinar(self):
+        treino._conferir_particoes(500, 60, 50)
+        for tr, va in ((500, 0), (0, 60), (500, 10)):
+            with self.subTest(tr=tr, va=va), self.assertRaises(SystemExit):
+                treino._conferir_particoes(tr, va, 50)
+
 
 if __name__ == "__main__":
     unittest.main()

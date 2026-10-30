@@ -267,6 +267,49 @@ class TestPainelDesafio(unittest.TestCase):
         self.assertIn("--ladder", (self.d / "bot.env").read_text())
 
 
+class TestPainelManterVivo(TestPainelDesafio):
+    """manter-vivo: segura o WSL enquanto o bot está ligado, inclusive se ele volta na espera final."""
+
+    SLEEP = r'''#!/bin/sh
+echo "sleep $1" >>"$D/log"
+case "$1" in
+  120) [ -f "$D/religar" ] && { rm "$D/religar"; echo active >"$D/estado"; } ;;
+  30) echo inactive >"$D/estado" ;;
+esac
+exit 0
+'''
+
+    def setUp(self):
+        super().setUp()
+        (self.d / "sleep").write_text(self.SLEEP)
+
+    def esperas(self) -> list[str]:
+        return [x for x in self.chamadas() if x.startswith("sleep")]
+
+    def test_sai_depois_que_o_bot_para(self):
+        self.painel("manter-vivo")
+        self.assertEqual(self.esperas(), ["sleep 20", "sleep 30", "sleep 120"])
+
+    def test_bot_religado_na_espera_final_continua_protegido(self):
+        (self.d / "religar").touch()  # Desligar e Ligar seguidos, dentro dos 120 s
+        self.painel("manter-vivo")
+        self.assertEqual(self.esperas(), ["sleep 20", "sleep 30", "sleep 120", "sleep 30", "sleep 120"])
+
+    def test_painel_reaberto_le_o_estado_antes_de_decidir(self):
+        # O $script:estado só é preenchido pelo Atualizar-Tela; antes dele, a condição era sempre falsa.
+        ps1 = (RAIZ_REPO / "windows" / "Painel.ps1").read_text(encoding="utf-8-sig")
+        abertura = ps1[ps1.index("$form.Add_Shown({"):]
+        abertura = abertura[:abertura.index("})")]
+        self.assertLess(abertura.index("Atualizar-Tela"), abertura.index("Manter-Vivo"))
+
+    def test_um_guardiao_por_vez(self):
+        import fcntl
+        with open(self.d / "lor-manter-vivo.lock", "w") as trava:
+            fcntl.flock(trava, fcntl.LOCK_EX)
+            self.painel("manter-vivo")
+        self.assertEqual(self.esperas(), [])
+
+
 class TestPainelPlacar(TestPainelDesafio):
     """estado: o placar que o bot grava em data/live_games/placar-<conta>.json."""
 
@@ -488,6 +531,20 @@ class TestPainelHoje(TestPainelPlacar):
         self.escrever(hoje, {**jogo, "result": "loss"})  # arquivo mudou: recalcula
         self.assertEqual(self.hoje()["hoje_derrotas"], "2")
 
+    def test_bot_ligado_ha_dias_grava_na_pasta_antiga(self):
+        # Ligado na segunda e ainda jogando na quarta: os jogos de hoje estão na pasta de segunda.
+        hoje = time.strftime("%Y-%m-%d")
+        segunda = time.strftime("%Y-%m-%d", time.localtime(time.time() - 2 * 86400))
+        jogo = {"user": "LoR Bot1", "team": "MC371", "result": "win", "time": f"{hoje} 10:00:00"}
+        self.escrever(segunda, {**jogo, "time": f"{segunda} 09:00:00"}, jogo, jogo)
+        self.assertEqual(self.hoje()["hoje_vitorias"], "2")
+        # Uma pasta que não mudou desde antes da meia-noite nem é aberta.
+        antiga = time.strftime("%Y-%m-%d", time.localtime(time.time() - 5 * 86400))
+        self.escrever(antiga, jogo)
+        arq = self.d / "ai" / "data" / "live_games" / antiga / "games.jsonl"
+        os.utime(arq, (time.time() - 3 * 86400, time.time() - 3 * 86400))
+        self.assertEqual(self.hoje()["hoje_vitorias"], "2")
+
     def test_sem_partidas(self):
         self.assertEqual(self.hoje(), {"hoje_vitorias": "0", "hoje_derrotas": "0", "hoje_times": ""})
 
@@ -547,6 +604,8 @@ INSTALAR_FALSO = r'''#!/usr/bin/env bash
 set -e
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 echo "instalar $(cat "$SRC/VERSION") bot=$(cat "$D/estado-bot")" >>"$D/log"
+# falhar-runtime: parou depois de começar a mexer no Ai-vgc (o de verdade apaga a marca antes).
+[ ! -f "$SRC/falhar-runtime" ] || { rm -f "$LOR_DIR/.lor-runtime"; exit 1; }
 [ ! -f "$SRC/falhar" ] || exit 1
 cat "$SRC/linux/instalar.sh" "$SRC/linux/ai-vgc-lor.patch" | sha256sum | cut -d' ' -f1 >"$LOR_DIR/.lor-runtime"
 cp "$SRC/VERSION" "$LOR_DIR/VERSION"
@@ -578,7 +637,7 @@ class TestAtualizar(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def versao(self, numero: str, patch: str, falhar: bool = False):
+    def versao(self, numero: str, patch: str, falhar: bool = False, falhar_runtime: bool = False):
         g = self.d / "github"
         shutil.rmtree(g, ignore_errors=True)
         (g / "linux").mkdir(parents=True)
@@ -587,6 +646,8 @@ class TestAtualizar(unittest.TestCase):
         (g / "linux" / "ai-vgc-lor.patch").write_text(patch)
         if falhar:
             (g / "falhar").touch()
+        if falhar_runtime:
+            (g / "falhar-runtime").touch()
 
     def atualizar(self, *args) -> subprocess.CompletedProcess:
         return subprocess.run(["bash", str(RAIZ_REPO / "linux" / "atualizar.sh"), *args],
@@ -666,6 +727,31 @@ class TestAtualizar(unittest.TestCase):
                 self.assertEqual((self.opt / "VERSION").read_text(), "1")
                 self.assertEqual((self.opt / "fonte" / "VERSION").read_text(), "1")
                 self.assertEqual((self.d / "estado-bot").read_text().strip(), "active")
+
+    def test_falha_sem_versao_anterior_deixa_os_bots_parados(self):
+        # Instalação antiga direto de um clone: sem fonte/ para voltar e com o Ai-vgc pela metade,
+        # religar os bots só os faria cair.
+        shutil.rmtree(self.opt / "fonte")
+        self.versao("2", patch="patch 2", falhar_runtime=True)
+        r = self.atualizar()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Não há versão anterior", r.stdout)
+        c = self.chamadas()
+        self.assertFalse(any("start lor-bot@" in x or "painel" in x for x in c), c)
+        self.assertEqual((self.d / "estado-bot").read_text().strip(), "inactive")
+
+    def test_instalar_guarda_a_fonte_e_deixa_a_pasta_com_o_root(self):
+        t = (RAIZ_REPO / "linux" / "instalar.sh").read_text()
+        self.assertIn('chown root:root "$DIR"', t)
+        self.assertNotIn('chown bots:bots "$DIR"', t)
+        self.assertNotIn("install -o bots", t.split('echo "==> Scripts e serviços"')[0].split("RUNTIME=")[1])
+        self.assertIn('mv "$DIR/fonte.tmp" "$DIR/fonte"', t)
+
+    def test_bootstrap_do_windows_comeca_pela_estavel(self):
+        # O .bat roda o instalador como administrador: nunca uma main que os testes ainda não aprovaram.
+        bat = (RAIZ_REPO / "windows" / "Instalar LoR Bots.bat").read_text()
+        self.assertIn("/estavel/windows/instalar.ps1", bat)
+        self.assertNotIn("/main/", bat)
 
     def test_mesma_conta_que_o_instalar(self):
         # Se as duas contas divergirem, toda atualização pararia os bots (ou nenhuma pararia).
