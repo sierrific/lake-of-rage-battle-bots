@@ -619,16 +619,21 @@ log)
 manter-vivo)
 	# O WSL desliga a distribuição quando nenhum programa do Windows a usa, mesmo com serviços
 	# rodando; o painel deixa este comando aberto (escondido) enquanto o bot estiver ligado.
-	exec 9>/run/lor-manter-vivo.lock
+	exec 9>"${LOR_RUN:-/run}/lor-manter-vivo.lock"
 	flock -n 9 || exit 0
+	ligado() {
+		case "$(estado_unit "$UNIT")" in
+		inactive | failed) desafio_ativo ;; # um desafio religa o bot daqui a pouco
+		esac
+	}
 	sleep 20
 	while :; do
-		case "$(estado_unit "$UNIT")" in
-		inactive | failed) desafio_ativo || break ;; # um desafio religa o bot daqui a pouco
-		esac
-		sleep 30
+		while ligado; do sleep 30; done
+		sleep 120 # o envio manda as últimas partidas
+		# Desligar e Ligar seguidos: o guardião que o Ligar abriu saiu sem a trava, que ainda era
+		# deste. Então este confere de novo e, com o bot de volta, continua segurando.
+		ligado || break
 	done
-	sleep 120 # o envio manda as últimas partidas
 	;;
 atualizar)
 	exec /opt/lor-bots/atualizar.sh

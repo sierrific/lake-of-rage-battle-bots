@@ -2322,10 +2322,12 @@ $form.Add_Shown({
     $form.Refresh()
     try {
         Carregar-Opcoes
-        if ($script:estado['bot'] -in @('active', 'activating', 'deactivating')) { Manter-Vivo }
         # Versão nova no GitHub? (só avisa; atualizar é no link do rodapé)
         try { $script:versaoNova = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$Raw/VERSION").Content.Trim() } catch { }
         Atualizar-Tela
+        # Depois do Atualizar-Tela, que é quem lê o estado do bot: painel reaberto com o bot já
+        # ligado volta a segurar o WSL (o painel.sh não abre um segundo guardião se ainda há um).
+        if ($script:estado['bot'] -in @('active', 'activating', 'deactivating')) { Manter-Vivo }
     } catch {
         Mostrar-Falha $_.Exception.Message
     }

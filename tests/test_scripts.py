@@ -267,6 +267,49 @@ class TestPainelDesafio(unittest.TestCase):
         self.assertIn("--ladder", (self.d / "bot.env").read_text())
 
 
+class TestPainelManterVivo(TestPainelDesafio):
+    """manter-vivo: segura o WSL enquanto o bot está ligado, inclusive se ele volta na espera final."""
+
+    SLEEP = r'''#!/bin/sh
+echo "sleep $1" >>"$D/log"
+case "$1" in
+  120) [ -f "$D/religar" ] && { rm "$D/religar"; echo active >"$D/estado"; } ;;
+  30) echo inactive >"$D/estado" ;;
+esac
+exit 0
+'''
+
+    def setUp(self):
+        super().setUp()
+        (self.d / "sleep").write_text(self.SLEEP)
+
+    def esperas(self) -> list[str]:
+        return [x for x in self.chamadas() if x.startswith("sleep")]
+
+    def test_sai_depois_que_o_bot_para(self):
+        self.painel("manter-vivo")
+        self.assertEqual(self.esperas(), ["sleep 20", "sleep 30", "sleep 120"])
+
+    def test_bot_religado_na_espera_final_continua_protegido(self):
+        (self.d / "religar").touch()  # Desligar e Ligar seguidos, dentro dos 120 s
+        self.painel("manter-vivo")
+        self.assertEqual(self.esperas(), ["sleep 20", "sleep 30", "sleep 120", "sleep 30", "sleep 120"])
+
+    def test_painel_reaberto_le_o_estado_antes_de_decidir(self):
+        # O $script:estado só é preenchido pelo Atualizar-Tela; antes dele, a condição era sempre falsa.
+        ps1 = (RAIZ_REPO / "windows" / "Painel.ps1").read_text(encoding="utf-8-sig")
+        abertura = ps1[ps1.index("$form.Add_Shown({"):]
+        abertura = abertura[:abertura.index("})")]
+        self.assertLess(abertura.index("Atualizar-Tela"), abertura.index("Manter-Vivo"))
+
+    def test_um_guardiao_por_vez(self):
+        import fcntl
+        with open(self.d / "lor-manter-vivo.lock", "w") as trava:
+            fcntl.flock(trava, fcntl.LOCK_EX)
+            self.painel("manter-vivo")
+        self.assertEqual(self.esperas(), [])
+
+
 class TestPainelPlacar(TestPainelDesafio):
     """estado: o placar que o bot grava em data/live_games/placar-<conta>.json."""
 
