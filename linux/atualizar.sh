@@ -30,7 +30,7 @@ fi
 echo "==> Atualizando de $atual para $nova"
 rm -rf "$FONTE.novo"
 mkdir -p "$FONTE.novo"
-curl -fsSL --max-time 300 "$REPO/archive/refs/heads/$RAMO.tar.gz" | tar xz -C "$FONTE.novo" --strip-components 1
+curl -fsSL --max-time 300 "$REPO/archive/refs/heads/$RAMO.tar.gz" | tar xz -C "$FONTE.novo" --strip-components 1 --no-same-owner
 
 # Mesma conta do instalar.sh: muda quando muda o que um bot jogando usa.
 impressao() { cat "$1/linux/instalar.sh" "$1/linux/ai-vgc-lor.patch" | sha256sum | cut -d' ' -f1; }
@@ -111,6 +111,12 @@ if ! bash "$FONTE/linux/instalar.sh"; then
 			echo "!! A volta para $atual também falhou: os bots ficam parados. Clique em Atualizar de novo."
 			exit 1
 		fi
+	elif [ ! -s "$DIR/.lor-runtime" ]; then
+		# Sem versão anterior guardada (instalação antiga feita direto de um clone) e com o Ai-vgc,
+		# as dependências ou o simulador pela metade: ligar os bots só os faria cair em seguida.
+		echo "!! Não há versão anterior guardada para voltar: os bots ficam parados. Clique em Atualizar de novo."
+		systemctl try-restart lor-envio || true
+		exit 1
 	fi
 	religar
 	exit 1

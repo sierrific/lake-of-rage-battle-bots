@@ -547,6 +547,8 @@ INSTALAR_FALSO = r'''#!/usr/bin/env bash
 set -e
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 echo "instalar $(cat "$SRC/VERSION") bot=$(cat "$D/estado-bot")" >>"$D/log"
+# falhar-runtime: parou depois de começar a mexer no Ai-vgc (o de verdade apaga a marca antes).
+[ ! -f "$SRC/falhar-runtime" ] || { rm -f "$LOR_DIR/.lor-runtime"; exit 1; }
 [ ! -f "$SRC/falhar" ] || exit 1
 cat "$SRC/linux/instalar.sh" "$SRC/linux/ai-vgc-lor.patch" | sha256sum | cut -d' ' -f1 >"$LOR_DIR/.lor-runtime"
 cp "$SRC/VERSION" "$LOR_DIR/VERSION"
@@ -578,7 +580,7 @@ class TestAtualizar(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def versao(self, numero: str, patch: str, falhar: bool = False):
+    def versao(self, numero: str, patch: str, falhar: bool = False, falhar_runtime: bool = False):
         g = self.d / "github"
         shutil.rmtree(g, ignore_errors=True)
         (g / "linux").mkdir(parents=True)
@@ -587,6 +589,8 @@ class TestAtualizar(unittest.TestCase):
         (g / "linux" / "ai-vgc-lor.patch").write_text(patch)
         if falhar:
             (g / "falhar").touch()
+        if falhar_runtime:
+            (g / "falhar-runtime").touch()
 
     def atualizar(self, *args) -> subprocess.CompletedProcess:
         return subprocess.run(["bash", str(RAIZ_REPO / "linux" / "atualizar.sh"), *args],
@@ -666,6 +670,25 @@ class TestAtualizar(unittest.TestCase):
                 self.assertEqual((self.opt / "VERSION").read_text(), "1")
                 self.assertEqual((self.opt / "fonte" / "VERSION").read_text(), "1")
                 self.assertEqual((self.d / "estado-bot").read_text().strip(), "active")
+
+    def test_falha_sem_versao_anterior_deixa_os_bots_parados(self):
+        # Instalação antiga direto de um clone: sem fonte/ para voltar e com o Ai-vgc pela metade,
+        # religar os bots só os faria cair.
+        shutil.rmtree(self.opt / "fonte")
+        self.versao("2", patch="patch 2", falhar_runtime=True)
+        r = self.atualizar()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Não há versão anterior", r.stdout)
+        c = self.chamadas()
+        self.assertFalse(any("start lor-bot@" in x or "painel" in x for x in c), c)
+        self.assertEqual((self.d / "estado-bot").read_text().strip(), "inactive")
+
+    def test_instalar_guarda_a_fonte_e_deixa_a_pasta_com_o_root(self):
+        t = (RAIZ_REPO / "linux" / "instalar.sh").read_text()
+        self.assertIn('chown root:root "$DIR"', t)
+        self.assertNotIn('chown bots:bots "$DIR"', t)
+        self.assertNotIn("install -o bots", t.split('echo "==> Scripts e serviços"')[0].split("RUNTIME=")[1])
+        self.assertIn('mv "$DIR/fonte.tmp" "$DIR/fonte"', t)
 
     def test_mesma_conta_que_o_instalar(self):
         # Se as duas contas divergirem, toda atualização pararia os bots (ou nenhuma pararia).

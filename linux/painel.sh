@@ -524,14 +524,17 @@ adicionar-time)
 		echo "$saida" | head -20
 		exit 1
 	fi
-	install -o bots -g bots -m 644 "$tmp" "$TIMES/LOR-$nome.txt"
-	# A busca de jogadas adivinha sets pela pasta reg_mc; o time também vai para lá.
-	install -o bots -g bots -m 644 "$tmp" "$AIVGC/data/teams/reg_mc/LOR-$nome.txt"
+	# As pastas do Ai-vgc são do usuário bots: quem grava nelas é ele, não o root (um link posto
+	# ali não faz o root escrever fora). A busca de jogadas adivinha sets pela pasta reg_mc; o time
+	# também vai para lá.
+	chmod 644 "$tmp"
+	sudo -u bots install -m 644 "$tmp" "$TIMES/LOR-$nome.txt"
+	sudo -u bots install -m 644 "$tmp" "$AIVGC/data/teams/reg_mc/LOR-$nome.txt"
 	echo ok=time-adicionado
 	;;
 remover-time)
 	nome_valido "${1:-}" || { echo "erro=nome inválido"; exit 1; }
-	rm -f "$TIMES/LOR-$1.txt" "$AIVGC/data/teams/reg_mc/LOR-$1.txt"
+	sudo -u bots rm -f "$TIMES/LOR-$1.txt" "$AIVGC/data/teams/reg_mc/LOR-$1.txt"
 	if [ "$(conf_get time)" = "$1" ]; then
 		conf_set time top3
 		gerar_env
