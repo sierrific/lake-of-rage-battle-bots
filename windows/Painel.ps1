@@ -1680,6 +1680,8 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         elseif ($l -match "^'(.+)' challenging (\S+) to ") { $txt = "Conta $($Matches[1]) conectada · desafio enviado a $($Matches[2]), esperando aceitar" }
         elseif ($l -match '^(Started|Finished) lor-desafio-|^lor-desafio-') { continue }
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $txt = "A conta $($Matches[1]) está registrada no Showdown como bot: no ladder ela só enfrenta outros bots (e quem aceitou jogar contra bots)"; $tipo = 'aviso' }
+        elseif ($l -match '^waiting: known bots free, probably in the queue: (.+)') { $txt = "Esperando para procurar partida: bots que sempre aparecem estão livres na fila ($($Matches[1]))" }
+        elseif ($l -match '^known bots still free after (\d+) min') { $txt = "Os bots conhecidos seguem livres depois de $($Matches[1]) min · procurando partida mesmo assim" }
         elseif ($l -match '^pausing ([\d.]+) min before the next ladder search') { $txt = "Pausa de $($Matches[1]) min antes de procurar a próxima partida (para não cair sempre com os mesmos bots)" }
         elseif ($l -match '^team: (\S+)') { $txt = "Time da vez: $($Matches[1])" }
         elseif ($l -match '^watch: (\S+)') { $txt = "Partida em andamento · $($Matches[1])"; $tipo = 'partida' }
@@ -1771,6 +1773,7 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         elseif ($l -match "^'(.+)' (laddering|challenging) ") { $evento.Titulo = 'Conta conectada'; $evento.CorNome = 'verde' }
         elseif ($l -match '^team: (\S+)') { $evento.Titulo = 'Time selecionado'; $evento.Detalhe = $Matches[1] }
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $evento.Titulo = 'Conta marcada como bot'; $evento.Detalhe = 'No ladder do Showdown, só enfrenta outros bots'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
+        elseif ($l -match '^waiting: known bots free, probably in the queue: (.+)') { $evento.Titulo = 'Esperando bots saírem da fila'; $evento.Detalhe = $Matches[1] }
         elseif ($l -match '^pausing ([\d.]+) min before') { $evento.Titulo = 'Pausa entre partidas'; $evento.Detalhe = "$($Matches[1]) min até a próxima busca" }
         elseif ($l -match '^challenge ') { $evento.Titulo = 'Desafio'; $evento.CorNome = 'ambar'; $evento.Tipo = 'partida' }
         elseif ($l -match '^connection to Showdown lost|^could not connect to Showdown') { $evento.Titulo = 'Conexão perdida'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
