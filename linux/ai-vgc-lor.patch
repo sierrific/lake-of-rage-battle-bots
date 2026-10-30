@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..874398b 100644
+index eb60a97..6d0c56b 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -71,24 +71,38 @@ index eb60a97..874398b 100644
  
      def _busy(self) -> bool:
          """A battle is still being played, or a Bo3 series has games left (the next game starts
-@@ -547,20 +590,189 @@ class ChallengeMixin:
-         # matches, let the one in progress (and the rest of its Bo3 series) finish, then return.
-         await self.ps_client.logged_in.wait()
+@@ -549,18 +592,254 @@ class ChallengeMixin:
          for _ in range(n_games):
-+            if self.stop_after_match:
-+                break
-+            await self._wait_for_busy_bots()
              if self.stop_after_match:
                  break
-             async with self._battle_start_condition:
+-            async with self._battle_start_condition:
 -                await self.ps_client.search_ladder_game(self._format, self.next_team)
 -                await self._battle_start_condition.wait()
-+                if not await self._search_until_match():
+-                while self._battle_count_queue.full():
+-                    async with self._battle_end_condition:
+-                        await self._battle_end_condition.wait()
+-                await self._battle_semaphore.acquire()
++            # Our turn first (one team bot searching per format, so ours never meet), then the
++            # known-bots wait; the turn is kept (renewed) until the battle starts.
++            turn = await self._wait_turn()
++            renew = asyncio.create_task(self._renew_turn()) if turn else None
++            try:
++                if self.stop_after_match:
 +                    break
-                 while self._battle_count_queue.full():
-                     async with self._battle_end_condition:
-                         await self._battle_end_condition.wait()
-                 await self._battle_semaphore.acquire()
++                await self._wait_for_busy_bots()
++                if self.stop_after_match:
++                    break
++                async with self._battle_start_condition:
++                    if not await self._search_until_match():
++                        break
++                    while self._battle_count_queue.full():
++                        async with self._battle_end_condition:
++                            await self._battle_end_condition.wait()
++                    await self._battle_semaphore.acquire()
++            finally:
++                if renew:
++                    renew.cancel()
++                    await self._turn("liberar")
              while self.stop_after_match is False and self._busy():
                  await asyncio.sleep(1)  # one match at a time: Ctrl-C always lands between matches
 +            await self._ladder_pause()
@@ -109,6 +123,60 @@ index eb60a97..874398b 100644
 +        while not self.stop_after_match and time.time() < end:
 +            await asyncio.sleep(1)
 +
++    TURN_URL = os.environ.get("COLETA_FILA", "https://showdown.sierverso.com.br/coleta/fila")
++    _team_bots: set[str] = set()  # the team's bot accounts, as the coleta last listed them
++
++    async def _turn(self, action: str) -> dict | None:
++        """Ask the team's coleta (VPS) for our turn to search this format ("pedir", which also
++        renews a turn we hold) or give it back ("liberar"). None without a coleta code or when
++        the coleta can't be reached: then we search without a turn, as before."""
++        code = os.environ.get("COLETA_CODIGO", "").strip()
++        if not code:
++            return None
++        import urllib.request
++
++        body = json.dumps({"acao": action, "conta": to_id_str(self.username), "formato": self._format,
++                           "servidor": self.ps_client.server_configuration.websocket_url}).encode()
++        req = urllib.request.Request(self.TURN_URL, data=body, headers={
++            "Authorization": f"Bearer {code}", "Content-Type": "application/json", "User-Agent": "lor-bots"})
++
++        def call() -> dict:
++            with urllib.request.urlopen(req, timeout=10) as r:
++                return json.loads(r.read())
++
++        try:
++            reply = await asyncio.to_thread(call)
++        except Exception:
++            return None
++        if isinstance(reply.get("nossos"), list):
++            self._team_bots = {to_id_str(str(c)) for c in reply["nossos"]}
++        return reply
++
++    async def _wait_turn(self) -> bool:
++        """Wait until no other team bot is searching this format (asking every 15 s; the coleta
++        hands turns out in order of arrival). True: we hold the turn; False: search without one."""
++        shown = None
++        while not self.stop_after_match:
++            reply = await self._turn("pedir")
++            if reply is None:
++                return False
++            if reply.get("vez"):
++                return True
++            other = reply.get("com") or "?"
++            if other != shown:
++                print(f"waiting for our turn: team bot {other} is searching", flush=True)
++                shown = other
++            end = time.time() + 15
++            while not self.stop_after_match and time.time() < end:
++                await asyncio.sleep(1)
++        return False
++
++    async def _renew_turn(self) -> None:
++        """Keep our turn while we wait and search (the coleta drops a turn not renewed in 2 min)."""
++        while True:
++            await asyncio.sleep(30)
++            await self._turn("pedir")
++
 +    KNOWN_BOT_GAMES = 6  # games against one account in the last KNOWN_BOT_DAYS: most likely a bot
 +    KNOWN_BOT_DAYS = 7
 +    BOT_WAIT = 10 * 60  # seconds: longest wait for known bots to get busy before searching anyway
@@ -116,8 +184,8 @@ index eb60a97..874398b 100644
 +
 +    def _known_bots(self) -> list[str]:
 +        """Opponents met KNOWN_BOT_GAMES or more times in this format over the last KNOWN_BOT_DAYS
-+        (from the day folders' games.jsonl). People seldom meet us that often; bots, always in
-+        the queue, do. At most the 8 most frequent."""
++        (from the day folders' games.jsonl), minus the team's own bots. People seldom meet us that
++        often; bots, always in the queue, do. At most the 8 most frequent."""
 +        if self.save_dir is None or not self.save_dir.parent.is_dir():
 +            return []
 +        since = time.strftime("%Y-%m-%d", time.localtime(time.time() - self.KNOWN_BOT_DAYS * 86400))
@@ -134,7 +202,9 @@ index eb60a97..874398b 100644
 +                        continue
 +                    if row.get("opponent") and row.get("format") == self._format:
 +                        games[to_id_str(row["opponent"])] += 1
-+        return [opp for opp, n in games.most_common(8) if n >= self.KNOWN_BOT_GAMES]
++        # The team's own bots never meet us (one searches at a time): don't wait for them.
++        return [opp for opp, n in games.most_common(8 + len(self._team_bots))
++                if n >= self.KNOWN_BOT_GAMES and opp not in self._team_bots][:8]
 +
 +    async def _idle_bots(self, bots: list[str]) -> list[str]:
 +        """Which of `bots` are online and not in a battle (so probably searching the ladder)."""
@@ -263,7 +333,7 @@ index eb60a97..874398b 100644
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
          opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
-@@ -645,6 +857,12 @@ class ChallengeMixin:
+@@ -645,6 +924,12 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
@@ -276,7 +346,7 @@ index eb60a97..874398b 100644
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -663,6 +881,8 @@ class ChallengeMixin:
+@@ -663,6 +948,8 @@ class ChallengeMixin:
          return battle
  
      def _battle_finished_callback(self, battle: AbstractBattle) -> None:
@@ -285,7 +355,7 @@ index eb60a97..874398b 100644
          super()._battle_finished_callback(battle)
          self._last_end = time.time()
          if self.save_dir is None:
-@@ -674,8 +894,12 @@ class ChallengeMixin:
+@@ -674,8 +961,12 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -298,7 +368,7 @@ index eb60a97..874398b 100644
                     # Team file the pool last handed out (ladder plays one match at a time).
                     "team": getattr(self._team, "last_name", None),
                     "model": getattr(self, "model_name", None),
-@@ -714,6 +938,11 @@ class ChallengeMixin:
+@@ -714,6 +1005,11 @@ class ChallengeMixin:
                  and (self.allowed is None or to_id_str(user) in self.allowed))
  
      async def _handle_challenge_request(self, split_message: list[str]):
@@ -310,7 +380,7 @@ index eb60a97..874398b 100644
          if len(split_message) >= 6 and self._wanted(split_message[2], split_message[5]):
              await self._challenge_queue.put((split_message[2].strip(), split_message[5]))
  
-@@ -725,8 +954,19 @@ class ChallengeMixin:
+@@ -725,8 +1021,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -331,7 +401,7 @@ index eb60a97..874398b 100644
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -785,12 +1025,26 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -785,12 +1092,26 @@ def _public_login(player: Player, password: str | None) -> None:
              if not assertion or assertion.startswith("{"):
                  print(f"login server refused '{name}': {assertion[:200]}", flush=True)
                  os._exit(1)
@@ -358,7 +428,7 @@ index eb60a97..874398b 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +1072,12 @@ def main() -> None:
+@@ -818,6 +1139,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -371,7 +441,7 @@ index eb60a97..874398b 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -829,6 +1089,9 @@ def main() -> None:
+@@ -829,6 +1156,9 @@ def main() -> None:
      ap.add_argument("--challenge", nargs="+", metavar="NAME",
                      help="challenge these accounts (e.g. scripts/vgcbench_bot.py) --n times in total, "
                           "one battle per account at a time")
@@ -381,7 +451,7 @@ index eb60a97..874398b 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1120,8 @@ def main() -> None:
+@@ -857,6 +1187,8 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
@@ -390,7 +460,7 @@ index eb60a97..874398b 100644
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -913,17 +1178,21 @@ def main() -> None:
+@@ -913,17 +1245,21 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -415,7 +485,7 @@ index eb60a97..874398b 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -949,7 +1218,7 @@ def main() -> None:
+@@ -949,7 +1285,7 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -424,7 +494,7 @@ index eb60a97..874398b 100644
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -967,8 +1236,11 @@ def main() -> None:
+@@ -967,8 +1303,11 @@ def main() -> None:
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
              bot.logs_dir = args.logs_dir
@@ -437,7 +507,7 @@ index eb60a97..874398b 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -976,42 +1248,49 @@ def main() -> None:
+@@ -976,42 +1315,49 @@ def main() -> None:
                  def watchdog():
                      # poke-env's listener just ends when the server drops the connection, leaving the
                      # bot waiting forever; exit with 75 instead so scripts/bot.sh logs in again.
@@ -505,7 +575,7 @@ index eb60a97..874398b 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1314,7 @@ def main() -> None:
+@@ -1035,7 +1381,7 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
