@@ -4,8 +4,65 @@
 #
 # Parar com calma: o systemd manda SIGINT a este script, que repassa só ao Python do bot; é o
 # mesmo que um Ctrl-C no bot.sh: ele termina a partida (ou a série Bo3) atual e sai.
+#
+# O bot só joga com um código da coleta válido: antes de tudo, confere o código salvo em
+# /etc/lor-bots/coleta.env na coleta (/coleta/ping). "rodar-bot.sh --conferir" faz só isso (o
+# painel.sh usa no ligar e no desafiar) e imprime uma linha chave=valor. Sai com:
+#   0   código aceito pela coleta (ou coleta fora do ar, mas este código já foi aceito antes)
+#   78  sem código, ou a coleta recusou o código (RestartPreventExitStatus: o systemd não religa)
+#   1   coleta fora do ar e este código nunca foi conferido (o systemd tenta de novo em 30 s)
 set -euo pipefail
-cd /opt/lor-bots/ai-vgc
+ETC="${LOR_ETC:-/etc/lor-bots}"  # LOR_ETC e LOR_COLETA_PING: só para os testes
+AIVGC=/opt/lor-bots/ai-vgc
+PING="${LOR_COLETA_PING:-https://showdown.sierverso.com.br/coleta/ping}"
+
+conferir_codigo() {
+	# Impressão (sha256) do último código que a coleta aceitou, para quando ela estiver fora do ar.
+	# Gravada pelo painel.sh (root); como usuário "bots" este script só lê.
+	local conferido="$ETC/coleta.conferido" codigo impressao http
+	codigo="$(sed -n 's/^COLETA_CODIGO=//p' "$ETC/coleta.env" 2>/dev/null | tail -1 | tr -d '[:space:]' || true)"
+	if [ -z "$codigo" ]; then
+		echo "erro=salve o código da coleta de partidas (em Ajustes) antes de ligar o bot. Peça um ao Thiago."
+		return 78
+	fi
+	impressao="$(printf %s "$codigo" | sha256sum | cut -d' ' -f1)"
+	http="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Authorization: Bearer $codigo" "$PING" 2>/dev/null || true)"
+	case "$http" in
+	200)
+		if [ -w "$ETC" ]; then
+			printf '%s\n' "$impressao" >"$conferido.tmp" && chmod 644 "$conferido.tmp" \
+				&& mv "$conferido.tmp" "$conferido" || true
+		fi
+		echo "ok=codigo-valido"
+		return 0
+		;;
+	401 | 403)
+		echo "erro=a coleta recusou o código salvo, então o bot não liga. Peça um código novo ao Thiago e salve em Ajustes."
+		return 78
+		;;
+	esac
+	# Coleta fora do ar: não trava quem já tinha o código aceito (aqui ou pelo envio das partidas,
+	# cujo status o painel apaga quando o código muda).
+	if [ "$(cat "$conferido" 2>/dev/null)" = "$impressao" ] \
+		|| grep -q '"status": *"ok"' "$AIVGC/data/live_games/.coleta-status" 2>/dev/null; then
+		echo "aviso=coleta fora do ar agora; o código já tinha sido aceito, então o bot liga assim mesmo"
+		return 0
+	fi
+	echo "erro=não consegui falar com a coleta para conferir o código. Tente de novo em alguns minutos."
+	return 1
+}
+
+if [ "${1:-}" = --conferir ]; then
+	conferir_codigo && exit 0 || exit $?
+fi
+conferido="$(conferir_codigo)" && ret=0 || ret=$?
+if [ "$ret" -ne 0 ]; then
+	echo "Bot não ligou: ${conferido#erro=}" >&2  # fica no log, que o painel mostra
+	exit "$ret"
+fi
+[[ "$conferido" == aviso=* ]] && echo "${conferido#aviso=}"
+
+cd "$AIVGC"
 export PATH="$HOME/.local/bin:$PATH"
 export UV_NO_SYNC=1  # o instalador escolhe o PyTorch (CPU); o uv run não deve trocar
 export SERVER=showdown  # bot.sh: login pelo servidor oficial (vale também para o nosso)
