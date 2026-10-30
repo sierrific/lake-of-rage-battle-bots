@@ -53,6 +53,12 @@ class TestRodarBot(unittest.TestCase):
         script = (RAIZ_REPO / "linux" / "rodar-bot.sh").read_text().replace("/opt/lor-bots/ai-vgc", str(d / "ai"))
         (d / "rodar.sh").write_text(script)
         (d / "rodar.sh").chmod(0o755)
+        # Um código que a coleta (curl falso) aceita: sem ele o bot não liga.
+        (d / "bin").mkdir()
+        (d / "bin" / "curl").write_text(CURL_PING)
+        (d / "bin" / "curl").chmod(0o755)
+        (d / "coleta.env").write_text("COLETA_CODIGO=abcdefgh12\n")
+        (d / "ping").write_text("200")
         self.d = d
 
     def tearDown(self):
@@ -61,7 +67,7 @@ class TestRodarBot(unittest.TestCase):
 
     def parar_depois(self, modo: str, espera: float) -> tuple[int, float, str]:
         (self.d / "modo").write_text(modo)
-        env = {**os.environ, "BOT": "x", "PS_PASSWORD": "y", "MODO": "--ladder"}
+        env = {**self.env_rodar(), "MODO": "--ladder"}
         p = subprocess.Popen([str(self.d / "rodar.sh")], env=env, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True)
         time.sleep(espera)
@@ -69,6 +75,42 @@ class TestRodarBot(unittest.TestCase):
         p.send_signal(signal.SIGINT)  # o que o systemd manda (KillSignal=SIGINT)
         saida, _ = p.communicate(timeout=30)
         return p.returncode, time.time() - t0, saida
+
+    def env_rodar(self) -> dict:
+        return {**os.environ, "BOT": "x", "PS_PASSWORD": "y", "D": str(self.d), "LOR_ETC": str(self.d),
+                "PATH": f"{self.d / 'bin'}:{os.environ['PATH']}"}
+
+    def rodar_sem_codigo_valido(self) -> subprocess.CompletedProcess:
+        (self.d / "modo").write_text("partida")
+        return subprocess.run([str(self.d / "rodar.sh")], env={**self.env_rodar(), "MODO": "--ladder"},
+                              capture_output=True, text=True, timeout=30)
+
+    def test_sem_codigo_nao_liga(self):
+        (self.d / "coleta.env").unlink()
+        r = self.rodar_sem_codigo_valido()
+        self.assertEqual(r.returncode, 78, r.stdout + r.stderr)  # RestartPreventExitStatus=78
+        self.assertIn("salve o código", r.stderr)
+        self.assertNotIn("py: start", r.stdout)
+
+    def test_codigo_recusado_nao_liga(self):
+        (self.d / "ping").write_text("401")
+        r = self.rodar_sem_codigo_valido()
+        self.assertEqual(r.returncode, 78, r.stdout + r.stderr)
+        self.assertIn("recusou", r.stderr)
+        self.assertNotIn("py: start", r.stdout)
+
+    def test_coleta_fora_so_liga_com_codigo_ja_aceito(self):
+        (self.d / "ping").unlink()
+        r = self.rodar_sem_codigo_valido()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)  # o systemd tenta de novo
+        self.assertNotIn("py: start", r.stdout)
+        # Aceito antes (o painel grava a impressão ao salvar ou ligar): liga assim mesmo.
+        r = subprocess.run(["sha256sum"], input="abcdefgh12", capture_output=True, text=True)
+        (self.d / "coleta.conferido").write_text(r.stdout.split()[0] + "\n")
+        codigo, _, saida = self.parar_depois("partida", 1.5)
+        self.assertEqual(codigo, 0, saida)
+        self.assertIn("coleta fora do ar", saida)
+        self.assertIn("py: fim da partida", saida)
 
     def sem_python_sobrando(self):
         time.sleep(0.5)
@@ -185,13 +227,15 @@ class TestPainelDesafio(unittest.TestCase):
         d = Path(self.tmp.name)
         falsos = {"systemctl": SYSTEMCTL_DESAFIO, "id": "#!/bin/sh\necho 0\n", "chown": "#!/bin/sh\n",
                   "sleep": "#!/bin/sh\n", "journalctl": '#!/bin/sh\n[ -f "$D/aceito" ] && echo "watch: x"\nexit 0\n',
-                  "systemd-run": '#!/bin/sh\necho "systemd-run $*" >>"$D/log"\n'}
+                  "systemd-run": '#!/bin/sh\necho "systemd-run $*" >>"$D/log"\n', "curl": CURL_PING}
         for nome, corpo in falsos.items():
             (d / nome).write_text(corpo)
             (d / nome).chmod(0o755)
         (d / "bot.conf").write_text("conta=LoR Bot1\nformato=bo3\n")
         (d / "bot.senha").write_text("x")
         (d / "estado").write_text("active")
+        (d / "coleta.env").write_text("COLETA_CODIGO=abcdefgh12\n")  # sem código válido o bot não liga
+        (d / "ping").write_text("200")
         self.d = d
         self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "D": str(d),
                     "LOR_ETC": str(d), "LOR_RUN": str(d), "LOR_ELO_API": (d / "sem-api").as_uri() + "/"}
@@ -465,12 +509,31 @@ class TestPainelColeta(TestPainelDesafio):
 
     def setUp(self):
         super().setUp()
-        (self.d / "curl").write_text(CURL_PING)
-        (self.d / "curl").chmod(0o755)
         self.env["LOR_AIVGC"] = str(self.d / "ai")
         (self.d / "ai" / "data" / "live_games").mkdir(parents=True)
 
+    def test_ligar_e_desafiar_so_com_codigo_valido(self):
+        (self.d / "coleta.env").unlink()
+        self.assertIn("salve o código", self.painel("ligar", ok=False))
+        self.assertIn("salve o código", self.painel("desafiar", entrada="fulano\n", ok=False))
+        (self.d / "coleta.env").write_text("COLETA_CODIGO=abcdefgh12\n")
+        (self.d / "ping").write_text("401")
+        self.assertIn("recusou", self.painel("ligar", ok=False))
+        self.assertFalse(any("start lor-bot@" in x for x in self.chamadas()))
+        (self.d / "ping").write_text("200")
+        self.assertIn("ok=ligado", self.painel("ligar"))
+        self.assertTrue((self.d / "coleta.conferido").exists())
+        # Coleta fora do ar depois: o código já foi aceito, liga com aviso.
+        (self.d / "ping").unlink()
+        saida = self.painel("ligar")
+        self.assertIn("aviso=", saida)
+        self.assertIn("ok=ligado", saida)
+        # Outro código, nunca conferido, com a coleta fora: não liga.
+        (self.d / "coleta.env").write_text("COLETA_CODIGO=outrocodigo99\n")
+        self.assertIn("não consegui falar", self.painel("ligar", ok=False))
+
     def test_codigo_recusado_nao_salva(self):
+        (self.d / "coleta.env").unlink()
         (self.d / "ping").write_text("401")
         self.assertIn("não reconheceu", self.painel("codigo", entrada="abcdefgh12\n", ok=False))
         self.assertFalse((self.d / "coleta.env").exists())
@@ -483,6 +546,7 @@ class TestPainelColeta(TestPainelDesafio):
         self.assertEqual((self.d / "coleta.env").read_text(), "COLETA_CODIGO=abcdefgh12\n")
 
     def test_coleta_fora_salva_com_aviso(self):
+        (self.d / "ping").unlink()
         saida = self.painel("codigo", entrada="abcdefgh12\n")
         self.assertIn("aviso=", saida)
         self.assertTrue((self.d / "coleta.env").exists())

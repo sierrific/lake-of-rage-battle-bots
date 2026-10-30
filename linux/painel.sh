@@ -9,7 +9,8 @@
 #   painel.sh estado [--log N]          chave=valor, para o painel (com --log, depois de uma linha
 #                                       "---log---", as últimas N linhas do log: uma chamada só)
 #   painel.sh diagnostico               versão, estado e logs (sem senha nem código), para suporte
-#   painel.sh ligar | desligar | agora | reiniciar
+#   painel.sh ligar | desligar | agora | reiniciar   (ligar e desafiar só com um código da
+#                                       coleta válido, conferido na coleta: rodar-bot.sh --conferir)
 #   painel.sh conta                     stdin: usuário na 1ª linha, senha na 2ª
 #   painel.sh codigo                    stdin: o código da coleta (conferido na coleta antes de salvar)
 #   painel.sh formato bo3|bo1
@@ -75,6 +76,8 @@ COLETA_STATUS="$AIVGC/data/live_games/.coleta-status"
 # Existe = não postar no Discord: o enviar-partidas.py marca as partidas que manda com "discord":
 # false (vale para todos os bots deste PC; a coleta continua recebendo tudo).
 SEM_DISCORD="$ETC/sem-discord"
+# O bot só liga com um código da coleta aceito pela coleta: rodar-bot.sh --conferir.
+RODAR_BOT="$(dirname "$(readlink -f "$0")")/rodar-bot.sh"
 
 [ "$(id -u)" -eq 0 ] || { echo "erro=rode como root" >&2; exit 1; }
 
@@ -373,6 +376,9 @@ diagnostico)
 	;;
 ligar)
 	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
+	conferido="$(LOR_ETC="$ETC" LOR_COLETA_PING="$COLETA_PING" bash "$RODAR_BOT" --conferir)" \
+		|| { echo "$conferido"; exit 1; }
+	[[ "$conferido" == aviso=* ]] && echo "$conferido"
 	if desafio_ativo; then
 		# O bot está no desafio: o ladder liga quando ele acabar.
 		desafio_set voltar 1
@@ -471,6 +477,13 @@ codigo)
 	# Fica habilitado: depois de reiniciar o Linux, o envio volta sozinho com as partidas pendentes.
 	systemctl enable lor-envio >/dev/null 2>&1 || true
 	rm -f "$COLETA_STATUS"  # o do código anterior
+	# Aceito pela coleta: vale para ligar o bot mesmo se a coleta sair do ar depois.
+	if [ "$http" = 200 ]; then
+		printf %s "$codigo" | sha256sum | cut -d' ' -f1 >"$ETC/coleta.conferido"
+		chmod 644 "$ETC/coleta.conferido"  # o rodar-bot.sh (usuário bots) lê
+	else
+		rm -f "$ETC/coleta.conferido"
+	fi
 	systemctl restart lor-envio
 	[ -n "$membro" ] && echo "membro=$membro"
 	echo ok=codigo
@@ -558,6 +571,8 @@ desafiar)
 	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
 	[ "$alvo" != "$(id_showdown "$(conf_get conta)")" ] || { echo "erro=essa é a conta do próprio bot"; exit 1; }
 	desafio_ativo && { echo "erro=já tem um desafio em andamento (contra $(desafio_get alvo))"; exit 1; }
+	conferido="$(LOR_ETC="$ETC" LOR_COLETA_PING="$COLETA_PING" bash "$RODAR_BOT" --conferir)" \
+		|| { echo "$conferido"; exit 1; }
 	cancelar_reinicio || true
 	rm -rf "$DESAFIO_DIR"
 	mkdir -p "$DESAFIO_DIR"

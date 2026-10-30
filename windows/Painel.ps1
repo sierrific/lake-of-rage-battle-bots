@@ -1883,7 +1883,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
         $tCodigo.Dica = 'Cole seu código'
         $pCodigo.CorNome = 'ambar'
         $lCodigo.CorNome = 'ambar'
-        $lCodigo.Text = 'Não salvo'
+        $lCodigo.Text = 'Não salvo · sem um código válido o bot não liga'
         $lResumoColeta.Text = 'Código não configurado'
         $lResumoColeta.CorNome = 'ambar'
     }
