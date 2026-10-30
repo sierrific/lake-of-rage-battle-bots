@@ -1689,6 +1689,9 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         }
         elseif ($l -match '^(\d+)/(\d+) games won by') { $txt = "Placar desde que ligou: $($Matches[1]) de $($Matches[2]) jogos ganhos"; $tipo = 'partida' }
         elseif ($l -match '^Ctrl-C: finishing') { $txt = 'Parando depois da partida (ou série) atual' }
+        elseif ($l -match '^connection to Showdown lost') { $txt = 'A conexão com o Showdown caiu · o bot vai entrar de novo'; $tipo = 'aviso' }
+        elseif ($l -match '^could not connect to Showdown') { $txt = 'O Showdown não respondeu ao conectar · o bot vai tentar de novo'; $tipo = 'aviso' }
+        elseif ($l -match '^reconnecting in (\d+) s') { $txt = "Reconectando em $($Matches[1]) s" }
         elseif ($l -match '^Stopping lor-bot@') { $txt = 'Desligando…' }
         elseif ($l -match '^Stopped lor-bot@') { $txt = 'Bot parado' }
         elseif ($l -match '^\s+search:|Deactivated successfully|Killing process|remains running|^lor-bot@.*Consumed|SyntaxWarning|^\s+function showErr') { continue }
@@ -1770,6 +1773,8 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $evento.Titulo = 'Conta marcada como bot'; $evento.Detalhe = 'No ladder do Showdown, só enfrenta outros bots'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^pausing ([\d.]+) min before') { $evento.Titulo = 'Pausa entre partidas'; $evento.Detalhe = "$($Matches[1]) min até a próxima busca" }
         elseif ($l -match '^challenge ') { $evento.Titulo = 'Desafio'; $evento.CorNome = 'ambar'; $evento.Tipo = 'partida' }
+        elseif ($l -match '^connection to Showdown lost|^could not connect to Showdown') { $evento.Titulo = 'Conexão perdida'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
+        elseif ($l -match '^reconnecting in') { $evento.Titulo = 'Reconectando'; $evento.CorNome = 'ambar' }
         elseif ($l -match 'Traceback|Error|ERROR|WARNING|Unhandled|failed|Failed') { $evento.Titulo = 'Aviso do bot'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^Ctrl-C: finishing|^Stopping lor-bot@') { $evento.Titulo = 'Parada solicitada'; $evento.CorNome = 'ambar' }
         elseif ($l -match '^Stopped lor-bot@') { $evento.Titulo = 'Bot parado' }
