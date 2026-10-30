@@ -258,6 +258,8 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         Assert ($avisos.Count -eq 1 -and $avisos[0].Tipo -eq 'aviso') 'filtro avisos'
         $partidas = @(Ler-Atividade @('team: SolUgarte', 'win vs Rival in 7 turns') 'Partidas')
         Assert ($partidas.Count -eq 1 -and $partidas[0].Titulo -eq 'Vitória') 'filtro partidas'
+        $conexao = @(Ler-Atividade @('could not connect to Showdown: exiting to reconnect', 'reconnecting in 10 s (Ctrl-C to stop)') 'Todos')
+        Assert ($conexao.Count -eq 2 -and $conexao[0].Titulo -eq 'Reconectando' -and $conexao[1].Titulo -eq 'Conexão perdida' -and $conexao[1].Tipo -eq 'aviso') 'queda de conexao'
 
         if ($scale -eq 1) {
             $keyDown = [LoR.Botao].GetMethod('OnKeyDown', [Reflection.BindingFlags]'Instance,NonPublic')
