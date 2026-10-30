@@ -242,8 +242,9 @@ nome_valido() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; }
 id_showdown() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'; }
 
 # O dia de hoje: vitórias e derrotas da conta, no total e por time, das partidas de hoje no
-# games.jsonl (o bot grava na pasta do dia em que ligou, então olha também a de ontem). Recalcula só
-# quando um dos arquivos muda; senão lê o cache.
+# games.jsonl. O bot grava na pasta do dia em que ligou (um bot ligado na segunda ainda grava na
+# dela na quarta), então olha todas as pastas cujo games.jsonl mudou desde a meia-noite. Recalcula
+# só quando um desses arquivos muda; senão lê o cache.
 hoje() {
 	local conta
 	conta="$(conf_get conta)"
@@ -252,9 +253,16 @@ hoje() {
 import json, os, sys, time
 raiz, conta, cache = sys.argv[1], sys.argv[2], sys.argv[3]
 hoje = time.strftime("%Y-%m-%d")
-ontem = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
-arqs = [os.path.join(raiz, d, "games.jsonl") for d in (ontem, hoje)]
-chave = [hoje, conta] + [os.path.getmtime(a) if os.path.exists(a) else 0 for a in arqs]
+meia_noite = time.mktime(time.strptime(hoje, "%Y-%m-%d"))
+arqs = []
+for d in sorted(os.listdir(raiz)) if os.path.isdir(raiz) else []:
+    a = os.path.join(raiz, d, "games.jsonl")
+    try:
+        if os.path.getmtime(a) >= meia_noite:
+            arqs.append(a)
+    except OSError:
+        pass
+chave = [hoje, conta] + [[a, os.path.getmtime(a)] for a in arqs]
 try:
     c = json.load(open(cache))
     if c.get("chave") != chave:

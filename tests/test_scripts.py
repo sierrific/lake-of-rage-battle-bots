@@ -531,6 +531,20 @@ class TestPainelHoje(TestPainelPlacar):
         self.escrever(hoje, {**jogo, "result": "loss"})  # arquivo mudou: recalcula
         self.assertEqual(self.hoje()["hoje_derrotas"], "2")
 
+    def test_bot_ligado_ha_dias_grava_na_pasta_antiga(self):
+        # Ligado na segunda e ainda jogando na quarta: os jogos de hoje estão na pasta de segunda.
+        hoje = time.strftime("%Y-%m-%d")
+        segunda = time.strftime("%Y-%m-%d", time.localtime(time.time() - 2 * 86400))
+        jogo = {"user": "LoR Bot1", "team": "MC371", "result": "win", "time": f"{hoje} 10:00:00"}
+        self.escrever(segunda, {**jogo, "time": f"{segunda} 09:00:00"}, jogo, jogo)
+        self.assertEqual(self.hoje()["hoje_vitorias"], "2")
+        # Uma pasta que não mudou desde antes da meia-noite nem é aberta.
+        antiga = time.strftime("%Y-%m-%d", time.localtime(time.time() - 5 * 86400))
+        self.escrever(antiga, jogo)
+        arq = self.d / "ai" / "data" / "live_games" / antiga / "games.jsonl"
+        os.utime(arq, (time.time() - 3 * 86400, time.time() - 3 * 86400))
+        self.assertEqual(self.hoje()["hoje_vitorias"], "2")
+
     def test_sem_partidas(self):
         self.assertEqual(self.hoje(), {"hoje_vitorias": "0", "hoje_derrotas": "0", "hoje_times": ""})
 
