@@ -690,6 +690,12 @@ class TestAtualizar(unittest.TestCase):
         self.assertNotIn("install -o bots", t.split('echo "==> Scripts e serviços"')[0].split("RUNTIME=")[1])
         self.assertIn('mv "$DIR/fonte.tmp" "$DIR/fonte"', t)
 
+    def test_bootstrap_do_windows_comeca_pela_estavel(self):
+        # O .bat roda o instalador como administrador: nunca uma main que os testes ainda não aprovaram.
+        bat = (RAIZ_REPO / "windows" / "Instalar LoR Bots.bat").read_text()
+        self.assertIn("/estavel/windows/instalar.ps1", bat)
+        self.assertNotIn("/main/", bat)
+
     def test_mesma_conta_que_o_instalar(self):
         # Se as duas contas divergirem, toda atualização pararia os bots (ou nenhuma pararia).
         conta = 'cat "$SRC/linux/instalar.sh" "$SRC/linux/ai-vgc-lor.patch" | sha256sum | cut -d\' \' -f1'

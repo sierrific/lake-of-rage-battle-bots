@@ -21,12 +21,12 @@ vão para a coleta do time, que alimenta o treino e o canal do Discord.
    disco com mais espaço (`D:\LoRBots\wsl`, por exemplo) e muda para lá uma instalação que já
    estava no C:. No C: fica só o próprio WSL do Windows (~1 GB) e o painel (poucos KB). Para
    escolher a pasta, rode pelo PowerShell (como administrador):
-   `$env:LOR_PASTA_WSL='D:\LoRBots'; irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/main/windows/instalar.ps1 | iex`
+   `$env:LOR_PASTA_WSL='D:\LoRBots'; irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/estavel/windows/instalar.ps1 | iex`
 
    <details><summary>Ou pelo PowerShell</summary>
 
    ```powershell
-   irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/main/windows/instalar.ps1 | iex
+   irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/estavel/windows/instalar.ps1 | iex
    ```
    </details>
 4. No **Painel LoR Bots** (atalho na Área de Trabalho): preencha a conta e a senha do bot e o

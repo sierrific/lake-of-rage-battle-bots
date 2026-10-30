@@ -1,7 +1,7 @@
 # Instalador dos bots da Lake of Rage para Windows 10/11.
 #
 # Abra o PowerShell (de preferencia como administrador) e cole:
-#   irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/main/windows/instalar.ps1 | iex
+#   irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/estavel/windows/instalar.ps1 | iex
 #
 # O que ele faz: liga o WSL (se preciso), cria uma distribuicao Linux so para os bots
 # ("LoRBots", Ubuntu 24.04), instala o bot dentro dela e poe o "Painel LoR Bots" na Area de
