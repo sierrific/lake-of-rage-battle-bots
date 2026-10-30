@@ -63,6 +63,10 @@ fi
 [[ "$conferido" == aviso=* ]] && echo "${conferido#aviso=}"
 
 cd "$AIVGC"
+# O código também vai para o bot: com ele, o bot pede à coleta a vez de buscar partida (um bot do
+# time por formato na fila do ladder, para os nossos nunca se enfrentarem).
+COLETA_CODIGO="$(sed -n 's/^COLETA_CODIGO=//p' "$ETC/coleta.env" 2>/dev/null | tail -1 | tr -d '[:space:]' || true)"
+export COLETA_CODIGO
 export PATH="$HOME/.local/bin:$PATH"
 export UV_NO_SYNC=1  # o instalador escolhe o PyTorch (CPU); o uv run não deve trocar
 export SERVER=showdown  # bot.sh: login pelo servidor oficial (vale também para o nosso)
