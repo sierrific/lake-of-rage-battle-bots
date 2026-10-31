@@ -233,6 +233,7 @@ class TestSinal(unittest.TestCase):
         (self.etc / "treino.env").write_text("BOT=LoR Sierra\nSERVIDOR=lor\n")
         (self.etc / "coleta.env").write_text("COLETA_CODIGO=segredo\n")
         (self.etc / "vazio.env").write_text("SERVIDOR=lor\n")
+        (self.etc / "exemplo.env").write_text("BOT=LoRBot1\nSERVIDOR=oficial\n")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -254,7 +255,7 @@ class TestSinal(unittest.TestCase):
             {"conta": "MadMage", "estado": "active", "partida": "https://play.pokemonshowdown.com/battle-x-9",
              "servidor": "oficial", "desafio": False},
             {"conta": "LoR Sierra", "estado": "inactive", "partida": "", "servidor": "lor", "desafio": False},
-        ])  # sem coleta.env (o código nunca vai no sinal) nem .env sem conta
+        ])  # sem coleta.env (o código nunca vai no sinal), exemplo.env nem .env sem conta
 
     def test_sinal_nunca_derruba_o_envio(self):
         url, bots = enviar.URL, enviar.bots_deste_pc
