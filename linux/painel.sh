@@ -53,10 +53,11 @@ ADAPTA="--change-after-loss --counter-t1 0.5"
 # replays de 24–29/10, Wide Guard contra Clanging Scales era a melhor jogada e nunca foi avaliado).
 # Neutro em 1200 partidas locais (81,9% contra 81,6%), ~12% mais lento por decisão.
 BUSCA="--search-prior 0.03 --search-protect"
-# Modelo do oponente da busca ajustado com os jogos da coleta (linux/treino-oponente.py). Só existe
-# no PC onde foi treinado; nos outros a busca segue com o all-bo3-opp-v2 do bot.sh. Em 225 partidas
-# novas, fora do treino: acerta 59,0% da jogada do oponente, contra 55,5% do v2.
-OPONENTE=data/models/lor-opp-v1-tudo.pt
+# Modelos do oponente da busca ajustados com os jogos da coleta (linux/treino-oponente.py), do mais
+# novo ao mais velho: vale o primeiro que existir. Só existem no PC onde foram treinados; nos outros a
+# busca segue com o all-bo3-opp-v2 do bot.sh. Nas 396 partidas mais novas (31/10, fora do treino),
+# acerto da jogada do oponente: v4 64,6%, v1 59,9%, v2 54,4% (BENCHMARKS.md).
+OPONENTES="data/models/lor-opp-v4-tudo.pt data/models/lor-opp-v1-tudo.pt"
 # Um desafio roda numa unit à parte, que troca o lor-bot@<bot> para --challenge e depois volta.
 # O que ela precisa saber fica em $DESAFIO_DIR: alvo, partidas, fase (esperando = a partida do
 # ladder terminar, aguardando = o adversário aceitar, jogando, cancelando), voltar (1 = religar o
@@ -107,7 +108,13 @@ gerar_env() {
 		modo+=" --use $PADRAO"
 	fi
 	modo+=" --model $MODELO $ADAPTA $BUSCA"
-	if [ -f "$AIVGC/$OPONENTE" ]; then modo+=" --opp-model $OPONENTE"; fi
+	local oponente
+	for oponente in $OPONENTES; do
+		if [ -f "$AIVGC/$oponente" ]; then
+			modo+=" --opp-model $oponente"
+			break
+		fi
+	done
 	{
 		printf 'BOT="%s"\n' "$conta"
 		printf 'SENHA_ARQUIVO=%s\n' "$SENHA"

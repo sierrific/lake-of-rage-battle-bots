@@ -440,6 +440,11 @@ class TestPainelOponente(TestPainelDesafio):
         modelo.write_bytes(b"")
         self.painel("formato", "bo3")
         self.assertIn("--opp-model data/models/lor-opp-v1-tudo.pt", (self.d / "bot.env").read_text())
+        (modelo.parent / "lor-opp-v4-tudo.pt").write_bytes(b"")
+        self.painel("formato", "bo3")
+        env = (self.d / "bot.env").read_text()
+        self.assertIn("--opp-model data/models/lor-opp-v4-tudo.pt", env)
+        self.assertEqual(env.count("--opp-model"), 1)
 
 
 
