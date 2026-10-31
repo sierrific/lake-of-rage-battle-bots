@@ -139,7 +139,7 @@ def bots_deste_pc(rodar=_rodar) -> list[dict]:
     bots = []
     for env in sorted(ETC.glob("*.env")):
         bot_id = env.stem
-        if bot_id in ("coleta", "backup"):
+        if bot_id in ("coleta", "backup", "exemplo"):  # exemplo.env é o modelo (BOT=LoRBot1), não um bot
             continue
         conf = _ler_env(env)
         if not conf.get("BOT"):
