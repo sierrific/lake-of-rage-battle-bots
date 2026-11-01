@@ -25,7 +25,14 @@ function Invoke-LoginMailbox([string]$Action, [string]$InputText = '') {
         $outputTask = $p.StandardOutput.ReadToEndAsync()
         $errorTask = $p.StandardError.ReadToEndAsync()
         if (-not $p.WaitForExit(20000)) { $p.Kill(); throw 'WSL sem resposta' }
-        if ($p.ExitCode -ne 0) { throw 'Autorizacao local indisponivel' }
+        if ($p.ExitCode -ne 0) {
+            # Somente codigos fixos atravessam o IPC; nunca repassa o texto de uma autorizacao.
+            $failure = $errorTask.Result.Trim()
+            if ($failure -match '^LOGIN_ERROR:(assertion-format|assertion-mismatch|assertion-expired|account-unregistered)$') {
+                throw $Matches[1]
+            }
+            throw 'browser-error'
+        }
         return $outputTask.Result.Trim()
     } finally { $p.Dispose() }
 }
@@ -198,7 +205,11 @@ try {
                 $absent = 0
                 try { Authorize-Login $request }
                 catch {
-                    try { [void](Invoke-LoginMailbox 'respond' (@{id=$request.id; error=$true} | ConvertTo-Json -Compress)) } catch {}
+                    $code = $_.Exception.Message
+                    if ($code -notin @('assertion-format', 'assertion-mismatch', 'assertion-expired', 'account-unregistered')) {
+                        $code = 'browser-error'
+                    }
+                    try { [void](Invoke-LoginMailbox 'respond' (@{id=$request.id; error=$code} | ConvertTo-Json -Compress)) } catch {}
                 }
             }
             # Sem pedido pode estar jogando: existencia do RuntimeDirectory e consultada sem root.

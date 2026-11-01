@@ -1,5 +1,10 @@
 """Contrato da autorização local: sem rede, senha, cookie ou contas reais."""
 import importlib.util
+import contextlib
+import io
+import json
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -35,6 +40,45 @@ class TestLoginNavegador(unittest.TestCase):
             assertion = self.assertion(kind=kind)
             login.respond(self.dir, {"id": self.req["id"], "assertion": assertion})
             self.assertEqual(login.read_json(self.dir / "resposta.json")["assertion"], assertion)
+
+    def test_extensoes_assinadas_do_showdown_sao_preservadas(self):
+        # users.ts aceita pelo menos cinco campos e lê s1/s2/s3 depois deles.
+        # O endpoint oficial atualmente envia oito, incluindo extensão final vazia.
+        for kind in ("2", "4", "10"):
+            for extension in (",s1", ",s1,s2,", ",s1,s2,s3,futuro"):
+                data, signature = self.assertion(kind=kind).split(";")
+                assertion = data + extension + ";" + signature
+                login.respond(self.dir, {"id": self.req["id"], "assertion": assertion})
+                self.assertEqual(login.read_json(self.dir / "resposta.json")["assertion"], assertion)
+
+    def test_extensoes_nao_dispensam_validacao_da_conta_conexao_ou_prazo(self):
+        for changes in ({"user": "outra"}, {"challenge": "d" * 256}, {"issued": "0"}, {"kind": "1"}):
+            data, signature = self.assertion(**changes).split(";")
+            with self.assertRaises(login.LoginError):
+                login.respond(self.dir, {"id": self.req["id"], "assertion": data + ",s1,s2,;" + signature})
+
+    def test_erro_publico_nao_expoe_resposta_remota(self):
+        for code in ("assertion-format", "assertion-mismatch", "assertion-expired", "account-unregistered"):
+            login.respond(self.dir, {"id": self.req["id"], "error": code})
+            self.assertEqual(login.read_json(self.dir / "resposta.json")["error"], code)
+        login.respond(self.dir, {"id": self.req["id"], "error": self.assertion()})
+        self.assertEqual(login.read_json(self.dir / "resposta.json")["error"], "browser-error")
+        output = io.StringIO()
+        with patch.object(login, "read_json", side_effect=[self.req, {"id": self.req["id"], "error": "assertion-format"}, self.req]), \
+             patch.object(login.secrets, "token_hex", return_value=self.req["id"]), contextlib.redirect_stdout(output):
+            with self.assertRaises(login.LoginError):
+                login.request_assertion(self.req["username"], self.req["challstr"], self.dir)
+        self.assertIn("formato inválido", output.getvalue())
+        self.assertNotIn(self.assertion(), output.getvalue())
+
+    def test_cli_sinaliza_so_codigo_seguro(self):
+        invalid = self.assertion() + "\nsegredo-sintetico"
+        result = subprocess.run([sys.executable, str(ROOT / "linux/login-navegador.py"), "respond", str(self.dir)],
+                                input=json.dumps({"id": self.req["id"], "assertion": invalid}),
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.strip(), "LOGIN_ERROR:assertion-format")
+        self.assertEqual(result.stdout, "")
 
     def test_rejeita_outra_conta_conexao_tempo_e_resposta_invalida(self):
         for assertion in (self.assertion(user="outraconta"), self.assertion(challenge="d" * 256),

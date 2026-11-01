@@ -91,6 +91,8 @@ A janela abre a cada conexão, inclusive ao reconectar. O bot recebe uma autoriz
 para a sua conexão, sem receber a senha nem copiar cookies para o Linux. Essa autorização expira
 e é apagada depois de consumida. Se o login falhar ou passar de 5 minutos, o bot para; abra o painel
 e clique em **Ligar** para tentar novamente. Não há retorno automático ao login por senha.
+Erros de formato, conta/conexão e validade aparecem na atividade sem expor a autorização.
+A validação aceita os campos adicionais assinados do protocolo do Showdown e os preserva.
 
 Contas já configuradas pelo painel passam a esse fluxo ao ligar/reiniciar com esta versão.
 Arquivos de senha antigos não são lidos no modo navegador. Uma configuração manual que tenha

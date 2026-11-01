@@ -16,6 +16,19 @@ from pathlib import Path
 
 TTL = 300
 MAX_BYTES = 16384
+ERROR_MESSAGES = {
+    "assertion-format": "o Showdown retornou uma autorização em formato inválido",
+    "assertion-mismatch": "a autorização não corresponde à conta ou à conexão atual",
+    "assertion-expired": "a autorização expirou; confira o relógio do PC e tente novamente",
+    "account-unregistered": "entre na conta registrada no navegador antes de ligar o bot",
+    "browser-error": "não foi possível concluir a autorização no navegador; tente novamente",
+}
+
+
+class LoginError(ValueError):
+    def __init__(self, code):
+        self.code = code if isinstance(code, str) and code in ERROR_MESSAGES else "browser-error"
+        super().__init__(ERROR_MESSAGES[self.code])
 
 
 def user_id(name):
@@ -74,19 +87,21 @@ def pending(directory, now=None):
 
 def validate_assertion(assertion, req, now=None):
     if not isinstance(assertion, str) or len(assertion) > MAX_BYTES // 2 or re.search(r"[\r\n]", assertion):
-        raise ValueError("autorização inválida")
+        raise LoginError("assertion-format")
     data, sep, signature = assertion.partition(";")
     fields = data.split(",")
-    if not sep or not re.fullmatch(r"[0-9a-fA-F]{128,4096}", signature) or len(fields) != 5:
-        raise ValueError("o navegador não retornou uma autorização")
-    challenge, userid, kind, issued, host = fields
+    if not sep or not re.fullmatch(r"[0-9a-fA-F]{128,4096}", signature) or len(fields) < 5:
+        raise LoginError("assertion-format")
+    # O Showdown usa os cinco primeiros campos e permite extensões assinadas (s1/s2/s3).
+    # Conferimos esses campos sem reconstruir o texto: as extensões também fazem parte da assinatura.
+    challenge, userid, kind, issued, host = fields[:5]
     if challenge != req["challstr"].split("|")[1] or userid != user_id(req["username"]):
-        raise ValueError("autorização de outra conta ou conexão")
+        raise LoginError("assertion-mismatch")
     now = time.time() if now is None else now
     if not issued.isdigit() or not now - 600 <= int(issued) <= now + 60 or now >= req["expires"]:
-        raise ValueError("autorização vencida")
+        raise LoginError("assertion-expired")
     if not kind.isdigit() or not host or kind == "1":
-        raise ValueError("entre em uma conta registrada no navegador")
+        raise LoginError("account-unregistered")
     # A assinatura e o tipo da conta são verificados pelo Showdown; não se modifica nenhum deles.
     return assertion
 
@@ -96,7 +111,7 @@ def respond(directory, value):
     if not req or value.get("id") != req["id"]:
         raise ValueError("pedido encerrado ou substituído")
     if "error" in value:
-        response = {"id": req["id"], "error": "login não concluído no navegador"}
+        response = {"id": req["id"], "error": LoginError(value["error"]).code}
     else:
         response = {"id": req["id"], "assertion": validate_assertion(value.get("assertion"), req)}
     write_json(Path(directory) / "resposta.json", response)
@@ -128,9 +143,13 @@ def request_assertion(username, challstr, directory, stop=lambda: False):
                 answer.unlink(missing_ok=True)
                 continue
             if "error" in value:
-                raise ValueError("login não concluído no navegador; abra o painel e ligue novamente")
+                raise LoginError(value["error"])
             return validate_assertion(value.get("assertion"), req)
         raise ValueError("login no navegador expirou; ligue novamente para tentar")
+    except LoginError as error:
+        # Só mensagens da lista fixa; nunca inclui a autorização ou o texto remoto.
+        print(f"login navegador: {error}", flush=True)
+        raise
     finally:
         # Uma resposta atrasada nunca serve para a próxima conexão.
         try:
@@ -161,6 +180,9 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except LoginError as error:
+        print(f"LOGIN_ERROR:{error.code}", file=sys.stderr)
+        sys.exit(1)
     except (OSError, ValueError, TypeError, KeyError):
         # Nunca imprime o corpo recebido (contém uma autorização temporária).
         print("Falha na autorização local do navegador.", file=sys.stderr)
