@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, Mock, patch
 source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
 mixin = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == "ChallengeMixin")
 names = {"_cycle", "_handle_battle_request", "_track_decision_clock", "_pace_decision",
-         "_chat_on", "teampreview", "choose_move"}
+         "_chat_on", "_say_personality", "teampreview", "choose_move"}
 members = [n for n in mixin.body if (
     isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names
 ) or (isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "MAX_CYCLES")]

@@ -93,6 +93,8 @@ export LOR_ALLOW_BOTS_FILE="${PERMITIR_BOTS_ARQUIVO:-}"
 export LOR_SKIP_BOT_WAIT_FILE="${SEM_ESPERA_BOTS_ARQUIVO:-}"
 export LOR_SKIP_TEAM_WAIT_FILE="${SEM_ESPERA_COLMEIA_ARQUIVO:-}"
 export LOR_FAST_DECISIONS_FILE="${DECISOES_RAPIDAS_ARQUIVO:-}"
+# Presentation only: stable account profile, independent of model/search randomness.
+export LOR_PERSONALITY="${PERSONALIDADE:-auto}"
 
 read -ra args <<<"$MODO"
 if [ "${SERVIDOR:-oficial}" = lor ]; then

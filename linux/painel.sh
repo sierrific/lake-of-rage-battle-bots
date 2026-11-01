@@ -19,8 +19,8 @@
 #   painel.sh bloquear-bots sim|nao     /blockbots ou /allowbots no login e antes da próxima busca
 #   painel.sh esperar-bots sim|nao      esperar bots adversários conhecidos saírem da fila (padrão: sim)
 #   painel.sh esperar-colmeia sim|nao   esperar a vez entre os bots do nosso time (padrão: sim)
-#   painel.sh decisoes-instantaneas sim|nao   sim = enviar assim que calcular; nao = 10–20 s (padrão)
-#   painel.sh chat sim|nao              o bot diz "glhf" no começo e "gg wp" no fim de cada partida
+#   painel.sh decisoes-instantaneas sim|nao   sim = enviar assim que calcular; nao = ritmo do perfil
+#   painel.sh chat sim|nao              saudações do perfil no começo e no fim da partida
 #                                       (padrão: sim; vale já na próxima partida, sem reiniciar)
 #   painel.sh discord sim|nao           as séries deste PC são postadas no Discord do time (padrão:
 #                                       sim); com nao, as partidas seguem indo para a coleta e o treino

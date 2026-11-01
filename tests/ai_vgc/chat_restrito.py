@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
 mixin = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == "ChallengeMixin")
-names = {"_chat_on", "_handle_chat_restriction", "_handle_battle_message", "teampreview"}
+names = {"_chat_on", "_say_personality", "_handle_chat_restriction", "_handle_battle_message", "teampreview"}
 methods = [n for n in mixin.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
 assert len(methods) == len(names)
 RESTRICTION = ("Due to spam from your internet provider, you can't speak except to staff. "
