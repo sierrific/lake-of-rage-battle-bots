@@ -136,6 +136,23 @@ class TestRodarBot(unittest.TestCase):
         self.assertEqual(saida.count("py: start"), 1, saida)
         self.sem_python_sobrando()
 
+    def test_navegador_nao_le_senha_antiga_nem_herdada(self):
+        (self.d / "ai/scripts/bot.sh").write_text(
+            '#!/usr/bin/env zsh\npython3 -c \'import os,json; '
+            'print(json.dumps({k:os.environ.get(k) for k in ("PS_PASSWORD","LOR_BROWSER_LOGIN")}))\'\n')
+        r = subprocess.run([str(self.d / "rodar.sh")], capture_output=True, text=True, timeout=10,
+                           env={**self.env_rodar(), "MODO": "--ladder", "LOGIN": "navegador",
+                                "SENHA_ARQUIVO": str(self.d / "nao-existe")})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"PS_PASSWORD": "",
+                                              "LOR_BROWSER_LOGIN": "/opt/lor-bots/login-navegador.py"})
+
+    def test_modo_invalido_nao_liga_nem_reconecta(self):
+        r = subprocess.run([str(self.d / "rodar.sh")], capture_output=True, text=True, timeout=10,
+                           env={**self.env_rodar(), "MODO": "--ladder", "LOGIN": "invalido"})
+        self.assertEqual(r.returncode, 78, r.stderr)
+        self.assertNotIn("py: start", r.stdout)
+
 
 SYSTEMCTL_FALSO = r'''#!/usr/bin/env bash
 echo "systemctl $*" >>"$LOG"
@@ -160,7 +177,7 @@ class TestPainelReinicio(unittest.TestCase):
             (d / nome).chmod(0o755)
         self.d = d
         self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "LOG": str(d / "log"),
-                    "PENDENTE": str(d / "pendente")}
+                    "PENDENTE": str(d / "pendente"), "LOR_ETC": str(d), "LOR_RUN": str(d)}
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -236,9 +253,14 @@ class TestPainelDesafio(unittest.TestCase):
         (d / "estado").write_text("active")
         (d / "coleta.env").write_text("COLETA_CODIGO=abcdefgh12\n")  # sem código válido o bot não liga
         (d / "ping").write_text("200")
+        # Nunca consulta a instalacao real, mesmo se os testes rodam na distro dos bots.
+        shutil.copyfile(RAIZ_REPO / "linux/painel.sh", d / "painel.sh")
+        (d / "rodar-bot.sh").write_text((RAIZ_REPO / "linux/rodar-bot.sh").read_text().replace(
+            "/opt/lor-bots/ai-vgc", str(d / "ai")))
         self.d = d
         self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "D": str(d),
-                    "LOR_ETC": str(d), "LOR_RUN": str(d), "LOR_ELO_API": (d / "sem-api").as_uri() + "/"}
+                    "LOR_ETC": str(d), "LOR_RUN": str(d), "LOR_AIVGC": str(d / "ai"),
+                    "LOR_ELO_API": (d / "sem-api").as_uri() + "/"}
         self.dir = d / "lor-desafio-bot"
 
     def tearDown(self):
@@ -252,7 +274,7 @@ class TestPainelDesafio(unittest.TestCase):
         self.tmp.cleanup()
 
     def painel(self, *args, entrada="", ok=True, **env) -> str:
-        r = subprocess.run(["bash", str(RAIZ_REPO / "linux" / "painel.sh"), *args], input=entrada,
+        r = subprocess.run(["bash", str(self.d / "painel.sh"), *args], input=entrada,
                            env={**self.env, **env}, capture_output=True, text=True)
         if ok:
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -410,6 +432,30 @@ class TestPainelTimer(TestPainelDesafio):
         self.painel("timer", "sim")
         self.assertNotIn("--no-timer", (self.d / "bot.env").read_text())
         self.assertIn("erro=", self.painel("timer", "talvez", ok=False))
+
+
+class TestPainelLogin(TestPainelDesafio):
+    def test_migracao_de_conta_antiga_usa_navegador(self):
+        (self.d / "bot.senha").unlink()
+        self.assertIn("ok=ligado", self.painel("ligar"))
+        self.assertIn("LOGIN=navegador", (self.d / "bot.env").read_text())
+        self.assertIn("ok=desafiando", self.painel("desafiar", entrada="Rival\n"))
+
+    def test_salvar_conta_navegador_sem_senha(self):
+        (self.d / "bot.senha").unlink()
+        self.painel("conta-navegador", entrada="Conta Nova\n")
+        self.assertIn("login=navegador", (self.d / "bot.conf").read_text())
+        self.assertIn('BOT="Conta Nova"', (self.d / "bot.env").read_text())
+        self.assertFalse((self.d / "bot.senha").exists())
+        self.assertIn("ok=ligado", self.painel("ligar"))
+
+    def test_legacy_explicito_ainda_exige_senha(self):
+        self.painel("conta", entrada="Legado\nsenha-sintetica\n")
+        self.assertIn("LOGIN=senha", (self.d / "bot.env").read_text())
+        (self.d / "bot.senha").unlink()
+        self.assertIn("erro=configure a conta", self.painel("ligar", ok=False))
+        self.painel("conta-navegador", entrada="Legado\n")
+        self.assertIn("ok=ligado", self.painel("ligar"))
 
 
 class TestPainelChat(TestPainelDesafio):

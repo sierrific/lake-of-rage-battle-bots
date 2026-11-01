@@ -1035,6 +1035,9 @@ function Ler-Estado($Resposta = $null) {
 }
 
 function Manter-Vivo {
+    # O auxiliar é instalado junto do runtime Linux. Perfil e cookies ficam no Windows.
+    $login = "\\wsl$\$Distro\opt\lor-bots\Login-Navegador.ps1"
+    Rodar-Oculto "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$login`""
     # O WSL desliga o Linux quando nenhum programa do Windows o usa; este processo escondido
     # segura enquanto o bot estiver ligado (e sai sozinho depois). Ele também pede ao Windows para
     # não suspender o PC nesse tempo: com o PC dormindo o timer da partida corre e o bot perde. A
@@ -1316,14 +1319,16 @@ $cConta = Novo-Cartao 'Conta do Showdown' '' 170 137 405 286
 [void](Novo-Rotulo 'Usuário' 20 50 350 20 $cConta)
 $tUsuario = Novo-Campo '' 20 72 365 38 $cConta
 $tUsuario.Caixa.AccessibleName = 'Usuário do Showdown'
-[void](Novo-Rotulo 'Senha' 20 120 350 20 $cConta)
+[void](Novo-Rotulo 'Login no navegador' 20 120 350 20 $cConta)
 $tSenha = Novo-Campo '' 20 142 365 38 $cConta
-$tSenha.Caixa.AccessibleName = 'Senha do Showdown'
-$tSenha.ComOlho()
+$tSenha.Caixa.AccessibleName = 'Autenticação pelo navegador'
+$tSenha.Caixa.ReadOnly = $true
+$tSenha.Caixa.TabStop = $false
+$tSenha.Caixa.Text = 'Entre no site oficial ao ligar o bot'
 $iCadeado = New-Object LoR.Icone
 $iCadeado.Text = [string][char]0xE72E
 [void](Pos $iCadeado 20 190 20 22 $cConta)
-[void](Novo-Rotulo 'A senha fica apenas neste PC.' 46 190 339 22 $cConta 'suave' 10)
+[void](Novo-Rotulo 'A senha é digitada apenas no Showdown.' 46 190 339 22 $cConta 'suave' 9)
 $bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 228 151 38 $cConta
 # "glhf" no começo e "gg wp" no fim de cada partida, no chat da batalha; vale já na próxima.
 $xChat = New-Object LoR.Chave
@@ -1866,12 +1871,13 @@ function Atualizar-EstadoTela($Resposta = $null) {
     if (Precisa-Atualizar) { $lAtualizar.Text = "Atualizar para $($script:versaoNova)"; $lAtualizar.Negrito = $true }
     else { $lAtualizar.Text = 'Verificar atualização'; $lAtualizar.Negrito = $false }
     if (-not $tUsuario.Caixa.Focused -and -not $tUsuario.Caixa.Modified) { $tUsuario.Caixa.Text = $e['conta'] }
-    $tSenha.Dica = if ($e['senha'] -eq 'sim') { 'Senha salva (digite para trocar)' } else { 'Senha da conta' }
+    $tSenha.Dica = ''
     $lNavConta.Text = if ($e['conta']) { $e['conta'] } else { 'Sem conta' }
     $ttTema.SetToolTip($lNavConta, $lNavConta.Text)
-    $configurada = $e['conta'] -and $e['senha'] -eq 'sim'
+    $configurada = [bool]$e['conta']
     $lNavEstado.Text = if ($configurada) { 'Conta configurada' } else { 'Configure em Ajustes' }
-    $lResumoConta.Text = if ($configurada) { "$($e['conta']) · credenciais neste PC" } else { 'Configure usuário e senha' }
+    $modoLogin = if ($e['login'] -eq 'senha') { 'login legado' } else { 'login no navegador' }
+    $lResumoConta.Text = if ($configurada) { "$($e['conta']) · $modoLogin" } else { 'Configure o usuário do Showdown' }
     $ttTema.SetToolTip($lResumoConta, $lResumoConta.Text)
     if ($e['codigo'] -eq 'sim') {
         $tCodigo.Dica = 'Código salvo (cole outro para trocar)'
@@ -2033,13 +2039,12 @@ function Resultado($r, [string]$ok) {
 
 $bConta.Add_Click({
     if (-not $tUsuario.Caixa.Text.Trim()) { Mensagem 'Coloque o usuário do Showdown.'; return }
-    if (-not $tSenha.Caixa.Text -and $script:estado['senha'] -ne 'sim') { Mensagem 'Coloque a senha da conta.'; return }
-    $r = Invoke-Painel @('conta') ("$($tUsuario.Caixa.Text.Trim())`n$($tSenha.Caixa.Text)`n")
-    $tSenha.Caixa.Text = ''
+    $r = Invoke-Painel @('conta-navegador') ("$($tUsuario.Caixa.Text.Trim())`n")
     $tUsuario.Caixa.Modified = $false
     if (Resultado $r '') {
         if ($script:estado['bot'] -eq 'active') {
             Invoke-Painel @('reiniciar') | Out-Null
+            Manter-Vivo
             Mensagem 'Conta salva. O bot entra com ela depois da partida atual.'
         } else { Mensagem 'Conta salva.' }
     }
@@ -2154,7 +2159,7 @@ $bDesafiar.Add_Click({
         Atualizar-Tela
         return
     }
-    if ($script:estado['senha'] -ne 'sim' -or -not $script:estado['conta']) { Mensagem 'Salve a conta e a senha do bot primeiro.'; return }
+    if (-not $script:estado['conta']) { Mensagem 'Salve a conta do bot primeiro.'; return }
     $d = New-Object System.Windows.Forms.Form
     $d.Text = 'Desafiar jogador'
     $d.AutoScaleMode = 'None'
