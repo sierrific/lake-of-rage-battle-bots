@@ -111,6 +111,7 @@ jobs:
           python3 -m py_compile src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/tempos_por_turno.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/login_navegador.py" src/ai_vgc/nn/player.py
+          python3 "$GITHUB_WORKSPACE/tests/ai_vgc/espera_bots.py" src/ai_vgc/nn/player.py
 
       - name: PowerShell do Windows (sintaxe; acentos só com UTF-8 com BOM)
         shell: pwsh

@@ -139,14 +139,16 @@ class TestRodarBot(unittest.TestCase):
     def test_navegador_nao_le_senha_antiga_nem_herdada(self):
         (self.d / "ai/scripts/bot.sh").write_text(
             '#!/usr/bin/env zsh\npython3 -c \'import os,json; '
-            'print(json.dumps({k:os.environ.get(k) for k in ("PS_PASSWORD","LOR_BROWSER_LOGIN","LOR_ALLOW_BOTS_FILE")}))\'\n')
+            'print(json.dumps({k:os.environ.get(k) for k in ("PS_PASSWORD","LOR_BROWSER_LOGIN","LOR_ALLOW_BOTS_FILE","LOR_SKIP_BOT_WAIT_FILE")}))\'\n')
         r = subprocess.run([str(self.d / "rodar.sh")], capture_output=True, text=True, timeout=10,
                            env={**self.env_rodar(), "MODO": "--ladder", "LOGIN": "navegador",
                                 "PERMITIR_BOTS_ARQUIVO": str(self.d / "bot.permitir-bots"),
+                                "SEM_ESPERA_BOTS_ARQUIVO": str(self.d / "bot.sem-espera-bots"),
                                 "SENHA_ARQUIVO": str(self.d / "nao-existe")})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), {"PS_PASSWORD": "",
                                               "LOR_ALLOW_BOTS_FILE": str(self.d / "bot.permitir-bots"),
+                                              "LOR_SKIP_BOT_WAIT_FILE": str(self.d / "bot.sem-espera-bots"),
                                               "LOR_BROWSER_LOGIN": "/opt/lor-bots/login-navegador.py"})
 
     def test_modo_invalido_nao_liga_nem_reconecta(self):
@@ -494,6 +496,27 @@ class TestPainelBloquearBots(TestPainelDesafio):
         self.assertFalse((self.d / "bot.permitir-bots").exists())
         self.assertIn("bloquear_bots=sim", self.painel("estado").splitlines())
         self.assertIn("erro=", self.painel("bloquear-bots", "talvez", ok=False))
+
+
+class TestPainelEsperarBots(TestPainelDesafio):
+    def test_espera_padrao_toggle_persistente_sem_reiniciar(self):
+        self.assertIn("esperar_bots=sim", self.painel("estado").splitlines())
+        self.painel("formato", "bo3")
+        before = (self.d / "bot.env").read_text()
+        self.assertIn(f"SEM_ESPERA_BOTS_ARQUIVO={self.d}/bot.sem-espera-bots", before)
+        for _ in range(2):
+            self.assertIn("ok=esperar-bots", self.painel("esperar-bots", "nao"))
+        flag = self.d / "bot.sem-espera-bots"
+        self.assertEqual(flag.stat().st_mode & 0o777, 0o644)
+        self.assertIn("esperar_bots=nao", self.painel("estado").splitlines())
+        self.assertIn("bloquear_bots=sim", self.painel("estado").splitlines())
+        self.assertEqual((self.d / "bot.env").read_text(), before)
+        self.assertFalse(any("restart" in call or "start lor-bot@" in call for call in self.chamadas()))
+        self.assertIn("erro=", self.painel("esperar-bots", "talvez", ok=False))
+        self.assertTrue(flag.exists())
+        self.painel("esperar-bots", "sim")
+        self.assertFalse(flag.exists())
+        self.assertIn("esperar_bots=sim", self.painel("estado").splitlines())
 
 
 class TestPainelDiscord(TestPainelDesafio):

@@ -57,6 +57,10 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   login/reconexão e antes da próxima busca no ladder, sem reiniciar ou interromper a partida.
   Vale também para o login legado por senha. O comando configura a preferência de pareamento;
   não remove a classificação de bot da conta.
+- **Esperar bots conhecidos** (em Ajustes; ligado por padrão): espera até 10 minutos para bots
+  adversários recorrentes saírem da fila antes de buscar partida. Desligado, pula essa espera e
+  encerra uma espera em curso, sem reiniciar. A escolha fica salva. A coordenação entre os bots
+  do nosso time e a pausa entre partidas continuam funcionando; `/blockbots` é uma opção separada.
 - **Código da coleta**: conferido na coleta ao salvar (o painel diz de quem é o código). Se depois a
   coleta recusar o código ou estiver fora do ar, o aviso aparece ali mesmo.
 - **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em
