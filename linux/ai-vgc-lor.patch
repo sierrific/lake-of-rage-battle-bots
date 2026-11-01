@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..87daea7 100644
+index eb60a97..91191cf 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -12,7 +12,7 @@ index eb60a97..87daea7 100644
  $PS_PASSWORD, or you type it at a prompt (blank for an unregistered name). `--from` accepts
  challenges only from those accounts; without it, anyone on the server can start a game.
  
-@@ -525,15 +526,163 @@ class ChallengeMixin:
+@@ -525,15 +526,185 @@ class ChallengeMixin:
      save_dir: Path | None = None  # games.jsonl plus an HTML replay per game
      logs_dir: Path | None = None  # logs_<format>.json, the scraped logs' layout, for the bot's games only
      watch_url: str | None = None  # "https://play.pokemonshowdown.com/": print each battle's link there
@@ -77,11 +77,11 @@ index eb60a97..87daea7 100644
 +                clocks[tag] = 0.0  # no extra wait after a game ends
 +            elif line.startswith("|inactive|"):
 +                text = line.removeprefix("|inactive|")
-+                private = re.match(r"Time left: (\d+) sec this turn(?: \||$)", text)
++                private = re.match(r"Time left: (\d+) sec this turn(?: \| (\d+) sec total)?(?: \||$)", text)
 +                public = re.fullmatch(r"(.+) has (\d+) seconds left(?: this turn)?\.", text)
 +                seconds = None
 +                if private:
-+                    seconds = int(private[1])
++                    seconds = min(int(private[1]), int(private[2])) if private[2] else int(private[1])
 +                elif public and to_id_str(public[1]) == to_id_str(self.username):
 +                    seconds = int(public[2])
 +                if seconds is not None:
@@ -94,7 +94,12 @@ index eb60a97..87daea7 100644
 +        if (not off_file or os.path.exists(off_file)
 +                or battle.battle_tag in self.__dict__.get("_decision_retries", set())):
 +            return
-+        target = started + random.uniform(10, 20)
++        personality = getattr(self, 'personality', None)
++        force_switch = getattr(battle, 'force_switch', False)
++        forced = any(force_switch) if isinstance(force_switch, (list, tuple)) else bool(force_switch)
++        seconds = (personality.decision_seconds(preview=getattr(battle, 'teampreview', False), forced=forced)
++                   if personality else random.uniform(10, 20))
++        target = started + seconds
 +        while not os.path.exists(off_file) and not battle.finished:
 +            now = time.monotonic()
 +            deadline = self.__dict__.get("_decision_clocks", {}).get(battle.battle_tag)
@@ -109,6 +114,23 @@ index eb60a97..87daea7 100644
 +        return (self.chat and not getattr(self, "_chat_restricted", False)
 +                and not (self.chat_off is not None and self.chat_off.exists()))
 +
++    async def _say_personality(self, event: str, room: str) -> bool:
++        if not self._chat_on():
++            return False
++        # Repeated previews/terminal packets must not repeat messages. Bound the history
++        # independently of callbacks (which can run before all terminal packets arrive).
++        sent = self.__dict__.setdefault('_personality_chat_sent', {})
++        key = (room, event)
++        if key in sent:
++            return False
++        sent[key] = True
++        if len(sent) > 128:
++            del sent[next(iter(sent))]
++        personality = getattr(self, 'personality', None)
++        message = personality.phrase(event) if personality else ('glhf' if event == 'start' else 'gg wp')
++        await self.ps_client.send_message(message, room)
++        return True
++
 +    def _handle_chat_restriction(self, message: list[str]) -> bool:
 +        # This is a refusal to chat, not a rejected battle choice. Respect it for the
 +        # rest of this connection instead of sending greetings in every game.
@@ -122,8 +144,8 @@ index eb60a97..87daea7 100644
  
      async def teampreview(self, battle: AbstractBattle) -> str:
 +        started = time.monotonic()
-+        if self._chat_on() and getattr(self, "series_of", {}).get(battle.battle_tag, (None, 1))[1] == 1:
-+            await self.ps_client.send_message("glhf", battle.battle_tag)
++        if (getattr(self, "series_of", {}).get(battle.battle_tag, (None, 1))[1] == 1
++                and await self._say_personality('start', battle.battle_tag)):
 +            if self.timer:
 +                await asyncio.sleep(1)  # Showdown drops messages sent too close together
          if self.timer:
@@ -177,7 +199,7 @@ index eb60a97..87daea7 100644
  
      def _busy(self) -> bool:
          """A battle is still being played, or a Bo3 series has games left (the next game starts
-@@ -549,18 +698,286 @@ class ChallengeMixin:
+@@ -549,18 +720,287 @@ class ChallengeMixin:
          for _ in range(n_games):
              if self.stop_after_match:
                  break
@@ -223,7 +245,8 @@ index eb60a97..87daea7 100644
 +        out of step and lets us meet whoever (often a human) joins the queue meanwhile."""
 +        if self.stop_after_match:
 +            return
-+        pause = random.uniform(*self.LADDER_PAUSE)
++        personality = getattr(self, 'personality', None)
++        pause = personality.pause_seconds() if personality else random.uniform(*self.LADDER_PAUSE)
 +        print(f"pausing {pause / 60:.1f} min before the next ladder search", flush=True)
 +        end = time.time() + pause
 +        while not self.stop_after_match and time.time() < end:
@@ -471,7 +494,7 @@ index eb60a97..87daea7 100644
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
          opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
-@@ -645,6 +1062,21 @@ class ChallengeMixin:
+@@ -645,6 +1085,20 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
@@ -482,8 +505,7 @@ index eb60a97..87daea7 100644
 +        # Say "gg wp" and upload the replay while still in the room (poke-env /leaves right after |win|).
 +        if any(len(m) > 1 and m[1] in ("win", "tie") for m in split_messages[1:]):
 +            room = split_messages[0][0].removeprefix(">")
-+            if self._chat_on():
-+                await self.ps_client.send_message("gg wp", room)
++            if await self._say_personality('end', room):
 +                await asyncio.sleep(1.5)
 +            if self.replay_url:
 +                await self.ps_client.send_message("/savereplay silent", room)
@@ -493,7 +515,7 @@ index eb60a97..87daea7 100644
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -663,8 +1095,13 @@ class ChallengeMixin:
+@@ -663,8 +1117,13 @@ class ChallengeMixin:
          return battle
  
      def _battle_finished_callback(self, battle: AbstractBattle) -> None:
@@ -507,7 +529,7 @@ index eb60a97..87daea7 100644
          if self.save_dir is None:
              return
          try:
-@@ -674,13 +1111,19 @@ class ChallengeMixin:
+@@ -674,13 +1133,19 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -528,7 +550,7 @@ index eb60a97..87daea7 100644
              with open(self.save_dir / "games.jsonl", "a") as f:
                  f.write(json.dumps(row) + "\n")
              if self.logs_dir:
-@@ -714,6 +1157,11 @@ class ChallengeMixin:
+@@ -714,6 +1179,11 @@ class ChallengeMixin:
                  and (self.allowed is None or to_id_str(user) in self.allowed))
  
      async def _handle_challenge_request(self, split_message: list[str]):
@@ -540,7 +562,7 @@ index eb60a97..87daea7 100644
          if len(split_message) >= 6 and self._wanted(split_message[2], split_message[5]):
              await self._challenge_queue.put((split_message[2].strip(), split_message[5]))
  
-@@ -725,8 +1173,19 @@ class ChallengeMixin:
+@@ -725,8 +1195,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -561,7 +583,7 @@ index eb60a97..87daea7 100644
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -750,6 +1209,37 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -750,6 +1231,37 @@ def _public_login(player: Player, password: str | None) -> None:
  
      client = player.ps_client
      name = client.account_configuration.username
@@ -599,7 +621,7 @@ index eb60a97..87daea7 100644
  
      def call(method: str, **kw):
          # The login server is sometimes slow: wait longer than poke-env's 10s, and retry.
-@@ -763,8 +1253,24 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -763,8 +1275,24 @@ def _public_login(player: Player, password: str | None) -> None:
          os._exit(1)
  
      async def log_in(split_message: list[str]) -> None:
@@ -626,7 +648,7 @@ index eb60a97..87daea7 100644
              r = call("POST", data={"act": "login", "name": name, "pass": password, "challstr": challstr})
              try:
                  reply = json.loads(r.text[1:])  # the reply starts with "]"
-@@ -785,12 +1291,36 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -785,12 +1313,36 @@ def _public_login(player: Player, password: str | None) -> None:
              if not assertion or assertion.startswith("{"):
                  print(f"login server refused '{name}': {assertion[:200]}", flush=True)
                  os._exit(1)
@@ -664,7 +686,7 @@ index eb60a97..87daea7 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +1348,12 @@ def main() -> None:
+@@ -818,6 +1370,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -677,7 +699,7 @@ index eb60a97..87daea7 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -829,6 +1365,9 @@ def main() -> None:
+@@ -829,6 +1387,9 @@ def main() -> None:
      ap.add_argument("--challenge", nargs="+", metavar="NAME",
                      help="challenge these accounts (e.g. scripts/vgcbench_bot.py) --n times in total, "
                           "one battle per account at a time")
@@ -687,7 +709,7 @@ index eb60a97..87daea7 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1396,8 @@ def main() -> None:
+@@ -857,6 +1418,8 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
@@ -696,7 +718,7 @@ index eb60a97..87daea7 100644
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -882,6 +1423,10 @@ def main() -> None:
+@@ -882,6 +1445,10 @@ def main() -> None:
                      help="draw each match's team at random from just these --teams files (stems)")
      ap.add_argument("--no-timer", action="store_true",
                      help="on Showdown, don't turn the battle timer on at the start of each game")
@@ -707,7 +729,7 @@ index eb60a97..87daea7 100644
      ap.add_argument("--no-munchstats", action="store_true",
                      help="--search on Showdown: don't fetch MunchStats usage for unknown opposing species")
      ap.add_argument("--closed-sheets", action="store_true",
-@@ -913,17 +1458,24 @@ def main() -> None:
+@@ -913,17 +1480,24 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -735,7 +757,7 @@ index eb60a97..87daea7 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -932,7 +1484,7 @@ def main() -> None:
+@@ -932,9 +1506,21 @@ def main() -> None:
              common.update(max_concurrent_battles=1)
              del common["battle_format"]
              password = None
@@ -743,8 +765,22 @@ index eb60a97..87daea7 100644
 +            if public and not os.environ.get("LOR_BROWSER_LOGIN"):
                  password = os.environ.get("PS_PASSWORD") or \
                      getpass.getpass(f"Showdown password for {args.accept} (blank if unregistered): ") or None
++            personality = None
++            selection = os.environ.get('LOR_PERSONALITY', 'classico')
++            if public and selection != 'classico':
++                from ai_vgc.nn.personality import Personality, profile_for
++
++                try:
++                    profile = profile_for(args.accept, selection)
++                except ValueError as exc:
++                    ap.error(str(exc))
++                personality = Personality(profile)
++                common['avatar'] = profile.avatar
++                print(f'personality: {profile.key} (avatar {profile.avatar})', flush=True)
              acct = AccountConfiguration(args.accept, password)
-@@ -949,7 +1501,7 @@ def main() -> None:
+             kw = dict(rules=not args.no_rules, team=teams(), account_configuration=acct, **common)
+             if args.search:
+@@ -949,7 +1535,7 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -753,7 +789,15 @@ index eb60a97..87daea7 100644
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -967,51 +1519,67 @@ def main() -> None:
+@@ -958,6 +1544,7 @@ def main() -> None:
+                     bot.refresher = Refresher()
+             else:
+                 bot = ChallengeNNPlayer(args.model, args.rating, args.greedy, formats=formats, **kw)
++            bot.personality = personality
+             if public:
+                 _public_login(bot, password)
+             bot.vary, bot.vary_k, bot.vary_margin = args.vary, args.vary_k, args.vary_margin
+@@ -967,51 +1554,67 @@ def main() -> None:
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
              bot.logs_dir = args.logs_dir
@@ -840,7 +884,7 @@ index eb60a97..87daea7 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1603,7 @@ def main() -> None:
+@@ -1035,7 +1638,7 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -977,3 +1021,90 @@ index bf07ddc..7909614 100644
        } catch (e) {
          err = String(e && e.message || e);
        }
+diff --git a/src/ai_vgc/nn/personality.py b/src/ai_vgc/nn/personality.py
+new file mode 100644
+index 0000000..678c612
+--- /dev/null
++++ b/src/ai_vgc/nn/personality.py
+@@ -0,0 +1,81 @@
++"""Account-level presentation and pacing; never changes the battle policy or its RNG.
++
++Ranges are design choices informed by low-score opponents in the LoR coleta,
++not a fitted human model. See README for the dated sample and its limitations.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++import hashlib
++import random
++import re
++
++
++@dataclass(frozen=True)
++class Profile:
++    key: str
++    label: str
++    avatar: int
++    move: tuple[float, float, float]  # low, high, mode (total seconds including compute)
++    preview: tuple[float, float, float]
++    pause: tuple[float, float, float]
++    greetings: tuple[str, ...]
++    endings: tuple[str, ...]
++
++
++PROFILES = (
++    Profile('reservado', 'Reservado', 43, (9, 20, 14), (18, 30, 22), (60, 240, 120),
++            ("glhf! I'm a LoR bot.", "LoR bot here. gl hf", "gl! I'm a LoR bot."),
++            ('gg', 'gg wp', 'wp, gg')),
++    Profile('cordial', 'Cordial', 68, (10, 24, 17), (20, 35, 25), (90, 300, 180),
++            ("Hi! I'm a LoR bot. Have fun!", "LoR bot here. Good luck, have fun!",
++             "Hey! I'm a LoR bot. glhf!"),
++            ('gg, thanks for the game!', 'well played, gg!', 'gg! good luck in your next games')),
++    Profile('analitico', 'Analítico', 54, (13, 26, 20), (23, 40, 29), (120, 300, 210),
++            ("I'm a LoR bot. Good luck!", "LoR bot ready. glhf!", "Hi, I'm a LoR bot. gl hf!"),
++            ('gg, well played', 'thanks for the game, gg', 'gg wp!')),
++    Profile('energetico', 'Energético', 90, (8, 21, 13), (17, 29, 21), (60, 210, 100),
++            ("LoR bot here. Let's play, glhf!", "I'm a LoR bot. Have a good game!",
++             "Ready! I'm a LoR bot. glhf!"),
++            ('gg! wp!', 'good game, wp!', 'gg, thanks!')),
++    Profile('tranquilo', 'Tranquilo', 120, (11, 25, 18), (21, 38, 27), (120, 300, 220),
++            ("Hey, I'm a LoR bot. Have fun!", "LoR bot here. Have a good game!",
++             "I'm a LoR bot. gl hf :)"),
++            ('gg, have a good one!', 'gg, thanks for playing', 'gg wp :)')),
++)
++
++
++def profile_for(account: str, selection: str = 'auto') -> Profile | None:
++    """The normalized account keeps its profile across restarts, PCs and Bo3 games."""
++    if selection == 'classico':
++        return None
++    if selection != 'auto':
++        for profile in PROFILES:
++            if profile.key == selection:
++                return profile
++        raise ValueError('personalidade inválida: use auto, classico, ' + ', '.join(p.key for p in PROFILES))
++    account_id = re.sub(r'[^a-z0-9]', '', account.lower())
++    digest = hashlib.sha256(account_id.encode('utf-8')).digest()
++    return PROFILES[int.from_bytes(digest[:8], 'big') % len(PROFILES)]
++
++
++class Personality:
++    def __init__(self, profile: Profile, rng: random.Random | None = None):
++        self.profile = profile
++        # A separate stream avoids changing model/search choices when cosmetics are sampled.
++        self.rng = rng if rng is not None else random.Random()
++        self._last: dict[str, str] = {}
++
++    def decision_seconds(self, *, preview: bool = False, forced: bool = False) -> float:
++        limits = self.profile.preview if preview else (4, 10, 6) if forced else self.profile.move
++        return self.rng.triangular(*limits)
++
++    def pause_seconds(self) -> float:
++        return self.rng.triangular(*self.profile.pause)
++
++    def phrase(self, event: str) -> str:
++        phrases = self.profile.greetings if event == 'start' else self.profile.endings
++        choices = [s for s in phrases if s != self._last.get(event)]
++        phrase = self.rng.choice(choices)
++        self._last[event] = phrase
++        return phrase

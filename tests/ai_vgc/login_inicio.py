@@ -9,6 +9,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import io
+import importlib.util
 import json
 import os
 import sys
@@ -18,15 +19,20 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
+player_path = Path(sys.argv.pop(1))
+source = ast.parse(player_path.read_text(encoding="utf-8"))
+spec = importlib.util.spec_from_file_location('ai_vgc.nn.personality', player_path.with_name('personality.py'))
+personality_module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = personality_module
+spec.loader.exec_module(personality_module)
 definitions = [node for node in source.body if isinstance(node, ast.FunctionDef)
                and node.name in {"main", "_public_login"}]
 assert len(definitions) == 2
 
 
 class TestLoginStartup(unittest.TestCase):
-    def run_startup(self, *, search=False, remote=True, custom=False, browser=True, mode="ladder"):
-        events, clients = [], []
+    def run_startup(self, *, search=False, remote=True, custom=False, browser=True, mode="ladder", personality='classico'):
+        events, clients, players = [], [], []
         assertion = "challenge,contateste,2,123,sim3.psim.us;signature"
         case = self
 
@@ -75,7 +81,9 @@ class TestLoginStartup(unittest.TestCase):
 
             def __init__(self, *args, account_configuration, start_listening=True, **kwargs):
                 self.ps_client = Client(account_configuration)
+                self.ps_client._avatar = kwargs.get('avatar')
                 clients.append(self.ps_client)
+                players.append(self)
                 if start_listening:
                     self.ps_client._listening_coroutine = schedule(self.ps_client.listen(), self.ps_client.loop)
                 events.append("models-ready")
@@ -115,6 +123,7 @@ class TestLoginStartup(unittest.TestCase):
             "threading": types.SimpleNamespace(Thread=Mock()),
         }
         env = {"LOR_BROWSER_LOGIN": "helper.py", "LOR_BROWSER_DIR": "mailbox"} if browser else {"PS_PASSWORD": "synthetic"}
+        env['LOR_PERSONALITY'] = personality
         argv = ["player.py", "--accept", "ContaTeste", "--n", "1", "--no-munchstats"]
         if remote:
             argv += ["--server-url", "wss://example.invalid/ws"] if custom else ["--server", "showdown"]
@@ -131,6 +140,13 @@ class TestLoginStartup(unittest.TestCase):
             ns["main"]()
         self.assertEqual(events.count("listen"), 1)
         self.assertTrue(clients[0]._listening_coroutine.done())
+        if remote and personality != 'classico':
+            profile = personality_module.profile_for('ContaTeste', personality)
+            self.assertEqual(players[0].personality.profile, profile)
+            clients[0].change_avatar.assert_awaited_once_with(profile.avatar)
+        else:
+            self.assertIsNone(players[0].personality)
+            self.assertIsNone(clients[0]._avatar)
         if remote:
             self.assertLess(events.index("models-ready"), events.index("listen"))
             self.assertNotIn("default-login", events)
@@ -162,6 +178,18 @@ class TestLoginStartup(unittest.TestCase):
 
     def test_servidor_local_preserva_inicializacao_automatica(self):
         self.run_startup(remote=False)
+
+    def test_perfil_e_avatar_aplicados_em_nn_busca_e_ambos_logins(self):
+        for search in (False, True):
+            for browser in (False, True):
+                with self.subTest(search=search, browser=browser):
+                    self.run_startup(search=search, browser=browser, personality='auto')
+
+    def test_perfil_explicito_no_servidor_do_time_e_desafios(self):
+        self.run_startup(custom=True, mode='challenge', personality='cordial')
+
+    def test_ambiente_local_de_avaliacao_ignora_personalidade(self):
+        self.run_startup(remote=False, personality='auto')
 
 
 if __name__ == "__main__":

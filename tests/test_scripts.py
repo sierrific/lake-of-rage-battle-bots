@@ -139,7 +139,7 @@ class TestRodarBot(unittest.TestCase):
     def test_navegador_nao_le_senha_antiga_nem_herdada(self):
         (self.d / "ai/scripts/bot.sh").write_text(
             '#!/usr/bin/env zsh\npython3 -c \'import os,json; '
-            'print(json.dumps({k:os.environ.get(k) for k in ("PS_PASSWORD","LOR_BROWSER_LOGIN","LOR_ALLOW_BOTS_FILE","LOR_SKIP_BOT_WAIT_FILE","LOR_SKIP_TEAM_WAIT_FILE","LOR_FAST_DECISIONS_FILE")}))\'\n')
+            'print(json.dumps({k:os.environ.get(k) for k in ("PS_PASSWORD","LOR_BROWSER_LOGIN","LOR_ALLOW_BOTS_FILE","LOR_SKIP_BOT_WAIT_FILE","LOR_SKIP_TEAM_WAIT_FILE","LOR_FAST_DECISIONS_FILE","LOR_PERSONALITY")}))\'\n')
         r = subprocess.run([str(self.d / "rodar.sh")], capture_output=True, text=True, timeout=10,
                            env={**self.env_rodar(), "MODO": "--ladder", "LOGIN": "navegador",
                                 "PERMITIR_BOTS_ARQUIVO": str(self.d / "bot.permitir-bots"),
@@ -153,7 +153,19 @@ class TestRodarBot(unittest.TestCase):
                                               "LOR_SKIP_BOT_WAIT_FILE": str(self.d / "bot.sem-espera-bots"),
                                               "LOR_SKIP_TEAM_WAIT_FILE": str(self.d / "bot.sem-espera-colmeia"),
                                               "LOR_FAST_DECISIONS_FILE": str(self.d / "bot.decisoes-rapidas"),
+                                              "LOR_PERSONALITY": "auto",
                                               "LOR_BROWSER_LOGIN": "/opt/lor-bots/login-navegador.py"})
+
+    def test_personalidade_manual_chega_ao_runtime(self):
+        (self.d / "ai/scripts/bot.sh").write_text(
+            '#!/usr/bin/env zsh\npython3 -c \'import os; print(os.environ["LOR_PERSONALITY"])\'\n')
+        for profile in ('reservado', 'cordial', 'analitico', 'energetico', 'tranquilo', 'classico'):
+            with self.subTest(profile=profile):
+                r = subprocess.run([str(self.d / 'rodar.sh')], capture_output=True, text=True, timeout=10,
+                                   env={**self.env_rodar(), 'MODO': '--ladder', 'LOGIN': 'navegador',
+                                        'PERSONALIDADE': profile})
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(r.stdout.strip(), profile)
 
     def test_modo_invalido_nao_liga_nem_reconecta(self):
         r = subprocess.run([str(self.d / "rodar.sh")], capture_output=True, text=True, timeout=10,

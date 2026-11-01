@@ -1366,7 +1366,7 @@ $lDecisoesInstantaneas = Novo-Rotulo 'Decisões Instantâneas' 66 142 235 22 $cC
 $lDecisoesInstantaneas.Cursor = 'Hand'
 $lDecisoesValor = Novo-Rotulo 'Não' 303 142 68 22 $cConta 'suave' 9.5
 $lDecisoesValor.Cursor = 'Hand'
-$ajudaDecisoes = 'Sim: envia assim que a IA termina o cálculo. Não: completa a decisão até 10–20 segundos, incluindo a escolha dos Pokémon. Reduz a espera quando há pouco tempo no relógio.'
+$ajudaDecisoes = 'Sim: envia assim que a IA termina o cálculo. Não: usa o ritmo da personalidade da conta, com mais tempo para escolher os Pokémon e menos para trocas forçadas. Reduz a espera quando há pouco tempo no relógio.'
 foreach ($c in @($xDecisoesInstantaneas, $lDecisoesInstantaneas, $lDecisoesValor)) { $ttTema.SetToolTip($c, $ajudaDecisoes) }
 $xEsperarBots = New-Object LoR.Chave
 $xEsperarBots.FundoNome = 'cartao'
@@ -1389,15 +1389,15 @@ $ajudaColmeia = 'Ligado: espera a vez entre os bots do nosso time. Desligado: bu
 $ttTema.SetToolTip($lEsperarColmeia, $ajudaColmeia)
 $ttTema.SetToolTip($xEsperarColmeia, $ajudaColmeia)
 $bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 228 151 38 $cConta
-# "glhf" no começo e "gg wp" no fim de cada partida, no chat da batalha; vale já na próxima.
+# Saudações do perfil no começo e no fim; vale já na próxima partida.
 $xChat = New-Object LoR.Chave
 $xChat.FundoNome = 'cartao'
 $xChat.Marcado = $true
-$xChat.AccessibleName = 'Dizer glhf e gg wp no chat das partidas'
+$xChat.AccessibleName = 'Saudações da personalidade no chat das partidas'
 [void](Pos $xChat 20 237 36 20 $cConta)
-$lChat = Novo-Rotulo 'glhf / gg wp no chat' 66 230 160 34 $cConta 'texto' 9.5
+$lChat = Novo-Rotulo 'Saudações no chat' 66 230 160 34 $cConta 'texto' 9.5
 $lChat.Cursor = 'Hand'
-$ttTema.SetToolTip($lChat, 'O bot diz "glhf" no começo da partida (no Bo3, da série) e "gg wp" no fim de cada jogo.')
+$ttTema.SetToolTip($lChat, 'O bot varia as saudações conforme sua personalidade: no começo da partida (no Bo3, da série) e no fim de cada jogo. A apresentação identifica que é um bot LoR.')
 $cColeta = Novo-Cartao 'Coleta de partidas' 'Código para treino e Discord' 591 137 413 286
 $tCodigo = Novo-Campo 'Cole seu código' 20 72 373 38 $cColeta
 $tCodigo.Caixa.AccessibleName = 'Código da coleta de partidas'
@@ -2195,7 +2195,7 @@ $lDiscord.Add_Click({ if ($xDiscord.Enabled) { $xDiscord.Marcado = -not $xDiscor
 function Mudar-Chat {
     $v = if ($xChat.Marcado) { 'sim' } else { 'nao' }
     if (Resultado (Invoke-Painel @('chat', $v)) '') {
-        if ($xChat.Marcado) { Mensagem 'A partir da próxima partida, o bot diz "glhf" no começo e "gg wp" no fim.' }
+        if ($xChat.Marcado) { Mensagem 'A partir da próxima partida, o bot usa as saudações da sua personalidade no começo e no fim.' }
         else { Mensagem 'A partir da próxima partida, o bot não manda mais nada no chat.' }
     } else { $xChat.Marcado = -not $xChat.Marcado }
 }
@@ -2240,7 +2240,7 @@ function Mudar-DecisoesInstantaneas {
     $v = if ($xDecisoesInstantaneas.Marcado) { 'sim' } else { 'nao' }
     if (Resultado (Invoke-Painel @('decisoes-instantaneas', $v)) '') {
         if ($xDecisoesInstantaneas.Marcado) { Mensagem 'Decisões Instantâneas: Sim. O bot envia assim que termina o cálculo, encerrando também uma espera adicional em curso.' }
-        else { Mensagem 'Decisões Instantâneas: Não. As próximas escolhas de Pokémon e de cada turno levam cerca de 10–20 segundos, contando o cálculo. Com pouco tempo no relógio, o bot reduz a espera.' }
+        else { Mensagem 'Decisões Instantâneas: Não. As próximas decisões seguem o ritmo da personalidade, contando o cálculo. A escolha de Pokémon leva mais tempo; trocas forçadas, menos. Com pouco tempo no relógio, o bot reduz a espera.' }
     } else { $xDecisoesInstantaneas.Marcado = -not $xDecisoesInstantaneas.Marcado }
     Atualizar-RotuloDecisoes
 }

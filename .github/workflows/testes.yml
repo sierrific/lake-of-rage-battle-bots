@@ -118,6 +118,8 @@ jobs:
           git apply --check "$GITHUB_WORKSPACE/linux/ai-vgc-lor.patch"
           git apply "$GITHUB_WORKSPACE/linux/ai-vgc-lor.patch"
           python3 -m py_compile src/ai_vgc/nn/player.py
+          python3 -m py_compile src/ai_vgc/nn/personality.py
+          python3 "$GITHUB_WORKSPACE/tools/test_personalidade.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/tempos_por_turno.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/login_navegador.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/login_inicio.py" src/ai_vgc/nn/player.py
