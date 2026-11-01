@@ -288,6 +288,25 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             Capture 'resposta-bloqueio-ja-ativo'
             Atualizar-Tela
         }
+        $textoRestricao = "Due to spam from your internet provider, you can't speak except to staff. Logging into an account you've used a lot in the past will allow you to chat."
+        $chatAntigo = '2026-11-01 14:23:49,096 - ContaTeste - CRITICAL - Unexpected error message: [' + "'', 'error', " + '"' + $textoRestricao + '"]'
+        $chatNovo = '2026-11-01 14:23:49,096 - ContaTeste - WARNING - showdown chat restricted: ' + $textoRestricao
+        foreach ($linhaChat in @($chatAntigo, $chatNovo)) {
+            $eventosChat = @(Ler-Atividade @($linhaChat) 'Avisos')
+            Assert ($eventosChat.Count -eq 1 -and $eventosChat[0].Titulo -eq 'Chat restrito pelo Showdown' -and $eventosChat[0].Tipo -eq 'aviso') 'restricao de chat tem aviso especifico'
+            Assert ($eventosChat[0].Detalhe -notmatch 'CRITICAL|Unexpected|Due to spam') 'restricao de chat traduzida'
+        }
+        Assert ((Ler-RespostaShowdown $chatNovo).Detalhe -match 'suspensas') 'novo aviso informa suspensao dos envios'
+        Assert ((Ler-RespostaShowdown $chatAntigo).Detalhe -notmatch 'suspensas') 'historico nao afirma suspensao retroativa'
+        Assert ($null -eq (Ler-RespostaShowdown ('2026-11-01 14:23:49,096 - ContaTeste - WARNING - Received pm: |pm|Rival|ContaTeste|' + $textoRestricao))) 'PM de jogador nao vira restricao'
+        $erroReal = '2026-11-01 14:23:49,096 - ContaTeste - CRITICAL - Unexpected error message: erro desconhecido'
+        $outroAviso = @(Ler-Atividade @($erroReal) 'Avisos')
+        Assert ($outroAviso.Count -eq 1 -and $outroAviso[0].Detalhe -match 'erro desconhecido') 'outros erros continuam visiveis'
+        if ($scale -eq 1) {
+            $atividade.Definir([LoR.EventoAtividade[]]@(Ler-Atividade @($chatNovo) 'Todos'))
+            Capture 'chat-restrito-showdown'
+            Atualizar-Tela
+        }
         $partidas = @(Ler-Atividade @('team: SolUgarte', 'win vs Rival in 7 turns') 'Partidas')
         Assert ($partidas.Count -eq 1 -and $partidas[0].Titulo -eq 'Vitória') 'filtro partidas'
         $conexao = @(Ler-Atividade @('could not connect to Showdown: exiting to reconnect', 'reconnecting in 10 s (Ctrl-C to stop)') 'Todos')
