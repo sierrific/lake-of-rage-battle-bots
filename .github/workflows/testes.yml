@@ -120,6 +120,7 @@ jobs:
           python3 -m py_compile src/ai_vgc/nn/player.py
           python3 -m py_compile src/ai_vgc/nn/personality.py
           python3 "$GITHUB_WORKSPACE/tools/test_personalidade.py" src/ai_vgc/nn/player.py
+          python3 "$GITHUB_WORKSPACE/tools/test_parada_serie.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/tempos_por_turno.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/login_navegador.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/login_inicio.py" src/ai_vgc/nn/player.py

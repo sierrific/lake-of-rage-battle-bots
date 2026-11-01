@@ -55,6 +55,10 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
   o tamanho da janela. Histórico continua abrindo os replays do Showdown; também há acesso à pasta local.
 - **Ligar / Desligar (após a partida) / Desligar agora**. "Desligar" espera terminar a partida ou
   a série Bo3 atual, para o bot não perder por W.O.
+  Uma série antiga incompleta não renova sua espera quando outra partida termina: após um 2:0
+  ou 2:1, o bot pode encerrar sem acrescentar dois minutos por causa desse histórico. Entre jogos
+  de uma série ainda incompleta, continua aguardando até dois minutos pelo próximo jogo; uma
+  partida em andamento sempre termina antes da parada.
 - **Conta do Showdown**: salve somente o usuário; o login acontece no navegador ao ligar.
 - **Bloquear bots** (em Ajustes, no cartão da conta; ligado por padrão): ligado envia
   `/blockbots`; desligado envia `/allowbots`. A escolha fica salva e é aplicada depois de cada
