@@ -1687,6 +1687,32 @@ $script:estado = @{}
 $script:versaoNova = $null
 $script:recolhido = $false
 
+# Respostas de comandos chegam como PMs sintéticas e o poke-env as registra como WARNING.
+# Só reclassifica os textos conhecidos do servidor (~); erros reais continuam em Avisos.
+function Ler-RespostaShowdown([string]$linha) {
+    if ($linha -match '^ladder preference: /(block|allow)bots sent$') {
+        $detalhe = if ($Matches[1] -eq 'block') { 'Bloqueio de bots solicitado ao Showdown.' } else { 'Permissão para enfrentar bots solicitada ao Showdown.' }
+        return [pscustomobject]@{ Titulo = 'Preferência enviada'; Detalhe = $detalhe; Tipo = 'outro'; CorNome = 'suave' }
+    }
+    if ($linha -notmatch 'Received pm: \|pm\|[^|]+\|~\|(.+)$') { return $null }
+    $corpo = $Matches[1]
+    $texto = $corpo -replace '^/error ', ''
+    $detalhe = switch -Exact ($texto) {
+        'You are not opted-in to playing against bots on the ladder.' { 'O bloqueio de bots já estava ativo no ladder.' }
+        'You are already opted-in to playing against bots on the ladder.' { 'A permissão para enfrentar bots já estava ativa no ladder.' }
+        'You have opted out of playing against bots on the ladder.' { 'O Showdown confirmou o bloqueio de bots no ladder.' }
+        'You have opted in to matching against bots on the ladder.' { 'O Showdown confirmou a permissão para enfrentar bots no ladder.' }
+        default { $null }
+    }
+    if ($detalhe) {
+        return [pscustomobject]@{ Titulo = 'Preferência do ladder'; Detalhe = $detalhe; Tipo = 'outro'; CorNome = 'verde' }
+    }
+    if ($corpo.StartsWith('/error ')) {
+        return [pscustomobject]@{ Titulo = 'Resposta do Showdown'; Detalhe = $texto; Tipo = 'aviso'; CorNome = 'ambar' }
+    }
+    return $null
+}
+
 # Frases curtas no lugar das linhas cruas do bot (o que não reconhece aparece como veio).
 function Traduzir-Log([string[]]$linhas, [string]$filtro) {
     $saida = New-Object System.Collections.Generic.List[string]
@@ -1695,7 +1721,9 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         if (-not $l) { continue }
         $tipo = 'outro'
         $txt = $null
-        if ($l -match '^Started lor-bot@') { $txt = 'Bot iniciado' }
+        $resposta = Ler-RespostaShowdown $l
+        if ($resposta) { $txt = $resposta.Detalhe; $tipo = $resposta.Tipo }
+        elseif ($l -match '^Started lor-bot@') { $txt = 'Bot iniciado' }
         elseif ($l -match "^'(.+)' laddering (\S+) at ([^:]+):") { $txt = "Conta $($Matches[1]) conectada · procurando partida no ladder" }
         elseif ($l -match '^challenge declined by (\S+)') { $txt = "$($Matches[1]) recusou o desafio"; $tipo = 'partida' }
         elseif ($l -match '^challenge never reached (\S+)') { $txt = "O desafio não chegou a $($Matches[1]) (offline ou não aceita desafios?)"; $tipo = 'aviso' }
@@ -1783,7 +1811,13 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         $evento = New-Object LoR.EventoAtividade
         $evento.Titulo = 'Evento do bot'
         $evento.Detalhe = $traduzida[0]
-        if ($l -match '^(win|loss|tie) vs (.+) in (\d+) turns') {
+        $resposta = Ler-RespostaShowdown $l
+        if ($resposta) {
+            $evento.Titulo = $resposta.Titulo
+            $evento.Detalhe = $resposta.Detalhe
+            $evento.Tipo = $resposta.Tipo
+            $evento.CorNome = $resposta.CorNome
+        } elseif ($l -match '^(win|loss|tie) vs (.+) in (\d+) turns') {
             $evento.Titulo = @{ win = 'Vitória'; loss = 'Derrota'; tie = 'Empate' }[$Matches[1]]
             $evento.CorNome = @{ win = 'verde'; loss = 'vermelho'; tie = 'ambar' }[$Matches[1]]
             $evento.Detalhe = "$($Matches[2]) · $($Matches[3]) turnos"
