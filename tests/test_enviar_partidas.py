@@ -113,6 +113,21 @@ class TestEnvio(unittest.TestCase):
         self.ciclo()  # nada novo: não reenvia
         self.assertEqual(len(self.todas()), 2)
 
+    def test_server_id_sobrevive_envio_antigo_e_discord_desligado(self):
+        server = "wss://showdown.sierverso.com.br/showdown/websocket"
+        for hora, discord in (("2026-10-24 13:00:00", True), ("2026-10-24 11:00:00", True),
+                              ("2026-10-24 13:00:00", False)):
+            row = {**json.loads(partida(hora)), "server_id": server, "replay_url": None}
+            linha = json.dumps(row).encode() + b"\n"
+            if not discord:
+                enviar.SEM_DISCORD.touch()
+            self.escrever(linha)
+            self.ciclo()
+            self.assertEqual(self.todas()[-1]["server_id"], server)
+            self.assertIsNone(self.todas()[-1]["replay_url"])
+            if hora > self.estado["desde"] and discord:
+                self.assertEqual(enviar._marcar(linha, self.estado["desde"], "test"), linha)
+
     def test_discord_desligado_marca_as_partidas(self):
         self.escrever(partida("2026-10-24 13:00:00"))
         self.ciclo()

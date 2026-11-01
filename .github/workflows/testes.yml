@@ -125,6 +125,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/login_inicio.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/espera_bots.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/espera_colmeia.py" src/ai_vgc/nn/player.py
+          python3 "$GITHUB_WORKSPACE/tools/test_coleta_lease.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/ritmo_decisoes.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/chat_restrito.py" src/ai_vgc/nn/player.py
 

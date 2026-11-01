@@ -35,12 +35,14 @@ class TestKnownBotWait(unittest.IsolatedAsyncioTestCase):
 
         self.sleep = AsyncMock(side_effect=sleep)
         ns = {"os": os, "time": types.SimpleNamespace(time=lambda: self.elapsed),
-              "asyncio": types.SimpleNamespace(sleep=self.sleep, create_task=asyncio.create_task)}
+              "asyncio": types.SimpleNamespace(sleep=self.sleep, create_task=asyncio.create_task,
+                                               gather=asyncio.gather)}
         for method in methods:
             exec(compile(ast.Module(body=[method], type_ignores=[]), "player.py", "exec"), ns)
         bot_class = type("Bot", (), {m.name: ns[m.name] for m in methods})
         self.bot = bot_class()
         self.bot.stop_after_match = False
+        self.bot._can_search = lambda: not self.bot.stop_after_match
         self.bot.BOT_WAIT = 60
         self.bot._known_bots = Mock(return_value=["rival"])
         self.bot._idle_bots = AsyncMock(return_value=["rival"])
@@ -106,18 +108,17 @@ class TestKnownBotWait(unittest.IsolatedAsyncioTestCase):
         async def search():
             events.append("search")
             return True
-        async def release(action):
-            self.assertEqual(action, "liberar")
+        async def release():
             events.append("release")
         async def pause():
             events.append("pause")
         self.bot.ps_client = types.SimpleNamespace(logged_in=types.SimpleNamespace(wait=AsyncMock()))
         self.bot._wait_turn = turn
         self.bot._renew_turn = AsyncMock()
-        self.bot._turn = release
+        self.bot._release_turn = release
         self.bot._search_until_match = search
         self.bot._battle_start_condition = asyncio.Condition()
-        self.bot._battle_count_queue = types.SimpleNamespace(full=lambda: False)
+        self.bot._battle_count_queue = types.SimpleNamespace(join=AsyncMock())
         self.bot._battle_semaphore = types.SimpleNamespace(acquire=AsyncMock())
         self.bot._busy = lambda: False
         self.bot._ladder_pause = pause

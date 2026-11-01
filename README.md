@@ -70,6 +70,9 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
   permitindo buscas simultâneas. Nossos bots poderão se enfrentar, conforme as regras do Showdown.
   A escolha fica salva, sem reiniciar. Religar vale na próxima busca; a partida atual continua.
   É independente de **Esperar bots conhecidos**, de `/blockbots` e da pausa entre partidas.
+  Quando ligado, exige uma reserva válida da coleta: indisponibilidade, recusa, resposta antiga
+  ou perda da reserva pausam a busca. Uma busca já enviada é cancelada antes de pedir outra vez;
+  sem confirmação do Showdown, permanece pausada. Partidas e séries já iniciadas terminam normalmente.
 - **Personalidade**: cada conta recebe um perfil estável (Reservado, Cordial, Analítico, Energético
   ou Tranquilo), com avatar, saudações e ritmo próprios. O mesmo perfil acompanha a conta em outros
   PCs e após reiniciar. As frases variam entre partidas, sem repetir a última saudação do mesmo tipo.
@@ -232,7 +235,7 @@ por navegador remoto para servidores Linux.
 - `linux/ai-vgc-lor.patch`: o que mudamos no Ai-vgc (commit fixo em `linux/instalar.sh`).
   Acrescenta `--server-url`/`--client-url` para jogar no servidor do time, `/savereplay` em cada
   partida do oficial (link do replay no `games.jsonl`), os nomes dos Pokémon e uma nova busca no
-  ladder quando 10 min passam sem partida (o Showdown às vezes descarta a busca sem avisar), e uma
+  ladder quando 10 min passam sem partida e o cancelamento anterior foi confirmado, e uma
   pausa aleatória de 1 a 5 min entre partidas do ladder (outros bots voltam à fila na hora; sem a
   pausa o nosso cai quase sempre com eles).
 - `linux/enviar-partidas.py` manda as linhas novas de `data/live_games/*/games.jsonl` para a
@@ -241,3 +244,20 @@ por navegador remoto para servidores Linux.
 - Parar com calma: o serviço `lor-bot@` manda SIGINT ao `rodar-bot.sh`, que repassa ao Python do
   bot. É o mesmo que um Ctrl-C no `bot.sh`: termina a partida ou série atual e sai.
 - Senhas, códigos e webhooks nunca entram no repositório.
+
+Compatibilidade da coleta: esta versão usa `/coleta/fila` com `protocolo: 2`, token `lease` opaco
+e prazo `expira_em`. Renovações e liberações enviam o token recebido; uma recusa nunca vira uma
+nova aquisição implícita. A reserva é descartada no reinício e solicitada novamente. Instale
+primeiro a versão correspondente do **LOR-SD-Server** que implementa esse protocolo; com a coleta
+antiga, a busca coordenada fica pausada. Desafios enviados/recebidos não dependem dessa fila.
+
+Cada novo registro em `games.jsonl` inclui `server_id`, obtido da URL websocket configurada,
+inclusive em servidores privados e quando não há replay público. A coleta normaliza essa URL;
+o endereço do cliente/replay não substitui a identidade do servidor. Registros legados permanecem
+como foram gravados, pois não é possível deduzir sua origem com segurança.
+
+Regressões isoladas desse contrato, após aplicar o patch no Ai-vgc:
+`python3 tools/test_coleta_lease.py /caminho/ai-vgc/src/ai_vgc/nn/player.py`.
+
+Integração com uma cópia local do servidor (sem rede):
+`python3 tools/test_coleta_integracao.py /ai-vgc/src/ai_vgc/nn/player.py /LOR-SD-Server`.

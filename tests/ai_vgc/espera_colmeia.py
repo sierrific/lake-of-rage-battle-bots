@@ -17,7 +17,9 @@ from unittest.mock import AsyncMock, patch
 
 source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
 mixin = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == "ChallengeMixin")
-names = {"_team_wait_enabled", "_wait_turn", "_renew_turn", "_ladder", "_turn", "_known_bots"}
+names = {"_team_wait_enabled", "_wait_turn", "_renew_turn", "_ladder", "_turn", "_known_bots",
+         "_accept_turn", "_can_search", "_release_turn"}
+GRANT = {"vez": True, "lease": "a" * 32, "expira_em": 120}
 methods = [n for n in mixin.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
 assert len(methods) == len(names)
 
@@ -39,18 +41,21 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
         async def to_thread(fn):
             return fn()
-        self.ns = {"os": os, "json": json, "Counter": Counter,
+        self.ns = {"os": os, "json": json, "re": re, "Counter": Counter,
                    "time": types.SimpleNamespace(time=lambda: 1_800_000_000 + self.elapsed,
                                                  monotonic=lambda: self.elapsed,
                                                  strftime=time.strftime, localtime=time.localtime),
-                   "asyncio": types.SimpleNamespace(sleep=sleep, to_thread=to_thread, create_task=asyncio.create_task),
+                   "asyncio": types.SimpleNamespace(sleep=sleep, to_thread=to_thread, create_task=asyncio.create_task,
+                                                    gather=asyncio.gather, wait_for=asyncio.wait_for),
                    "to_id_str": lambda s: re.sub(r"[^a-z0-9]", "", s.lower())}
         for method in methods:
             exec(compile(ast.Module(body=[method], type_ignores=[]), "player.py", "exec"), self.ns)
         cls = type("Bot", (), {n: self.ns[n] for n in names})
         self.bot = cls()
         self.bot.stop_after_match = False
-        self.bot._turn = AsyncMock(return_value={"vez": True})
+        self.bot._turn = AsyncMock(return_value=GRANT)
+        self.bot._turn_required = True
+        self.bot._turn_lease, self.bot._turn_deadline = GRANT["lease"], 115
         self.output = io.StringIO()
         stdout = contextlib.redirect_stdout(self.output)
         stdout.__enter__()
@@ -60,7 +65,7 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
         return [c.args[0] for c in self.bot._turn.await_args_list]
 
     async def test_ligado_espera_a_vez_com_intervalo_de_15_segundos(self):
-        self.bot._turn.side_effect = [{"vez": False, "com": "OutroBot"}, {"vez": True}]
+        self.bot._turn.side_effect = [{"vez": False, "com": "OutroBot"}, GRANT]
         self.assertTrue(await self.bot._wait_turn())
         self.assertEqual(self.elapsed, 15)
         self.assertEqual(self.actions(), ["pedir", "pedir"])
@@ -85,10 +90,10 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.actions(), ["pedir", "liberar"])
 
     async def test_desligar_com_pedido_em_curso_nao_retem_vez(self):
-        async def turn(action):
+        async def turn(action, **kw):
             if action == "pedir":
                 self.flag.touch()
-            return {"vez": True}
+            return GRANT
         self.bot._turn.side_effect = turn
         self.assertFalse(await self.bot._wait_turn())
         self.assertEqual(self.actions(), ["pedir", "liberar"])
@@ -108,10 +113,12 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.actions(), ["pedir", "liberar"])
         self.assertNotIn("wait disabled", self.output.getvalue())
 
-    async def test_coleta_indisponivel_preserva_busca_sem_vez(self):
+    async def test_coleta_indisponivel_aguarda_sem_autorizar_busca(self):
         self.bot._turn.return_value = None
+        self.on_sleep = lambda: setattr(self.bot, "stop_after_match", True)
         self.assertFalse(await self.bot._wait_turn())
-        self.assertEqual(self.elapsed, 0)
+        self.assertEqual(self.elapsed, 1)
+        self.assertFalse(self.bot._can_search())
 
     async def test_desligar_enquanto_tem_vez_interrompe_renovacao_e_libera(self):
         self.on_sleep = self.flag.touch
@@ -135,7 +142,7 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
         self.bot._wait_for_busy_bots = AsyncMock()
         self.bot._search_until_match = AsyncMock(return_value=True)
         self.bot._battle_start_condition = asyncio.Condition()
-        self.bot._battle_count_queue = types.SimpleNamespace(full=lambda: False)
+        self.bot._battle_count_queue = types.SimpleNamespace(join=AsyncMock())
         self.bot._battle_semaphore = types.SimpleNamespace(acquire=AsyncMock())
         self.bot._busy = lambda: False
         self.bot._ladder_pause = AsyncMock()
