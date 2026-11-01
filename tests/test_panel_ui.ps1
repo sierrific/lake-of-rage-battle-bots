@@ -36,6 +36,7 @@ function Assert($condition, [string]$message) {
     if (-not $condition) { throw "Falhou: $message" }
 }
 function Fresh-State {
+    $script:historicoFalso = $null
     $script:logFalso = "Started lor-bot@bot`nteam: SolUgarte`nwin vs AdversarioTeste in 7 turns`nwatch: https://play.pokemonshowdown.com/battle-teste`nWARNING exemplo de aviso"
     $script:fake = @{
         hoje_vitorias = '3'; hoje_derrotas = '1'; hoje_times = 'MC371 2-1, MC196 1-0'
@@ -64,6 +65,7 @@ function Install-Fakes {
             estado {
                 $out = ($script:fake.Keys | Sort-Object | ForEach-Object { "$_=$($script:fake[$_])" }) -join "`n"
                 if ($Argumentos -contains '--log') { $out += "`n---log---`n" + $script:logFalso }
+                if ($Argumentos -contains '--log' -and $null -ne $script:historicoFalso) { $out += "`n---historico---`n" + $script:historicoFalso }
             }
             times { $out = "SolUgarte`nOutroTime" }
             log { $out = $script:logFalso }
@@ -252,6 +254,38 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         Atualizar-Tela
         Assert ((Has-Command 'estado|--log|80') -and -not (Has-Command 'log|80')) 'estado e log numa chamada so'
         Assert (@($script:logLinhas).Count -eq 5) 'log veio junto com o estado'
+        # Conversas persistidas chegam separadas do log tecnico, em JSON (texto nunca e executado).
+        $conversas = @(
+            @{ kind = 'log'; text = 'win vs Rival in 7 turns'; time = '2026-11-01T18:00:00+00:00' },
+            @{ kind = 'chat'; sender = 'LoRBotTeste'; own = $true; room = 'battle-teste'; text = 'gl hf!'; time = '2026-11-01T18:00:01+00:00' },
+            @{ kind = 'chat'; sender = 'Rival'; own = $false; room = 'battle-teste'; text = 'Boa partida | valeu!'; time = '2026-11-01T18:00:02+00:00' },
+            @{ kind = 'pm'; sender = 'Amigo'; own = $false; text = 'Vamos jogar depois? Mensagem privada.'; time = '2026-11-01T18:00:03+00:00' }
+        )
+        $script:historicoFalso = ($conversas | ForEach-Object { $_ | ConvertTo-Json -Compress }) -join "`n"
+        Mostrar-Secao 'historico'; Atualizar-Tela
+        Assert ($atividadeHistorico.Itens.Count -eq 4) 'historico mistura partida, bot, oponente e PM'
+        Assert ($atividadeHistorico.Itens[0].Titulo -match 'PM recebida.*Amigo') 'PM mais recente identifica remetente'
+        Assert ($atividadeHistorico.Itens[1].Detalhe -match 'Boa partida \| valeu!') 'corpo preserva separador do protocolo'
+        Assert ($atividadeHistorico.Itens[2].Titulo -match 'Seu bot') 'identifica a fala do bot'
+        Assert ($atividadeHistorico.Caixa.Lines.Count -ge 8) 'cada mensagem tem cabecalho e corpo em linhas separadas'
+        Assert ($atividadeHistorico.Caixa.Height -eq $atividadeHistorico.Height) 'area rolavel usa toda a altura do historico'
+        Assert ($tLog.Caixa.Text -notmatch 'Mensagem privada') 'PM nao entra no log tecnico'
+        $cFiltroHistorico.Indice = 2; Atualizar-Atividade
+        Assert ($atividadeHistorico.Itens.Count -eq 3 -and @($atividadeHistorico.Itens | Where-Object { $_.Tipo -ne 'mensagem' }).Count -eq 0) 'filtro exclusivo de mensagens'
+        if ($scale -eq 1) { Escolher-Tema 'lago'; Capture 'historico-mensagens' }
+        $cFiltroHistorico.Indice = 1; Atualizar-Atividade
+        Assert ($atividadeHistorico.Itens.Count -eq 1 -and $atividadeHistorico.Itens[0].Tipo -eq 'partida') 'filtro partidas exclui todas as conversas'
+        $longa = ('Conversa longa com acentos e varias linhas. ' * 150) + 'FIM DA MENSAGEM'
+        $script:historicoFalso += "`n" + (@{ kind = 'pm'; sender = 'Amigo'; own = $false; text = $longa; time = '2026-11-01T18:01:00+00:00' } | ConvertTo-Json -Compress)
+        $cFiltroHistorico.Indice = 2; Atualizar-Tela
+        Assert ($atividadeHistorico.Caixa.Text.Contains('FIM DA MENSAGEM')) 'mensagem longa permanece inteira e acessivel por rolagem'
+        Assert ($atividadeHistorico.Caixa.ReadOnly -and $atividadeHistorico.Caixa.WordWrap -and $atividadeHistorico.Caixa.ScrollBars -eq 'Vertical') 'historico rolavel e somente leitura'
+        $atividadeHistorico.Caixa.Select(12, 7); Atualizar-Atividade
+        Assert ($atividadeHistorico.Caixa.SelectionStart -eq 12 -and $atividadeHistorico.Caixa.SelectionLength -eq 7) 'polling sem mudanca preserva leitura e selecao'
+        Assert-Layout $form
+        $cFiltroHistorico.Indice = 0
+        Fresh-State; Atualizar-Tela
+        Assert ($null -eq $script:historicoLinhas) 'resposta antiga sem historico limpa mensagens da conta anterior'
         if ($script:layout -ne 'refinado') {
             Mostrar-Secao 'historico'
             Assert ($lSubtitulo.Text -eq 'Hoje: 3V–1D · MC371 2-1, MC196 1-0') 'resumo do dia no historico'

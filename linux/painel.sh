@@ -396,8 +396,13 @@ estado)
 		echo "desafio_fase="
 	fi
 	if [ "${1:-}" = --log ] && [[ "${2:-}" =~ ^[0-9]+$ ]]; then
-		echo "---log---"
-		journalctl -u "$UNIT" -u "$DESAFIO" -n "$2" -o cat --no-pager 2>/dev/null || true
+		if [ -f "$AIVGC/src/ai_vgc/nn/messages.py" ]; then
+			journalctl -u "$UNIT" -u "$DESAFIO" -n 300 -o json --no-pager 2>/dev/null \
+				| python3 -I "$AIVGC/src/ai_vgc/nn/messages.py" "$AIVGC/data/live_games" "$(conf_get conta)" "$2" || true
+		else
+			echo "---log---"
+			journalctl -u "$UNIT" -u "$DESAFIO" -n "$2" -o cat --no-pager 2>/dev/null || true
+		fi
 	fi
 	;;
 diagnostico)
@@ -410,7 +415,7 @@ diagnostico)
 	free -m | sed -n 1,2p
 	df -h /opt/lor-bots 2>/dev/null | tail -1
 	echo "== bot (últimas 200 linhas)"
-	journalctl -u "$UNIT" -u "$DESAFIO" -n 200 -o short-iso --no-pager 2>/dev/null || true
+	journalctl -u "$UNIT" -u "$DESAFIO" -n 200 -o short-iso --no-pager 2>/dev/null | sed '/|pm|/d' || true
 	echo "== envio para a coleta (últimas 20)"
 	journalctl -u lor-envio -n 20 -o short-iso --no-pager 2>/dev/null || true
 	echo "== backup (últimas 10)"

@@ -49,6 +49,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
             with patch.dict(sys.modules, requests=fake_requests), patch.dict(os.environ, {
                 "LOR_BROWSER_LOGIN": "helper.py", "LOR_BROWSER_DIR": "mailbox"}), \
                 patch("runpy.run_path", return_value={"request_assertion": request}), contextlib.redirect_stdout(output):
+                client.sent = client.send_message
                 namespace["_public_login"](player, "senha-que-nao-deve-ser-usada")
                 await client.log_in(["", "challstr", "4", "b" * 256, "extra"])
             self.assertEqual(sent, [f"/trn ContaTeste,0,{assertion}", "/blockbots"])
@@ -67,11 +68,12 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
             "LOR_BROWSER_LOGIN": "helper.py", "LOR_BROWSER_DIR": "mailbox"}), \
             patch("runpy.run_path", return_value={"request_assertion": request}), \
             patch("os._exit", side_effect=SystemExit) as exit_mock:
+            client.sent = client.send_message
             namespace["_public_login"](types.SimpleNamespace(ps_client=client), "senha")
             with self.assertRaises(SystemExit):
                 await client.log_in(["", "challstr", "4", "b" * 256])
             exit_mock.assert_called_once_with(78)
-        client.send_message.assert_not_awaited()
+        client.sent.assert_not_awaited()
 
     async def test_blockbots_aguarda_login_e_precede_busca_concorrente(self):
         # Uma busca ja agendada nao pode ultrapassar o envio, mesmo que o socket demore.
@@ -96,6 +98,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         fake_requests = types.SimpleNamespace(request=lambda *a, **k: types.SimpleNamespace(
             text="]" + json.dumps({"assertion": assertion})))
         with patch.dict(sys.modules, requests=fake_requests), patch.dict(os.environ, {}, clear=True):
+            client.sent = client.send_message
             namespace["_public_login"](types.SimpleNamespace(ps_client=client), "senha-sintetica")
             searching = asyncio.create_task(client.search_ladder_game("formato", "time"))
             logging_in = asyncio.create_task(client.log_in(["", "challstr", "4", "b" * 256]))
@@ -124,10 +127,11 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         fake_requests = types.SimpleNamespace(request=lambda *a, **k: types.SimpleNamespace(
             text=']{"assertion":"challenge,contateste,2,123,server;signature"}'))
         with patch.dict(sys.modules, requests=fake_requests), patch.dict(os.environ, {}, clear=True):
+            client.sent = client.send_message
             namespace["_public_login"](types.SimpleNamespace(ps_client=client), "senha-sintetica")
             for _ in range(2):
                 await client.log_in(["", "challstr", "4", "b" * 256])
-        commands = [args.args[0] for args in client.send_message.await_args_list]
+        commands = [args.args[0] for args in client.sent.await_args_list]
         self.assertEqual(commands[1::2], ["/blockbots", "/blockbots"])
         self.assertEqual(client.wait_for_login.await_count, 2)
 
@@ -143,6 +147,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         with patch.dict(sys.modules, requests=fake_requests), \
              patch.dict(os.environ, {"LOR_ALLOW_BOTS_FILE": "preferencia"}, clear=True), \
              patch("os.path.exists", return_value=True) as exists:
+            client.sent = client.send_message
             namespace["_public_login"](types.SimpleNamespace(ps_client=client), "senha-sintetica")
             await client.log_in(["", "challstr", "4", "b" * 256])
             await client.search_ladder_game("formato", "time")
@@ -152,7 +157,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
             exists.return_value = True
             await client.search_ladder_game("formato", "time")
             await client.log_in(["", "challstr", "4", "c" * 256])
-        commands = [args.args[0] for args in client.send_message.await_args_list if not args.args[0].startswith("/trn")]
+        commands = [args.args[0] for args in client.sent.await_args_list if not args.args[0].startswith("/trn")]
         self.assertEqual(commands, ["/allowbots", "/blockbots", "/allowbots", "/allowbots"])
         self.assertEqual(client.wait_for_login.await_count, 2)
 
@@ -176,6 +181,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         exec(compile(ast.Module(body=[definition], type_ignores=[]), "player.py", "exec"), namespace)
         fake = types.SimpleNamespace(request=lambda *a, **k: types.SimpleNamespace(text=']{"assertion":"a,u,2;sig"}'))
         with patch.dict(sys.modules, requests=fake), patch.dict(os.environ, {}, clear=True):
+            client.sent = client.send_message
             namespace["_public_login"](types.SimpleNamespace(ps_client=client), "senha")
             handle = asyncio.get_running_loop().call_later(5.2, named.set)
             try:
@@ -183,7 +189,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(client.search_ladder_game("fmt", "time"), 1)
             finally:
                 handle.cancel()
-        client.send_message.assert_any_await("/blockbots")
+        client.sent.assert_any_await("/blockbots")
 
     async def test_falhas_de_confirmacao_encerram_sem_busca(self):
         class FatalLogin(Exception): pass
@@ -212,6 +218,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
                 fake = types.SimpleNamespace(request=lambda *a, **k: types.SimpleNamespace(text=']{"assertion":"a,u,2;sig"}'))
                 with patch.dict(sys.modules, requests=fake), patch.dict(os.environ, {}, clear=True), \
                      patch("os._exit", side_effect=FatalLogin) as sair:
+                    client.sent = client.send_message
                     namespace["_public_login"](types.SimpleNamespace(ps_client=client), "senha")
                     busca = asyncio.create_task(client.search_ladder_game("fmt", "time"))
                     try:

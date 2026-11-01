@@ -53,8 +53,21 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
 - **Atividade**: resumo dos últimos eventos, filtros Todos/Partidas/Avisos e opção de recolher.
   **Log técnico** exibe as linhas completas, inclusive eventos fora do resumo. O recolhimento não muda
   o tamanho da janela. Histórico continua abrindo os replays do Showdown; também há acesso à pasta local.
+- **Histórico de mensagens**: registra o chat do bot e do oponente e as PMs recebidas, com remetente,
+  horário e texto completo com rolagem. No Histórico, escolha **Todos**, **Partidas** ou **Mensagens**.
+  As conversas começam a ser gravadas nesta versão e persistem após reiniciar; o painel mostra até
+  300 eventos recentes. Ficam em `data/live_games/.messages/<conta>.jsonl`, com rotação de dois
+  arquivos de até aproximadamente 5 MB por conta. PMs não entram na coleta, no log técnico nem no
+  diagnóstico copiado para suporte.
 - **Ligar / Desligar (após a partida) / Desligar agora**. "Desligar" espera terminar a partida ou
   a série Bo3 atual, para o bot não perder por W.O.
+  Uma série antiga incompleta não renova sua espera quando outra partida termina: após um 2:0
+  ou 2:1, o bot pode encerrar sem acrescentar dois minutos por causa desse histórico. Entre jogos
+  de uma série ainda incompleta, continua aguardando até dois minutos pelo próximo jogo; uma
+  partida em andamento sempre termina antes da parada.
+  Ao receber vitória, empate ou fechamento da sala, o bot interrompe a busca pendente daquela
+  batalha e impede o envio de decisões atrasadas. O simulador da batalha encerrada é interrompido
+  sem afetar uma busca de outra batalha; a próxima partida pode iniciá-lo novamente.
 - **Conta do Showdown**: salve somente o usuário; o login acontece no navegador ao ligar.
 - **Bloquear bots** (em Ajustes, no cartão da conta; ligado por padrão): ligado envia
   `/blockbots`; desligado envia `/allowbots`. A escolha fica salva e é aplicada depois de cada

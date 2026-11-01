@@ -16,10 +16,10 @@ import time
 arvore = ast.parse(open(sys.argv[1]).read())
 mixin = next(n for n in arvore.body if isinstance(n, ast.ClassDef) and n.name == "ChallengeMixin")
 partes = [n for n in mixin.body
-          if (isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in ("_cycle", "_handle_battle_request"))
+          if (isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in ("_cycle", "_handle_battle_request", "_live_battle_request"))
           or (isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "MAX_CYCLES")]
-assert len(partes) == 3, "patch sem _cycle/_handle_battle_request/MAX_CYCLES"
-ns = {"time": time, "AbstractBattle": object}
+assert len(partes) == 4, "patch sem helpers de tempo e pedido"
+ns = {"time": time, "asyncio": asyncio, "AbstractBattle": object}
 exec("class Mixin:\n" + "\n".join(textwrap.indent(ast.unparse(p), "    ") for p in partes), ns)
 
 
@@ -36,6 +36,7 @@ class Bot(ns["Mixin"], Player):
 class Batalha:
     battle_tag = "battle-x"
     _wait = False
+    finished = False
 
 
 async def main():
