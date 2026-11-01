@@ -90,6 +90,7 @@ senha)
 esac
 export BOT PS_PASSWORD
 export LOR_ALLOW_BOTS_FILE="${PERMITIR_BOTS_ARQUIVO:-}"
+export LOR_SKIP_BOT_WAIT_FILE="${SEM_ESPERA_BOTS_ARQUIVO:-}"
 
 read -ra args <<<"$MODO"
 if [ "${SERVIDOR:-oficial}" = lor ]; then

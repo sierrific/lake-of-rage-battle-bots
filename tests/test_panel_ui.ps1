@@ -40,7 +40,7 @@ function Fresh-State {
     $script:fake = @{
         hoje_vitorias = '3'; hoje_derrotas = '1'; hoje_times = 'MC371 2-1, MC196 1-0'
         bot = 'active'; conta = 'LoRBotTeste'; senha = 'sim'; codigo = 'sim'; envio = 'active'
-        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; bloquear_bots = 'sim'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
+        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; bloquear_bots = 'sim'; esperar_bots = 'sim'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
         partida = 'https://play.pokemonshowdown.com/battle-teste'; desafio = ''; desafio_fase = ''
         placar_oponente = 'AdversarioTeste'; placar_bo3 = 'sim'; placar_jogo = '2'; placar_vitorias = '1'; placar_derrotas = '0'
         placar_turno = '4'; placar_nossos = '3'; placar_deles = '1'; placar_resultado = ''
@@ -72,6 +72,7 @@ function Install-Fakes {
             discord { $script:fake.discord = $Argumentos[1] }
             chat { $script:fake.chat = $Argumentos[1] }
             'bloquear-bots' { $script:fake.bloquear_bots = $Argumentos[1] }
+            'esperar-bots' { $script:fake.esperar_bots = $Argumentos[1] }
             time { $script:fake.time = $Argumentos[1] }
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
             'conta-navegador' { $script:fake.conta = ($Entrada -split "`n")[0]; $script:fake.login = 'navegador' }
@@ -258,6 +259,34 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         Assert ($atividade.Visible -and -not $tLog.Visible) 'restaurar resumo'
         $avisos = @(Ler-Atividade @('win vs Rival in 7 turns', 'WARNING teste') 'Avisos')
         Assert ($avisos.Count -eq 1 -and $avisos[0].Tipo -eq 'aviso') 'filtro avisos'
+        $prefixoServidor = '2026-11-01 13:15:46,631 - ContaTeste - WARNING - Received pm: |pm| ContaTeste|~|'
+        foreach ($textoServidor in @(
+            '/error You are not opted-in to playing against bots on the ladder.',
+            '/error You are already opted-in to playing against bots on the ladder.',
+            'You have opted out of playing against bots on the ladder.',
+            'You have opted in to matching against bots on the ladder.'
+        )) {
+            $linhaServidor = $prefixoServidor + $textoServidor
+            $eventosBots = @(Ler-Atividade @($linhaServidor) 'Todos')
+            Assert ($eventosBots.Count -eq 1 -and $eventosBots[0].Titulo -eq 'Preferência do ladder' -and $eventosBots[0].Tipo -eq 'outro') 'resposta esperada nao e aviso'
+            Assert ($eventosBots[0].Detalhe -notmatch '^Mensagem de|WARNING|Received pm') 'resposta esperada traduzida'
+            Assert (@(Ler-Atividade @($linhaServidor) 'Avisos').Count -eq 0) 'resposta esperada fora do filtro avisos'
+        }
+        $bloqueioAtivo = @(Ler-Atividade @($prefixoServidor + '/error You are not opted-in to playing against bots on the ladder.') 'Todos')
+        Assert ($bloqueioAtivo[0].Detalhe -eq 'O bloqueio de bots já estava ativo no ladder.') 'explica o caso observado'
+        foreach ($comando in @('block', 'allow')) {
+            $envioBots = @(Ler-Atividade @("ladder preference: /$($comando)bots sent") 'Todos')
+            Assert ($envioBots[0].Titulo -eq 'Preferência enviada' -and $envioBots[0].Detalhe -match 'solicitad') 'envio nao afirma confirmacao'
+        }
+        $erroServidor = @(Ler-Atividade @($prefixoServidor + '/error Comando recusado para esta conta.') 'Avisos')
+        Assert ($erroServidor.Count -eq 1 -and $erroServidor[0].Tipo -eq 'aviso' -and $erroServidor[0].Detalhe -eq 'Comando recusado para esta conta.') 'erro desconhecido conserva texto e filtro aviso'
+        $privada = 'WARNING - Received pm: |pm| Rival| ContaTeste|/error You are not opted-in to playing against bots on the ladder.'
+        Assert ($null -eq (Ler-RespostaShowdown $privada)) 'PM de jogador nao e confirmacao do servidor'
+        if ($scale -eq 1) {
+            $atividade.Definir([LoR.EventoAtividade[]]$bloqueioAtivo)
+            Capture 'resposta-bloqueio-ja-ativo'
+            Atualizar-Tela
+        }
         $partidas = @(Ler-Atividade @('team: SolUgarte', 'win vs Rival in 7 turns') 'Partidas')
         Assert ($partidas.Count -eq 1 -and $partidas[0].Titulo -eq 'Vitória') 'filtro partidas'
         $conexao = @(Ler-Atividade @('could not connect to Showdown: exiting to reconnect', 'reconnecting in 10 s (Ctrl-C to stop)') 'Todos')
@@ -348,6 +377,20 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             $xBloquearBots.Marcado = $true; Mudar-BloquearBots
             Assert ($fake.bloquear_bots -eq 'sim') 'toggle volta a bloquear bots'
             Assert ($script:messages[$script:messages.Count - 1] -match '/blockbots') 'feedback blockbots'
+            Assert $xEsperarBots.Marcado 'espera de bots ligada por padrao'
+            $script:commands.Clear(); $xEsperarBots.Marcado = $false; Mudar-EsperarBots
+            Assert ((Has-Command 'esperar-bots|nao') -and $fake.esperar_bots -eq 'nao' -and -not (Has-Command 'reiniciar')) 'desligar espera sem reiniciar'
+            Assert ($fake.bloquear_bots -eq 'sim') 'espera independente de blockbots'
+            Assert ($script:messages[$script:messages.Count - 1] -match 'em curso') 'feedback sobre espera em curso'
+            $script:failure = 'esperar-bots'; $xEsperarBots.Marcado = $true; Mudar-EsperarBots
+            Assert (-not $xEsperarBots.Marcado) 'falha volta toggle da espera'
+            $script:failure = ''; $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert (-not $xEsperarBots.Marcado) 'espera recupera preferencia salva'
+            $xEsperarBots.Marcado = $true; Mudar-EsperarBots
+            Assert ($fake.esperar_bots -eq 'sim') 'religar espera'
+            $fake.Remove('esperar_bots'); $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert $xEsperarBots.Marcado 'estado antigo preserva espera ligada'
+            $fake.esperar_bots = 'sim'
             $cTime.Indice = 1; $bRemTime.PerformClick()
             Assert (-not (Has-Command 'remover-time|SolUgarte')) 'remover recusa sem confirmacao'
             $script:approve = $true; $bRemTime.PerformClick()

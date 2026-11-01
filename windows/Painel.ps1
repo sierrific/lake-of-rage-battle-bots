@@ -1334,10 +1334,17 @@ $tSenha.Caixa.AccessibleName = 'Autenticação pelo navegador'
 $tSenha.Caixa.ReadOnly = $true
 $tSenha.Caixa.TabStop = $false
 $tSenha.Caixa.Text = 'Entre no site oficial ao ligar o bot'
-$iCadeado = New-Object LoR.Icone
-$iCadeado.Text = [string][char]0xE72E
-[void](Pos $iCadeado 20 190 20 22 $cConta)
-[void](Novo-Rotulo 'A senha é digitada apenas no Showdown.' 46 190 339 22 $cConta 'suave' 9)
+$ttTema.SetToolTip($tSenha.Caixa, 'A senha é digitada apenas no Showdown.')
+$xEsperarBots = New-Object LoR.Chave
+$xEsperarBots.FundoNome = 'cartao'
+$xEsperarBots.Marcado = $true
+$xEsperarBots.AccessibleName = 'Esperar bots adversários conhecidos saírem da fila'
+[void](Pos $xEsperarBots 20 190 36 20 $cConta)
+$lEsperarBots = Novo-Rotulo 'Esperar bots conhecidos' 66 190 305 22 $cConta 'texto' 9.5
+$lEsperarBots.Cursor = 'Hand'
+$ajudaEsperaBots = 'Ligado: espera até 10 minutos por bots adversários conhecidos. Desligado: pula essa espera, inclusive se já estiver esperando. A fila do nosso time e a pausa entre partidas continuam iguais.'
+$ttTema.SetToolTip($lEsperarBots, $ajudaEsperaBots)
+$ttTema.SetToolTip($xEsperarBots, $ajudaEsperaBots)
 $bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 228 151 38 $cConta
 # "glhf" no começo e "gg wp" no fim de cada partida, no chat da batalha; vale já na próxima.
 $xChat = New-Object LoR.Chave
@@ -1687,6 +1694,32 @@ $script:estado = @{}
 $script:versaoNova = $null
 $script:recolhido = $false
 
+# Respostas de comandos chegam como PMs sintéticas e o poke-env as registra como WARNING.
+# Só reclassifica os textos conhecidos do servidor (~); erros reais continuam em Avisos.
+function Ler-RespostaShowdown([string]$linha) {
+    if ($linha -match '^ladder preference: /(block|allow)bots sent$') {
+        $detalhe = if ($Matches[1] -eq 'block') { 'Bloqueio de bots solicitado ao Showdown.' } else { 'Permissão para enfrentar bots solicitada ao Showdown.' }
+        return [pscustomobject]@{ Titulo = 'Preferência enviada'; Detalhe = $detalhe; Tipo = 'outro'; CorNome = 'suave' }
+    }
+    if ($linha -notmatch 'Received pm: \|pm\|[^|]+\|~\|(.+)$') { return $null }
+    $corpo = $Matches[1]
+    $texto = $corpo -replace '^/error ', ''
+    $detalhe = switch -Exact ($texto) {
+        'You are not opted-in to playing against bots on the ladder.' { 'O bloqueio de bots já estava ativo no ladder.' }
+        'You are already opted-in to playing against bots on the ladder.' { 'A permissão para enfrentar bots já estava ativa no ladder.' }
+        'You have opted out of playing against bots on the ladder.' { 'O Showdown confirmou o bloqueio de bots no ladder.' }
+        'You have opted in to matching against bots on the ladder.' { 'O Showdown confirmou a permissão para enfrentar bots no ladder.' }
+        default { $null }
+    }
+    if ($detalhe) {
+        return [pscustomobject]@{ Titulo = 'Preferência do ladder'; Detalhe = $detalhe; Tipo = 'outro'; CorNome = 'verde' }
+    }
+    if ($corpo.StartsWith('/error ')) {
+        return [pscustomobject]@{ Titulo = 'Resposta do Showdown'; Detalhe = $texto; Tipo = 'aviso'; CorNome = 'ambar' }
+    }
+    return $null
+}
+
 # Frases curtas no lugar das linhas cruas do bot (o que não reconhece aparece como veio).
 function Traduzir-Log([string[]]$linhas, [string]$filtro) {
     $saida = New-Object System.Collections.Generic.List[string]
@@ -1695,7 +1728,9 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         if (-not $l) { continue }
         $tipo = 'outro'
         $txt = $null
-        if ($l -match '^Started lor-bot@') { $txt = 'Bot iniciado' }
+        $resposta = Ler-RespostaShowdown $l
+        if ($resposta) { $txt = $resposta.Detalhe; $tipo = $resposta.Tipo }
+        elseif ($l -match '^Started lor-bot@') { $txt = 'Bot iniciado' }
         elseif ($l -match "^'(.+)' laddering (\S+) at ([^:]+):") { $txt = "Conta $($Matches[1]) conectada · procurando partida no ladder" }
         elseif ($l -match '^challenge declined by (\S+)') { $txt = "$($Matches[1]) recusou o desafio"; $tipo = 'partida' }
         elseif ($l -match '^challenge never reached (\S+)') { $txt = "O desafio não chegou a $($Matches[1]) (offline ou não aceita desafios?)"; $tipo = 'aviso' }
@@ -1705,6 +1740,7 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $txt = "A conta $($Matches[1]) está registrada no Showdown como bot: no ladder ela só enfrenta outros bots (e quem aceitou jogar contra bots)"; $tipo = 'aviso' }
         elseif ($l -match '^waiting for our turn: team bot (\S+) is searching') { $txt = "Esperando a vez: $($Matches[1]), outro bot do time, está procurando partida (assim os nossos nunca se enfrentam)" }
         elseif ($l -match '^waiting: known bots free, probably in the queue: (.+)') { $txt = "Esperando para procurar partida: bots que sempre aparecem estão livres na fila ($($Matches[1]))" }
+        elseif ($l -eq 'known bots wait disabled: searching now') { $txt = 'Espera por bots conhecidos desativada; seguindo para a busca de partida' }
         elseif ($l -match '^known bots still free after (\d+) min') { $txt = "Os bots conhecidos seguem livres depois de $($Matches[1]) min · procurando partida mesmo assim" }
         elseif ($l -match '^pausing ([\d.]+) min before the next ladder search') { $txt = "Pausa de $($Matches[1]) min antes de procurar a próxima partida (para não cair sempre com os mesmos bots)" }
         elseif ($l -match '^team: (\S+)') { $txt = "Time da vez: $($Matches[1])" }
@@ -1783,7 +1819,13 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         $evento = New-Object LoR.EventoAtividade
         $evento.Titulo = 'Evento do bot'
         $evento.Detalhe = $traduzida[0]
-        if ($l -match '^(win|loss|tie) vs (.+) in (\d+) turns') {
+        $resposta = Ler-RespostaShowdown $l
+        if ($resposta) {
+            $evento.Titulo = $resposta.Titulo
+            $evento.Detalhe = $resposta.Detalhe
+            $evento.Tipo = $resposta.Tipo
+            $evento.CorNome = $resposta.CorNome
+        } elseif ($l -match '^(win|loss|tie) vs (.+) in (\d+) turns') {
             $evento.Titulo = @{ win = 'Vitória'; loss = 'Derrota'; tie = 'Empate' }[$Matches[1]]
             $evento.CorNome = @{ win = 'verde'; loss = 'vermelho'; tie = 'ambar' }[$Matches[1]]
             $evento.Detalhe = "$($Matches[2]) · $($Matches[3]) turnos"
@@ -1799,6 +1841,7 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $evento.Titulo = 'Conta marcada como bot'; $evento.Detalhe = "$($Matches[1]): no ladder do Showdown, só enfrenta outros bots"; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^waiting for our turn: team bot (\S+) is searching') { $evento.Titulo = 'Esperando a vez na fila'; $evento.Detalhe = "$($Matches[1]) (do time) está procurando partida" }
         elseif ($l -match '^waiting: known bots free, probably in the queue: (.+)') { $evento.Titulo = 'Esperando bots saírem da fila'; $evento.Detalhe = $Matches[1] }
+        elseif ($l -eq 'known bots wait disabled: searching now') { $evento.Titulo = 'Espera por bots desativada'; $evento.Detalhe = 'Seguindo para a busca de partida' }
         elseif ($l -match '^pausing ([\d.]+) min before') { $evento.Titulo = 'Pausa entre partidas'; $evento.Detalhe = "$($Matches[1]) min até a próxima busca" }
         elseif ($l -match '^challenge ') { $evento.Titulo = 'Desafio'; $evento.CorNome = 'ambar'; $evento.Tipo = 'partida' }
         elseif ($l -match '^connection to Showdown lost|^could not connect to Showdown') { $evento.Titulo = 'Conexão perdida'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
@@ -1927,7 +1970,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, replays e arquivos locais.' }
@@ -2013,7 +2056,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -2029,6 +2072,7 @@ function Carregar-Opcoes {
     $xDiscord.Marcado = $e['discord'] -ne 'nao'
     $xChat.Marcado = $e['chat'] -ne 'nao'
     $xBloquearBots.Marcado = $e['bloquear_bots'] -ne 'nao'
+    $xEsperarBots.Marcado = $e['esperar_bots'] -ne 'nao'
     $cTime.Itens.Clear()
     $cTime.Itens.Add('Padrão (MC371/MC196)')
     foreach ($t in ((Invoke-Painel @('times')).Saida -split "`n")) { if ($t.Trim()) { $cTime.Itens.Add($t.Trim()) } }
@@ -2105,6 +2149,16 @@ function Mudar-BloquearBots {
 }
 $xBloquearBots.add_Mudou({ Mudar-BloquearBots })
 $lBloquearBots.Add_Click({ if ($xBloquearBots.Enabled) { $xBloquearBots.Marcado = -not $xBloquearBots.Marcado; Mudar-BloquearBots } })
+
+function Mudar-EsperarBots {
+    $v = if ($xEsperarBots.Marcado) { 'sim' } else { 'nao' }
+    if (Resultado (Invoke-Painel @('esperar-bots', $v)) '') {
+        if ($xEsperarBots.Marcado) { Mensagem 'Preferência salva. Antes da próxima busca, o bot espera até 10 minutos por bots adversários conhecidos saírem da fila.' }
+        else { Mensagem 'Preferência salva. O bot pula a espera por bots adversários conhecidos, inclusive uma espera em curso. A coordenação do nosso time e a pausa entre partidas continuam iguais.' }
+    } else { $xEsperarBots.Marcado = -not $xEsperarBots.Marcado }
+}
+$xEsperarBots.add_Mudou({ Mudar-EsperarBots })
+$lEsperarBots.Add_Click({ if ($xEsperarBots.Enabled) { $xEsperarBots.Marcado = -not $xEsperarBots.Marcado; Mudar-EsperarBots } })
 
 $bAplicar.Add_Click({
     $f = if ($cFormato.Indice -eq 1) { 'bo1' } else { 'bo3' }
@@ -2304,7 +2358,7 @@ function Atualizar-Painel {
     # Espera sem congelar a janela (a atualização leva minutos): o timer fica parado e os botões
     # desligados até ela terminar.
     $timer.Stop()
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {
