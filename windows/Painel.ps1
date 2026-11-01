@@ -1967,6 +1967,9 @@ function Ler-Historico([string[]]$linhas, [string]$filtro) {
             if ($itens.Count) { $evento = $itens[0] }
         } elseif ($r.kind -in @('chat', 'pm')) {
             if ($filtro -eq 'Partidas') { continue }
+            # Controles do Showdown podem chegar como chat e existir no historico antigo.
+            if ([string]$r.sender -notmatch '[a-z0-9]' -or $r.text -isnot [string] -or -not $r.text) { continue }
+            if ($r.text -match '^/(?:uhtmlchange|uhtml|raw|html|challenge)(?:\s|$)') { continue }
             $evento = New-Object LoR.EventoAtividade
             $origem = if ($r.kind -eq 'pm') { 'PM recebida' } elseif ($r.own) { 'Seu bot' } else { 'Oponente' }
             $evento.Titulo = "$origem · $($r.sender)"

@@ -47,6 +47,45 @@ class TestHistory(unittest.TestCase):
         self.history.receive('|pm|Meu_Bot|~|/error server reply')
         self.assertEqual([r['text'] for r in self.rows()], ['Oi | 😊'])
 
+    def test_showdown_controls_are_not_conversation(self):
+        self.room('|player|p1|Meu_Bot|1\n|player|p2||')
+        self.room('|c|~|/uhtml controls,<div>Are you ready for game 2?</div>')
+        self.room('|c:|1793556000|~|server notice')
+        self.room('|c||empty sender')
+        self.room('|player|p2|Rival|2')
+        for text in ('/uhtml controls,<div>Ready?</div>', '/uhtmlchange controls,',
+                     '/raw <b>notice</b>', '/html <b>notice</b>', '/challenge format',
+                     '/UHTML controls,<p>notice</p>', '/uhtml'):
+            with self.subTest(text=text):
+                self.room('|c|Rival|' + text)
+                self.room('|c:|1793556000|Rival|' + text)
+                self.history.receive('|pm|Rival|Meu_Bot|' + text)
+        self.assertEqual(self.rows(), [])
+
+    def test_literal_text_and_chat_actions_are_preserved(self):
+        self.room('|player|p1|Meu_Bot|1\n|player|p2|Rival|2')
+        texts = ['Use /uhtml para isso', '<b>texto literal</b> & olá | 😊',
+                 '/me acena', '//uhtml exemplo', '/uhtml_exemplo', '/challengecup']
+        for text in texts:
+            self.room('|c|Rival|' + text)
+            self.history.receive('|pm|Rival|Meu_Bot|' + text)
+        self.assertEqual([r['text'] for r in self.rows()], [text for text in texts for _ in range(2)])
+
+    def test_legacy_controls_filtered_before_limit_without_rewriting_history(self):
+        self.history.append('pm', 'Amigo', 'mensagem preservada')
+        with self.history.path.open('a', encoding='utf-8') as out:
+            for kind in ('chat', 'pm'):
+                for sender, text in (('', '/uhtml controls,<div>Ready?</div>'),
+                                     ('~', 'server notice'), ('', 'empty sender'),
+                                     ('Rival', '/uhtmlchange controls,'), ('Rival', '/raw <b>notice</b>'),
+                                     ('Rival', '/html <b>notice</b>'), ('Rival', '/challenge format'),
+                                     ('Rival', None), (None, 'missing sender')):
+                    out.write(json.dumps({'kind': kind, 'sender': sender, 'text': text}) + '\n')
+        before = self.history.path.read_bytes()
+        with patch.object(m, 'LIMIT', 1):
+            self.assertEqual([r['text'] for r in self.rows()], ['mensagem preservada'])
+        self.assertEqual(self.history.path.read_bytes(), before)
+
     def test_persistence_rotation_and_partial_line(self):
         with patch.object(m, 'MAX_BYTES', 1):
             self.history.append('pm', 'Rival', 'antes')
@@ -105,6 +144,16 @@ class TestHistory(unittest.TestCase):
         with patch.object(m.History, 'append', side_effect=OSError('disk full')):
             asyncio.run(client._handle_message('|pm|Rival|Meu_Bot|texto'))
         original.assert_awaited_once_with('|pm|Rival|Meu_Bot|texto')
+
+    def test_hook_forwards_bo3_controls_unchanged(self):
+        client = SimpleNamespace(account_configuration=SimpleNamespace(username='Meu_Bot'),
+                                 logger=logging.getLogger('controls-test'), _handle_message=AsyncMock())
+        original = client._handle_message
+        m.install(SimpleNamespace(ps_client=client, save_dir=self.root / '2026-11-01'))
+        packet = '>game-test\n|player|p1|Meu_Bot|1\n|player|p2||\n|c|~|/uhtml controls,<button>Ready?</button>'
+        asyncio.run(client._handle_message(packet))
+        original.assert_awaited_once_with(packet)
+        self.assertEqual(self.rows(), [])
 
 
 if __name__ == '__main__':

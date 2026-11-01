@@ -1363,7 +1363,7 @@ diff --git a/src/ai_vgc/nn/messages.py b/src/ai_vgc/nn/messages.py
 new file mode 100644
 --- /dev/null
 +++ b/src/ai_vgc/nn/messages.py
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,165 @@
 +"""Local conversation history. Never writes private messages to games or stdout."""
 +from collections import deque
 +from datetime import datetime, timezone
@@ -1381,6 +1381,13 @@ new file mode 100644
 +
 +def user_id(name):
 +    return re.sub(r"[^a-z0-9]", "", name.lstrip(" ~&@%+*#!").split("@", 1)[0].lower())
++
++
++def is_conversation(sender, text):
++    # Showdown embeds UI controls in chat/PM packets, including Bo3 ready buttons.
++    return (isinstance(sender, str) and bool(user_id(sender))
++            and isinstance(text, str) and bool(text)
++            and not re.match(r"^/(?:uhtmlchange|uhtml|raw|html|challenge)(?:\s|$)", text, re.I))
 +
 +
 +class PrivateMessages(logging.Filter):
@@ -1403,7 +1410,7 @@ new file mode 100644
 +        self.players = {}
 +
 +    def append(self, kind, sender, text, room="", timestamp=None):
-+        if not text or not self.account:
++        if not self.account or not is_conversation(sender, text):
 +            return
 +        row = {"kind": kind, "sender": sender.lstrip(" ~&@%+*#!"), "text": text,
 +               "room": room, "time": timestamp or datetime.now(timezone.utc).isoformat(),
@@ -1422,9 +1429,7 @@ new file mode 100644
 +            for line in lines:
 +                p = line.split("|", 4)
 +                if len(p) == 5 and p[1] == "pm" and user_id(p[3]) == self.account and user_id(p[2]) != self.account:
-+                    # Protocol challenges are handled by poke-env, not conversation.
-+                    if not p[4].startswith("/challenge"):
-+                        self.append("pm", p[2], p[4])
++                    self.append("pm", p[2], p[4])
 +            return
 +        if not room.startswith(("battle-", "game-")):
 +            return
@@ -1491,7 +1496,8 @@ new file mode 100644
 +                for line in stream:
 +                    try:
 +                        row = json.loads(line)
-+                        if isinstance(row, dict) and row.get("kind") in ("pm", "chat"):
++                        if (isinstance(row, dict) and row.get("kind") in ("pm", "chat")
++                                and is_conversation(row.get("sender"), row.get("text"))):
 +                            rows.append(row)
 +                    except (ValueError, UnicodeError):
 +                        continue

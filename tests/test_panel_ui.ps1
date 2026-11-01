@@ -261,6 +261,15 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             @{ kind = 'chat'; sender = 'Rival'; own = $false; room = 'battle-teste'; text = 'Boa partida | valeu!'; time = '2026-11-01T18:00:02+00:00' },
             @{ kind = 'pm'; sender = 'Amigo'; own = $false; text = 'Vamos jogar depois? Mensagem privada.'; time = '2026-11-01T18:00:03+00:00' }
         )
+        # Registros antigos de controles Bo3 e HTML nao aparecem como falas do oponente.
+        foreach ($kind in @('chat', 'pm')) {
+            foreach ($controle in @('/uhtml controls,<div>Are you ready for game 2?</div>', '/uhtmlchange controls,', '/raw <b>aviso</b>', '/html <b>aviso</b>', '/challenge format', '/UHTML controls,', '/uhtml')) {
+                $conversas += @{ kind = $kind; sender = 'Rival'; text = $controle; time = '2026-11-01T18:00:04+00:00' }
+            }
+            foreach ($remetente in @('', '~', $null)) {
+                $conversas += @{ kind = $kind; sender = $remetente; text = 'Aviso do servidor'; time = '2026-11-01T18:00:05+00:00' }
+            }
+        }
         $script:historicoFalso = ($conversas | ForEach-Object { $_ | ConvertTo-Json -Compress }) -join "`n"
         Mostrar-Secao 'historico'; Atualizar-Tela
         Assert ($atividadeHistorico.Itens.Count -eq 4) 'historico mistura partida, bot, oponente e PM'
@@ -273,6 +282,16 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         $cFiltroHistorico.Indice = 2; Atualizar-Atividade
         Assert ($atividadeHistorico.Itens.Count -eq 3 -and @($atividadeHistorico.Itens | Where-Object { $_.Tipo -ne 'mensagem' }).Count -eq 0) 'filtro exclusivo de mensagens'
         if ($scale -eq 1) { Escolher-Tema 'lago'; Capture 'historico-mensagens' }
+        Assert ($atividadeHistorico.Caixa.Text -notmatch '/uhtml|/raw|/html|/challenge|Aviso do servidor') 'controles antigos nao aparecem no historico'
+        $historicoAnterior = $script:historicoLinhas
+        $textosLiterais = @('Use /uhtml para isso', '<b>texto literal</b> & ola | :)', '/me acena', '//uhtml exemplo', '/uhtml_exemplo', '/challengecup')
+        $script:historicoLinhas = @($textosLiterais | ForEach-Object { @{ kind = 'chat'; sender = 'Rival'; text = $_ } | ConvertTo-Json -Compress })
+        $literais = @(Ler-Historico @() 'Mensagens')
+        Assert ($literais.Count -eq $textosLiterais.Count) 'texto comum e acoes de chat nao sao filtrados'
+        for ($i = 0; $i -lt $literais.Count; $i++) {
+            Assert ($literais[$i].Detalhe -ceq $textosLiterais[$textosLiterais.Count - 1 - $i]) 'corpo literal permanece intacto'
+        }
+        $script:historicoLinhas = $historicoAnterior
         $cFiltroHistorico.Indice = 1; Atualizar-Atividade
         Assert ($atividadeHistorico.Itens.Count -eq 1 -and $atividadeHistorico.Itens[0].Tipo -eq 'partida') 'filtro partidas exclui todas as conversas'
         $longa = ('Conversa longa com acentos e varias linhas. ' * 150) + 'FIM DA MENSAGEM'
