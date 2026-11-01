@@ -89,6 +89,7 @@ senha)
 *) echo "Modo de login inválido." >&2; exit 78 ;;
 esac
 export BOT PS_PASSWORD
+export LOR_ALLOW_BOTS_FILE="${PERMITIR_BOTS_ARQUIVO:-}"
 
 read -ra args <<<"$MODO"
 if [ "${SERVIDOR:-oficial}" = lor ]; then

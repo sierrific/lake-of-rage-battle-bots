@@ -52,6 +52,11 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
 - **Ligar / Desligar (após a partida) / Desligar agora**. "Desligar" espera terminar a partida ou
   a série Bo3 atual, para o bot não perder por W.O.
 - **Conta do Showdown**: salve somente o usuário; o login acontece no navegador ao ligar.
+- **Bloquear bots** (em Ajustes, no cartão da conta; ligado por padrão): ligado envia
+  `/blockbots`; desligado envia `/allowbots`. A escolha fica salva e é aplicada depois de cada
+  login/reconexão e antes da próxima busca no ladder, sem reiniciar ou interromper a partida.
+  Vale também para o login legado por senha. O comando configura a preferência de pareamento;
+  não remove a classificação de bot da conta.
 - **Código da coleta**: conferido na coleta ao salvar (o painel diz de quem é o código). Se depois a
   coleta recusar o código ou estiver fora do ar, o aviso aparece ali mesmo.
 - **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em
