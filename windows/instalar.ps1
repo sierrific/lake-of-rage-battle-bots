@@ -48,7 +48,51 @@ function WslQuieto {
     $ErrorActionPreference = 'Continue'
     try { & wsl.exe @args 2>$null } catch { $global:LASTEXITCODE = 1 } finally { $ErrorActionPreference = $antes }
 }
-function Distros() { (WslQuieto -l -q) -replace "`0", '' | Where-Object { $_ } | ForEach-Object { $_.Trim() } }
+function RegistrosWsl {
+    $raiz = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+    if (Test-Path -LiteralPath $raiz -ErrorAction Stop) {
+        # So as chaves {GUID} sao distribuicoes; o WSL novo guarda outras ali (ex.: AppxInstallerCache).
+        Get-ChildItem -LiteralPath $raiz -ErrorAction Stop | Where-Object { $_.PSChildName -match '^\{[0-9A-Fa-f-]{36}\}$' } | ForEach-Object {
+            $registro = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction Stop
+            if (-not $registro.DistributionName -or -not $registro.BasePath) {
+                Falha 'Registro do WSL incompleto. Nada foi apagado; repare o WSL antes de continuar.'
+            }
+            $registro
+        }
+    }
+}
+function Distros {
+    $registrados = @(RegistrosWsl | ForEach-Object { $_.DistributionName })
+    $global:LASTEXITCODE = 1
+    $saida = @(WslQuieto -l -q)
+    if ($LASTEXITCODE -ne 0) {
+        # Sem nenhuma distribuicao o "wsl -l" sai com erro (PC novo): o registro vazio confirma isso.
+        if (-not $registrados.Count) { return @() }
+        Falha 'Nao consegui enumerar o WSL. Nada foi apagado; tente novamente depois.'
+    }
+    $nomes = @($saida -replace "`0", '' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    # O que importa e nunca concluir que a LoRBots sumiu enquanto o registro diz que ela existe.
+    if (($nomes -contains $Distro) -ne ($registrados -contains $Distro)) {
+        Falha 'A listagem do WSL diverge do registro. Nada foi apagado; repare o WSL antes de continuar.'
+    }
+    $nomes
+}
+function ConferirDestinoWsl([string]$destino) {
+    foreach ($registro in @(RegistrosWsl)) {
+        if (MesmaPasta $destino ($registro.BasePath -replace '^\\\\\?\\', '')) {
+            Falha "A pasta $destino pertence a uma distribuicao registrada. Nada foi apagado."
+        }
+    }
+    # Um disco sem registro (importacao que parou no meio, WSL reinstalado) pode ter partidas e
+    # configuracoes: fica guardado ao lado com outro nome, nunca apagado, e a instalacao segue.
+    $vhdx = Join-Path $destino 'ext4.vhdx'
+    if (Test-Path -LiteralPath $vhdx) {
+        $guardado = "ext4.vhdx.preservado-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Rename-Item -LiteralPath $vhdx -NewName $guardado -ErrorAction Stop
+        Write-Host ("Havia um disco WSL sem registro em $destino; ele foi guardado como $guardado. " +
+            'Se nao precisar dele, pode apagar depois.') -ForegroundColor Yellow
+    }
+}
 function EAdmin {
     ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -146,9 +190,7 @@ function PastaWslPadrao {
 }
 # Onde esta a distribuicao LoRBots ja criada (registro do WSL), ou $null.
 function PastaWslAtual {
-    $chaves = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' -ErrorAction SilentlyContinue
-    foreach ($c in $chaves) {
-        $p = Get-ItemProperty $c.PSPath -ErrorAction SilentlyContinue
+    foreach ($p in @(RegistrosWsl)) {
         if ($p.DistributionName -eq $Distro -and $p.BasePath) { return ($p.BasePath -replace '^\\\\\?\\', '') }
     }
     return $null
@@ -250,10 +292,9 @@ if ($atual) {
     }
 }
 if ((Distros) -notcontains $Distro) {
-    # Sobras de uma tentativa que falhou (ex.: C: cheio no meio): sem distribuicao registrada, a
-    # pasta e so nossa, e o Ubuntu baixado antes no C: ocupa ~350 MB.
+    # Um disco sem registro ainda pode conter partidas/configuracoes: nunca o apague para importar.
     $velhaNoC = Join-Path $Pasta 'wsl'
-    if (Test-Path (Join-Path $velhaNoC 'ext4.vhdx')) { Remove-Item (Join-Path $velhaNoC 'ext4.vhdx') -Force -ErrorAction SilentlyContinue }
+    ConferirDestinoWsl $velhaNoC
     # Uma mudanca de disco que parou no meio deixou a copia: usa ela em vez de comecar do zero.
     $pastasCopia = @($velhaNoC) + @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue |
         ForEach-Object { [IO.Path]::Combine($_.DeviceID + '\', 'LoRBots\wsl') })
@@ -261,6 +302,7 @@ if ((Distros) -notcontains $Distro) {
     $PastaWsl = $pastasCopia | Where-Object { Test-Path ([IO.Path]::Combine($_, 'LoRBots-exportado.tar')) } | Select-Object -First 1
     if (-not $PastaWsl) { $PastaWsl = PastaWslPadrao }
     if (-not $PastaWsl) { FaltaEspaco }
+    ConferirDestinoWsl $PastaWsl
     New-Item -ItemType Directory -Force -Path $PastaWsl | Out-Null
     if (-not (MesmaPasta $PastaWsl $velhaNoC)) {
         Remove-Item (Join-Path $Pasta 'ubuntu-24.04.rootfs.tar.gz'), (Join-Path $Pasta 'SHA256SUMS') -ErrorAction SilentlyContinue
@@ -278,6 +320,7 @@ if ((Distros) -notcontains $Distro) {
     }
 }
 if ((Distros) -notcontains $Distro) {
+    ConferirDestinoWsl $PastaWsl
     # O Ubuntu baixado (~350 MB) fica no mesmo disco da distribuicao, nao no C: apertado.
     $arq = Join-Path $PastaWsl 'ubuntu-24.04.rootfs.tar.gz'
     # O SHA256SUMS vem como binario para o PowerShell 5; salvar em arquivo e ler como texto.

@@ -988,6 +988,41 @@ function Preparar-Atalhos {
     }
 }
 
+function Invoke-ProcessoPainel {
+    param([System.Diagnostics.ProcessStartInfo]$Inicio, [string]$Entrada = '',
+          [int]$TimeoutMs = 15000, $Controle = $null)
+    $p = $null
+    $relogio = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        $p = [Diagnostics.Process]::Start($Inicio)
+        # Drena os dois pipes desde o início, inclusive enquanto envia uma entrada grande.
+        $saida = $p.StandardOutput.ReadToEndAsync()
+        $erro = $p.StandardError.ReadToEndAsync()
+        $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($Entrada)
+        $envio = $p.StandardInput.BaseStream.WriteAsync($bytes, 0, $bytes.Length)
+        $entradaFechada = $false
+        while ($true) {
+            if ($Controle -and $Controle.Cancelar) { throw 'Consulta do WSL cancelada.' }
+            if ($relogio.ElapsedMilliseconds -ge $TimeoutMs) { throw 'O WSL excedeu o prazo de resposta.' }
+            if (-not $entradaFechada -and $envio.IsCompleted) {
+                [void]$envio.GetAwaiter().GetResult()
+                $p.StandardInput.Close()
+                $entradaFechada = $true
+            }
+            if ($p.HasExited -and $saida.IsCompleted -and $erro.IsCompleted) { break }
+            Start-Sleep -Milliseconds 25
+        }
+        [pscustomobject]@{ Codigo = $p.ExitCode; Saida = $saida.GetAwaiter().GetResult().Trim(); Erro = $erro.GetAwaiter().GetResult().Trim() }
+    } catch {
+        [pscustomobject]@{ Codigo = 124; Saida = ''; Erro = $_.Exception.Message }
+    } finally {
+        if ($p) {
+            try { if (-not $p.HasExited) { $p.Kill(); [void]$p.WaitForExit(1000) } } catch { }
+            $p.Dispose()
+        }
+    }
+}
+
 function Invoke-Painel {
     # Roda painel.sh no Linux; o que é texto do usuário (senha, nomes, times) vai pela entrada
     # padrão, nunca na linha de comando.
@@ -1002,16 +1037,8 @@ function Invoke-Painel {
     $psi.RedirectStandardError = $true
     $psi.StandardOutputEncoding = $Utf8
     $psi.StandardErrorEncoding = $Utf8
-    $p = [System.Diagnostics.Process]::Start($psi)
-    if ($Entrada) {
-        $bytes = $Utf8.GetBytes($Entrada)
-        $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
-    }
-    $p.StandardInput.Close()
-    $saida = $p.StandardOutput.ReadToEnd()
-    $erro = $p.StandardError.ReadToEnd()
-    $p.WaitForExit()
-    [pscustomobject]@{ Codigo = $p.ExitCode; Saida = $saida.Trim(); Erro = $erro.Trim() }
+    # Salvar codigo/time pode consultar a rede por ate 20s no Linux.
+    Invoke-ProcessoPainel $psi $Entrada -TimeoutMs 30000
 }
 
 function Ler-Estado($Resposta = $null) {
@@ -2030,7 +2057,7 @@ function Copiar-Diagnostico {
 # A consulta do timer roda em segundo plano: o wsl.exe às vezes leva segundos (WSL acordando, PC
 # ocupado) e a janela não pode congelar enquanto isso. O mesmo que o Invoke-Painel faz.
 $ConsultaEstado = {
-    param($distro)
+    param($distro, $controle)
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = 'wsl.exe'
@@ -2042,21 +2069,27 @@ $ConsultaEstado = {
     $psi.RedirectStandardError = $true
     $psi.StandardOutputEncoding = $utf8
     $psi.StandardErrorEncoding = $utf8
-    $p = [System.Diagnostics.Process]::Start($psi)
-    $p.StandardInput.Close()
-    $erro = $p.StandardError.ReadToEndAsync()
-    $saida = $p.StandardOutput.ReadToEnd()
-    $p.WaitForExit()
-    [pscustomobject]@{ Codigo = $p.ExitCode; Saida = $saida.Trim(); Erro = $erro.Result.Trim() }
+    Invoke-ProcessoPainel $psi -Controle $controle
 }
 $script:pedido = $null
+
+function Encerrar-ConsultaEstado {
+    if (-not $script:pedido) { return }
+    $pedido = $script:pedido
+    $script:pedido = $null
+    $pedido.Controle.Cancelar = $true
+    try { [void]$pedido.PS.EndInvoke($pedido.Handle) } finally { $pedido.PS.Dispose() }
+}
 
 # Um passo do timer: pede o estado em segundo plano, ou mostra a resposta que chegou.
 function Atualizar-EmSegundoPlano {
     if (-not $script:pedido) {
         $ps = [PowerShell]::Create()
-        [void]$ps.AddScript($ConsultaEstado.ToString()).AddArgument($Distro)
-        $script:pedido = @{ PS = $ps; Handle = $ps.BeginInvoke() }
+        $controle = [hashtable]::Synchronized(@{ Cancelar = $false })
+        [void]$ps.AddScript('function Invoke-ProcessoPainel {' + ${function:Invoke-ProcessoPainel}.ToString() + '}')
+        [void]$ps.AddScript($ConsultaEstado.ToString()).AddArgument($Distro).AddArgument($controle)
+        try { $script:pedido = @{ PS = $ps; Controle = $controle; Handle = $ps.BeginInvoke() } }
+        catch { $ps.Dispose(); throw }
         return
     }
     if (-not $script:pedido.Handle.IsCompleted) { return }
@@ -2392,14 +2425,43 @@ function Precisa-Atualizar {
     [bool]$script:versaoNova -and ($script:versaoNova -ne $script:estado['versao'] -or $script:versaoNova -ne (Versao-Painel))
 }
 
+function Consultar-Atualizacao {
+    $script:versaoNova = $null
+    $script:atualizacao = $null
+    $ramoUrl = [Uri]::EscapeDataString($Ramo)
+    $commit = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "https://api.github.com/repos/sierrific/lake-of-rage-battle-bots/commits/$ramoUrl").Content | ConvertFrom-Json
+    if ($commit.sha -cnotmatch '^[0-9a-f]{40}$') { throw 'O GitHub não informou uma revisão válida.' }
+    $rawFixo = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$($commit.sha)"
+    $versao = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$rawFixo/VERSION").Content.Trim()
+    if ($versao -cnotmatch '^[A-Za-z0-9._-]+$') { throw 'O GitHub não informou uma versão válida.' }
+    $script:atualizacao = [pscustomobject]@{ Sha = $commit.sha; Versao = $versao; Raw = $rawFixo }
+    $script:versaoNova = $versao
+}
+
+function Comando-Atualizacao($versao) {
+    # Também atualiza instalações cujo updater antigo ainda não entende LOR_REVISION.
+    # Baixa o script inteiro para um temporário antes de executar, sempre do mesmo commit.
+    $bash = @'
+set -euo pipefail
+script=$(mktemp)
+trap 'rm -f "$script"' EXIT
+curl -fsSL --max-time 30 'https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/{0}/linux/atualizar.sh' -o "$script"
+LOR_REVISION='{0}' LOR_VERSION='{1}' bash "$script"
+'@ -f $versao.Sha, $versao.Versao
+    $codificado = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bash.Replace("`r", '')))
+    "-d $Distro -u root -e bash -c `"echo $codificado | base64 -d | bash`""
+}
+
 function Atualizar-Painel {
+    $versao = $script:atualizacao
+    if (-not $versao) { Mensagem 'Consulte a versão no GitHub antes de atualizar.'; return }
     if (-not (Confirmar "Baixar a versão $($script:versaoNova) do bot e do painel? Se o bot estiver jogando, ele termina a partida atual antes de reiniciar.")) { return }
     # O painel novo só entra no lugar deste depois que a atualização do Linux deu certo; antes disso
     # fica ao lado (Painel.novo.ps1), e o atual vira Painel.anterior.ps1 (para voltar à mão, se precisar).
     $atual = Join-Path $Pasta 'Painel.ps1'
     $novo = Join-Path $Pasta 'Painel.novo.ps1'
     try {
-        Invoke-WebRequest -UseBasicParsing -Uri "$Raw/windows/Painel.ps1" -OutFile $novo
+        Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri "$($versao.Raw)/windows/Painel.ps1" -OutFile $novo
         $erros = $null
         [void][System.Management.Automation.PSParser]::Tokenize((Get-Content $novo -Raw -Encoding UTF8), [ref]$erros)
         if ($erros.Count -gt 0) { throw 'o painel baixado veio incompleto ou com erro. Tente de novo.' }
@@ -2409,11 +2471,12 @@ function Atualizar-Painel {
         return
     }
     # O Linux numa janela que mostra o progresso; o código de saída diz se deu certo.
-    $p = Start-Process wsl.exe -PassThru -ArgumentList "-d $Distro -u root -e env LOR_RAMO=$Ramo /opt/lor-bots/painel.sh atualizar"
+    $p = Start-Process wsl.exe -PassThru -ArgumentList (Comando-Atualizacao $versao)
     [void]$p.Handle  # guarda o processo, senão o ExitCode volta vazio
     # Espera sem congelar a janela (a atualização leva minutos): o timer fica parado e os botões
     # desligados até ela terminar.
     $timer.Stop()
+    Encerrar-ConsultaEstado
     foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
@@ -2423,9 +2486,11 @@ function Atualizar-Painel {
     }
     $lAtualizar.Enabled = $true
     $timer.Start()
-    if ($p.ExitCode -ne 0) {
+    $codigo = $p.ExitCode
+    $p.Dispose()
+    if ($codigo -ne 0) {
         Remove-Item $novo -ErrorAction SilentlyContinue
-        Mensagem ("A atualização do bot parou no meio (código $($p.ExitCode)). O painel continua nesta versão, e o bot " +
+        Mensagem ("A atualização do bot parou no meio (código $codigo). O painel continua nesta versão, e o bot " +
             "segue como estava. Tente Atualizar de novo; se falhar outra vez, mande um print da janela de progresso.")
         Manter-Vivo
         Atualizar-Tela
@@ -2434,7 +2499,8 @@ function Atualizar-Painel {
     try {
         Copy-Item -Force $atual (Join-Path $Pasta 'Painel.anterior.ps1')
         Move-Item -Force $novo $atual
-        Set-Content -Path $ArquivoVersao -Value $script:versaoNova -Encoding ASCII
+        Set-Content -Path $ArquivoVersao -Value $versao.Versao -Encoding ASCII
+        Set-Content -Path (Join-Path $Pasta 'REVISION') -Value $versao.Sha -Encoding ASCII
     } catch {
         Remove-Item $novo -ErrorAction SilentlyContinue
         Mensagem ("O bot foi atualizado, mas não consegui trocar o painel ($($_.Exception.Message)). Pode ser pouco " +
@@ -2450,7 +2516,7 @@ function Atualizar-Painel {
     $form.Close()
 }
 $lAtualizar.Add_Click({
-    try { $script:versaoNova = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$Raw/VERSION").Content.Trim() } catch { }
+    try { Consultar-Atualizacao } catch { }
     if (Precisa-Atualizar) { Atualizar-Painel }
     elseif ($script:versaoNova) { Mensagem "Já está na versão mais nova ($($script:versaoNova))." }
     else { Mensagem 'Não consegui ver a versão no GitHub. Confira a internet e tente de novo.' }
@@ -2484,7 +2550,7 @@ $form.Add_Shown({
     try {
         Carregar-Opcoes
         # Versão nova no GitHub? (só avisa; atualizar é no link do rodapé)
-        try { $script:versaoNova = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$Raw/VERSION").Content.Trim() } catch { }
+        try { Consultar-Atualizacao } catch { }
         Atualizar-Tela
         # Depois do Atualizar-Tela, que é quem lê o estado do bot: painel reaberto com o bot já
         # ligado volta a segurar o WSL (o painel.sh não abre um segundo guardião se ainda há um).
@@ -2498,6 +2564,7 @@ $form.Add_Shown({
 
 [void]$form.ShowDialog()
 $timer.Stop()
+Encerrar-ConsultaEstado
 $script:bandeja.Visible = $false
 $script:bandeja.Dispose()
 try { $trava.ReleaseMutex() } catch { }

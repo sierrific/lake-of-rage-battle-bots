@@ -6,8 +6,11 @@
 import importlib.util
 import json
 import tempfile
+import sys
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 RAIZ_REPO = Path(__file__).resolve().parent.parent
 
@@ -52,6 +55,70 @@ class TestTreinoOponente(unittest.TestCase):
                  "d": jogo("Ynokmon", "HeySidet", "Ynokmon")}
         fica, fora = treino._sem_nossos_bots(jogos, ["Hey Sidet"])
         self.assertEqual((sorted(fica), fora), (["a", "c"], 2))
+
+    def test_formatos_hostis_nao_ocupam_tag_nem_chegam_ao_arquivo(self):
+        ruins = ["../teste/probe", "../../probe", "/tmp/probe", r"..\teste\probe",
+                 r"C:\probe", "C:probe", r"\\server\share\probe", "f:stream", "f\n", "ｆ", "a/b"]
+        with tempfile.TemporaryDirectory() as tmp:
+            raiz = Path(tmp)
+            (raiz / "membro").mkdir()
+            boa = {"tag": "battle-boa", "log": "log", "user": "u", "format": "gen9championsvgc2026regmcbo3"}
+            linhas = [{**boa, "format": fmt} for fmt in ruins] + [boa]
+            (raiz / "membro" / "games.jsonl").write_text("\n".join(map(json.dumps, linhas)), encoding="utf-8")
+            self.assertEqual(treino._ler_backup(raiz), {"boa": boa})
+            for fmt in ruins:
+                with self.subTest(fmt=fmt), self.assertRaises(ValueError):
+                    treino._arquivo_dataset(raiz, "teste", fmt)
+            for fmt in ("f", "gen9championsvgc2026regmc", boa["format"]):
+                self.assertEqual(treino._arquivo_dataset(raiz, "treino", fmt), raiz / "treino" / f"{fmt}.npz")
+
+    def test_dados_nao_contamina_particoes_nem_escreve_fora(self):
+        import numpy as np
+        class Pool:
+            def __init__(self, *args, **kwargs): pass
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def map(self, func, lotes):
+                for lote in lotes:
+                    yield {"opp": np.zeros((len(lote), 2, 2), dtype=np.int8),
+                           "game": np.array([int(item[0]) for item in lote])}
+        with tempfile.TemporaryDirectory() as tmp:
+            raiz = Path(tmp)
+            backup, out = raiz / "backup", raiz / "out"
+            (backup / "membro").mkdir(parents=True)
+            boa = {"log": "log", "user": "u", "format": "gen9championsvgc2026regmc"}
+            rows = [{**boa, "tag": str(i), "time": str(i)} for i in (1, 2)]
+            rows += [{**boa, "tag": str(i + 3), "time": "9", "format": fmt}
+                     for i, fmt in enumerate(("../treino/poison", str(raiz / "fora"), r"..\teste\poison"))]
+            (backup / "membro" / "games.jsonl").write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+            modules = {"ai_vgc.nn.encode": types.SimpleNamespace(vocab=lambda: None),
+                       "ai_vgc.nn.series": types.SimpleNamespace(series_key=lambda _: None)}
+            args = types.SimpleNamespace(out=out, backup=backup, substituir=False, com_nossos_bots=True,
+                                         teste=0.5, workers=1, excluir=[])
+            with patch.dict(sys.modules, modules), patch.object(treino, "ProcessPoolExecutor", Pool):
+                treino.dados(args)
+            self.assertEqual(sorted(p.relative_to(out).as_posix() for p in raiz.rglob("*.npz")),
+                             [f"teste/{boa['format']}.npz", f"treino/{boa['format']}.npz"])
+            for nome, jogo in (("treino", 1), ("teste", 2)):
+                with np.load(out / nome / f"{boa['format']}.npz") as data:
+                    self.assertEqual(data["game"].tolist(), [jogo])
+            manifesto = json.loads((out / "manifesto.json").read_text())
+            self.assertEqual(manifesto["series"], {"treino": 1, "teste": 1})
+
+    def test_symlink_de_particao_nao_e_usado_nem_limpo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raiz = Path(tmp)
+            out, fora = raiz / "out", raiz / "fora"
+            out.mkdir(); fora.mkdir()
+            protegido = fora / "f.npz"
+            protegido.write_bytes(b"preservar")
+            try:
+                (out / "treino").symlink_to(fora, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks indisponíveis: {exc}")
+            with self.assertRaises(ValueError): treino._preparar_saida(out, True)
+            with self.assertRaises(ValueError): treino._arquivo_dataset(out, "treino", "f")
+            self.assertEqual(protegido.read_bytes(), b"preservar")
 
     def test_lado_do_bot_que_jogou_sem_login(self):
         nomes = {"p1": "Guest 3506156", "p2": "Humano X"}

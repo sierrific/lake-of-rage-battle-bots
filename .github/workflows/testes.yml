@@ -64,6 +64,15 @@ jobs:
           try { MoverDistro "$env:SystemDrive\nao-cabe\wsl" $orig; throw 'devia ter falhado' }
           catch { if ("$_" -notmatch '^FALHA: .*Nada foi apagado') { throw "mudanca sem espaco: $_" } }
           if (Test-Path "$env:SystemDrive\nao-cabe") { throw 'criou a pasta antes de conferir o espaco' }
+      - name: Falhas WSL, processos com prazo e atualizacao fixada
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_instalador_wsl.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_panel_process.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_panel_update.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Painel nativo (PowerShell 5.1, C# 5, layouts, temas e comandos simulados)
         shell: powershell
         run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_panel_ui.ps1 -OutputDirectory "$env:RUNNER_TEMP/lor-panel-ui"

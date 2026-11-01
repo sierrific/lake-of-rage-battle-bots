@@ -818,9 +818,20 @@ exit 0
 # O "GitHub": VERSION e o .tar.gz de $D/github (o que a versão nova tem).
 CURL_FALSO = r'''#!/usr/bin/env bash
 url="${@: -1}"
+echo "$url" >>"$D/downloads"
 case "$url" in
-  */VERSION) cat "$D/github/VERSION" ;;
-  *.tar.gz) tar cz -C "$D" --transform 's,^github,repo-estavel,' github ;;
+  */commits/*)
+    printf '{"sha":"%s"}' "$(cat "$D/github/REVISION")"
+    # A branch muda depois de resolver o SHA; os artefatos fixados continuam iguais.
+    [ ! -f "$D/mudar-branch" ] || echo 999 >"$D/github/VERSION"
+    ;;
+  */VERSION)
+    ref="${url%/VERSION}"; ref="${ref##*/}"
+    cat "$D/releases/$ref/VERSION" ;;
+  *.tar.gz)
+    ref="${url##*/}"; ref="${ref%.tar.gz}"
+    [ ! -f "$D/pacote-diverge" ] || echo 999 >"$D/releases/$ref/VERSION"
+    tar cz -C "$D/releases" "$ref" ;;
   *) exit 22 ;;
 esac
 '''
@@ -835,6 +846,8 @@ echo "instalar $(cat "$SRC/VERSION") bot=$(cat "$D/estado-bot")" >>"$D/log"
 [ ! -f "$SRC/falhar" ] || exit 1
 cat "$SRC/linux/instalar.sh" "$SRC/linux/ai-vgc-lor.patch" | sha256sum | cut -d' ' -f1 >"$LOR_DIR/.lor-runtime"
 cp "$SRC/VERSION" "$LOR_DIR/VERSION"
+cp "$SRC/REVISION" "$LOR_DIR/REVISION"
+[ ! -f "$SRC/falhar-marcador" ] || exit 1
 '''
 
 
@@ -864,6 +877,7 @@ class TestAtualizar(unittest.TestCase):
         self.tmp.cleanup()
 
     def versao(self, numero: str, patch: str, falhar: bool = False, falhar_runtime: bool = False):
+        import hashlib
         g = self.d / "github"
         shutil.rmtree(g, ignore_errors=True)
         (g / "linux").mkdir(parents=True)
@@ -874,6 +888,11 @@ class TestAtualizar(unittest.TestCase):
             (g / "falhar").touch()
         if falhar_runtime:
             (g / "falhar-runtime").touch()
+        sha = hashlib.sha1((numero + patch).encode()).hexdigest()
+        (g / "REVISION").write_text(sha)
+        release = self.d / "releases" / sha
+        shutil.rmtree(release, ignore_errors=True)
+        shutil.copytree(g, release)
 
     def atualizar(self, *args) -> subprocess.CompletedProcess:
         return subprocess.run(["bash", str(RAIZ_REPO / "linux" / "atualizar.sh"), *args],
@@ -901,6 +920,42 @@ class TestAtualizar(unittest.TestCase):
         self.assertLess(parou, c.index("instalar 2 bot=inactive"), c)
         self.assertEqual(c[-2:], ["systemctl start lor-bot@bot.service", "systemctl try-restart lor-envio"], c)
         self.assertEqual((self.d / "estado-bot").read_text().strip(), "active")
+
+    def test_branch_muda_mas_artefatos_usam_o_mesmo_sha(self):
+        self.versao("2", patch="patch 2")
+        sha = (self.d / "github" / "REVISION").read_text()
+        (self.d / "downloads").write_text("")
+        (self.d / "mudar-branch").touch()
+        r = self.atualizar()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.opt / "VERSION").read_text(), "2")
+        self.assertEqual((self.opt / "REVISION").read_text().strip(), sha)
+        urls = (self.d / "downloads").read_text().splitlines()
+        self.assertEqual(sum("/commits/" in u for u in urls), 1)
+        self.assertTrue(all(sha in u for u in urls if "/commits/" not in u), urls)
+
+    def test_sha_do_painel_nao_consulta_branch(self):
+        self.versao("2", patch="patch 2")
+        sha = (self.d / "github" / "REVISION").read_text()
+        self.env.update(LOR_REVISION=sha, LOR_VERSION="2")
+        (self.d / "downloads").write_text("")
+        self.assertEqual(self.atualizar().returncode, 0)
+        self.assertNotIn("/commits/", (self.d / "downloads").read_text())
+
+    def test_versao_divergente_aborta_antes_de_parar_ou_instalar(self):
+        for caso in ("pacote", "painel", "sha"):
+            with self.subTest(caso=caso):
+                self.versao("2", patch="patch 2")
+                self.env.pop("LOR_REVISION", None); self.env.pop("LOR_VERSION", None)
+                (self.d / "pacote-diverge").unlink(missing_ok=True)
+                (self.d / "log").write_text("")
+                if caso == "pacote": (self.d / "pacote-diverge").touch()
+                elif caso == "painel": self.env["LOR_VERSION"] = "outra"
+                else: self.env["LOR_REVISION"] = "../estavel"
+                r = self.atualizar()
+                self.assertNotEqual(r.returncode, 0)
+                self.assertEqual(self.chamadas(), [])
+                self.assertEqual((self.opt / "VERSION").read_text(), "1")
 
     def test_bot_desligado_continua_desligado(self):
         (self.d / "estado-bot").write_text("inactive")
@@ -965,6 +1020,18 @@ class TestAtualizar(unittest.TestCase):
         c = self.chamadas()
         self.assertFalse(any("start lor-bot@" in x or "painel" in x for x in c), c)
         self.assertEqual((self.d / "estado-bot").read_text().strip(), "inactive")
+
+    def test_rollback_antigo_nao_deixa_sha_da_tentativa_falha(self):
+        anterior = self.opt / "fonte" / "linux" / "instalar.sh"
+        anterior.write_text(anterior.read_text().replace('cp "$SRC/REVISION" "$LOR_DIR/REVISION"', ':'))
+        (self.opt / "fonte" / "REVISION").unlink()
+        self.versao("2", patch="patch 2")
+        sha = (self.d / "github" / "REVISION").read_text()
+        (self.d / "releases" / sha / "falhar-marcador").touch()
+        r = self.atualizar()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual((self.opt / "VERSION").read_text(), "1")
+        self.assertFalse((self.opt / "REVISION").exists())
 
     def test_instalar_guarda_a_fonte_e_deixa_a_pasta_com_o_root(self):
         t = (RAIZ_REPO / "linux" / "instalar.sh").read_text()

@@ -43,6 +43,29 @@ KEYS = ["tok_cat", "tok_num", "mv_cat", "mv_dyn", "dmg", "glob", "act_tok", "mas
         "ser_tok", "ser_mv", "ser_glob"]
 
 
+def _formato_valido(fmt: str) -> bool:
+    # IDs canônicos do Showdown, sem normalizar entradas que poderiam virar outro formato.
+    return re.fullmatch(r"[a-z0-9]+", fmt, flags=re.ASCII) is not None
+
+
+def _pasta_particao(out: Path, nome: str) -> Path:
+    raiz = out.resolve()
+    pasta = raiz / nome
+    if nome not in ("treino", "teste") or pasta.resolve() != pasta:
+        raise ValueError(f"partição fora da saída: {pasta}")
+    return pasta
+
+
+def _arquivo_dataset(out: Path, nome: str, fmt: str) -> Path:
+    if not _formato_valido(fmt):
+        raise ValueError(f"formato inválido: {fmt!r}")
+    pasta = _pasta_particao(out, nome)
+    arquivo = pasta / f"{fmt}.npz"
+    if arquivo.resolve() != arquivo:
+        raise ValueError(f"arquivo fora da partição: {arquivo}")
+    return arquivo
+
+
 def _limpa(log: str) -> str:
     # Como o player._add_log: os logs de treino começam no primeiro "|j|".
     linhas = log.split("\n")
@@ -129,6 +152,8 @@ def _ler_backup(backup: Path) -> dict[str, dict]:
                 if not isinstance(row, dict) or not all(isinstance(row.get(k), str) and row[k]
                                                         for k in ("log", "tag", "user", "format")):
                     continue
+                if not _formato_valido(row["format"]):
+                    continue
                 jogos.setdefault(row["tag"].removeprefix("battle-"), row)
     return jogos
 
@@ -165,9 +190,10 @@ def _contexto(serie: list[tuple[int, str]], jogos: dict[str, dict]) -> list[tupl
 def _preparar_saida(out: Path, substituir: bool) -> None:
     """Uma geração nova não pode deixar .npz da anterior: um formato que sumiu (filtrado agora) ou
     uma divisão treino/teste diferente misturaria jogos velhos, ou os mesmos nas duas partes."""
-    velhos = sorted(p for nome in ("treino", "teste") for p in (out / nome).glob("*.npz"))
+    pastas = [_pasta_particao(out, nome) for nome in ("treino", "teste")]
+    velhos = sorted(p for pasta in pastas for p in pasta.glob("*.npz"))
     if velhos and not substituir:
-        raise SystemExit(f"{out} já tem dados de uma geração anterior ({', '.join(str(p.relative_to(out)) for p in velhos)}); "
+        raise SystemExit(f"{out} já tem dados de uma geração anterior ({', '.join(str(p.relative_to(out.resolve())) for p in velhos)}); "
                          "use outra --out ou --substituir")
     for p in velhos:
         p.unlink()
@@ -219,9 +245,9 @@ def dados(args) -> None:
                 print(f"  {nome}/{fmt}: nenhum jogo legível de {len(itens)}", flush=True)
                 continue
             d = {k: np.concatenate([p[k] for p in partes]) for k in partes[0]}
-            pasta = args.out / nome
-            pasta.mkdir(parents=True, exist_ok=True)
-            np.savez(pasta / f"{fmt}.npz", **d)
+            arquivo = _arquivo_dataset(args.out, nome, fmt)
+            arquivo.parent.mkdir(parents=True, exist_ok=True)
+            np.savez(arquivo, **d)
             rot = (d["opp"][..., 0] >= 0).sum()
             gerados[nome][fmt] = {"jogos": int(len(np.unique(d["game"]))), "decisoes": int(len(d["opp"]))}
             print(f"  {nome}/{fmt}: {len(np.unique(d['game']))} de {len(itens)} jogos, {len(d['opp'])} decisões, "

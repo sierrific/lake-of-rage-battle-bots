@@ -37,6 +37,10 @@ vão para a coleta do time, que alimenta o treino e o canal do Discord.
 O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separada do WSL
 (`LoRBots`), sem mexer em outras que você tenha.
 
+Se o instalador não conseguir conferir a lista de distribuições enquanto a `LoRBots` existe, ele
+para sem mexer em nada. Um `ext4.vhdx` sem registro na pasta do Linux dos bots nunca é apagado:
+fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
+
 ### Painel
 
 - **Aparência** (ícone de paleta no cabeçalho): escolha **Central de comando**, **Arena em foco** ou
@@ -176,7 +180,9 @@ por navegador remoto para servidores Linux.
 - **Lançar uma versão**: faça as mudanças na `main` e aumente o número em `VERSION`. Quando todos
   os testes do GitHub passam nesse commit, o CI avança a branch `estavel`, que é de onde o painel e o
   instalador baixam; um merge com teste vermelho não chega aos PCs. O painel compara o `VERSION` da
-  `estavel` com o instalado para oferecer a atualização. Para testar antes, use outra branch:
+  `estavel` com o instalado para oferecer a atualização. Cada atualização resolve um único commit
+  e usa essa revisão para painel, updater e runtime; `REVISION` registra o SHA instalado.
+  Para testar antes, use outra branch:
   `$env:LOR_RAMO='minha-branch'` antes do comando de instalar (ou `LOR_RAMO=... sudo -E
   /opt/lor-bots/atualizar.sh`).
 - **Ai-vgc**: o instalador baixa o commit fixo da cópia do time (`sierrific/ai-vgc`, um fork) e,

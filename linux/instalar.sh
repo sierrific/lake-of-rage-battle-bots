@@ -162,6 +162,11 @@ install -m 755 "$SRC/linux/atualizar.sh" "$DIR/atualizar.sh"
 install -m 755 "$SRC/linux/enviar-partidas.py" "$DIR/enviar-partidas.py"
 install -m 755 "$SRC/linux/backup-coleta.py" "$DIR/backup-coleta.py"
 install -m 644 "$SRC/VERSION" "$DIR/VERSION"
+if [ -f "$SRC/REVISION" ]; then
+	install -m 644 "$SRC/REVISION" "$DIR/REVISION"
+else
+	rm -f "$DIR/REVISION"  # clone/rollback antigo sem uma revisão de distribuição comprovada
+fi
 install -m 644 "$SRC/linux/lor-bot@.service" /etc/systemd/system/lor-bot@.service
 install -m 644 "$SRC/linux/lor-envio.service" /etc/systemd/system/lor-envio.service
 install -m 644 "$SRC/linux/lor-backup.service" /etc/systemd/system/lor-backup.service
