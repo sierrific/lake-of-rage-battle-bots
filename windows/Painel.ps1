@@ -1782,7 +1782,7 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         } elseif ($l -match '^Started lor-bot@') { $evento.Titulo = 'Bot iniciado'; $evento.Detalhe = 'Iniciando a sessão do bot.' }
         elseif ($l -match "^'(.+)' (laddering|challenging) ") { $evento.Titulo = 'Conta conectada'; $evento.CorNome = 'verde' }
         elseif ($l -match '^team: (\S+)') { $evento.Titulo = 'Time selecionado'; $evento.Detalhe = $Matches[1] }
-        elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $evento.Titulo = 'Conta marcada como bot'; $evento.Detalhe = 'No ladder do Showdown, só enfrenta outros bots'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
+        elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $evento.Titulo = 'Conta marcada como bot'; $evento.Detalhe = "$($Matches[1]): no ladder do Showdown, só enfrenta outros bots"; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^waiting for our turn: team bot (\S+) is searching') { $evento.Titulo = 'Esperando a vez na fila'; $evento.Detalhe = "$($Matches[1]) (do time) está procurando partida" }
         elseif ($l -match '^waiting: known bots free, probably in the queue: (.+)') { $evento.Titulo = 'Esperando bots saírem da fila'; $evento.Detalhe = $Matches[1] }
         elseif ($l -match '^pausing ([\d.]+) min before') { $evento.Titulo = 'Pausa entre partidas'; $evento.Detalhe = "$($Matches[1]) min até a próxima busca" }
