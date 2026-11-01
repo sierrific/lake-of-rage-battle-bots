@@ -155,6 +155,8 @@ fi
 
 echo "==> Scripts e serviços"
 install -m 755 "$SRC/linux/rodar-bot.sh" "$DIR/rodar-bot.sh"
+install -m 644 "$SRC/linux/login-navegador.py" "$DIR/login-navegador.py"
+install -m 644 "$SRC/windows/Login-Navegador.ps1" "$DIR/Login-Navegador.ps1"
 install -m 755 "$SRC/linux/painel.sh" "$DIR/painel.sh"
 install -m 755 "$SRC/linux/atualizar.sh" "$DIR/atualizar.sh"
 install -m 755 "$SRC/linux/enviar-partidas.py" "$DIR/enviar-partidas.py"

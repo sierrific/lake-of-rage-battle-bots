@@ -73,7 +73,7 @@ function Install-Fakes {
             chat { $script:fake.chat = $Argumentos[1] }
             time { $script:fake.time = $Argumentos[1] }
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
-            conta { $script:fake.conta = ($Entrada -split "`n")[0]; $script:fake.senha = 'sim' }
+            'conta-navegador' { $script:fake.conta = ($Entrada -split "`n")[0]; $script:fake.login = 'navegador' }
             codigo { $script:fake.codigo = 'sim'; $out = "membro=joao`nok=codigo" }
             desligar { $script:fake.bot = 'deactivating' }
             agora { $script:fake.bot = 'inactive'; $script:fake.partida = ''; $script:fake.placar_oponente = '' }
@@ -189,8 +189,8 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             Assert ($bVer.Visible -and -not $bLigar.Visible) 'acao principal em partida'
             Assert ($atividade.Itens.Count -eq 4) 'atividade estruturada'
             Assert ($tLog.Caixa.Text -match 'WARNING exemplo') 'log bruto conservado'
-            Assert ($tSenha.Caixa.UseSystemPasswordChar -and $tCodigo.Caixa.UseSystemPasswordChar) 'segredos mascarados'
-            Assert ($xAuto.TabStop -and $cFormato.TabStop -and $nTimes.TabStop -and $lAtualizar.TabStop -and $tSenha.Olho.TabStop) 'acesso por teclado'
+            Assert ($tSenha.Caixa.ReadOnly -and $tCodigo.Caixa.UseSystemPasswordChar) 'senha fora do painel e codigo mascarado'
+            Assert ($xAuto.TabStop -and $cFormato.TabStop -and $nTimes.TabStop -and $lAtualizar.TabStop) 'acesso por teclado'
             $isKey = [LoR.Base].GetMethod('IsInputKey', [Reflection.BindingFlags]'Instance,NonPublic')
             Assert ($isKey.Invoke($bAplicar, @([System.Windows.Forms.Keys]::Enter))) 'Enter roteado ao botao'
             Assert ($isKey.Invoke($cTime, @([System.Windows.Forms.Keys]::Down))) 'seta roteada ao seletor'
@@ -229,10 +229,10 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         Atualizar-Tela
         Assert ($selo.Text -eq 'Desafio contra Rival') 'desafio jogando'
         $fake.desafio = ''
-        $fake.codigo = 'nao'; $fake.senha = 'nao'
+        $savedAccount = $fake.conta; $fake.conta = ''; $fake.codigo = 'nao'; $fake.senha = 'nao'
         Atualizar-Tela
         Assert ($lResumoColeta.Text -eq 'Código não configurado' -and $lNavEstado.Text -eq 'Configure em Ajustes') 'configuracao ausente'
-        $fake.codigo = 'sim'; $fake.senha = 'sim'; $fake.envio = 'active'; $fake.envio_status = 'codigo'
+        $fake.conta = $savedAccount; $fake.codigo = 'sim'; $fake.senha = 'nao'; $fake.envio = 'active'; $fake.envio_status = 'codigo'
         Atualizar-Tela
         Assert ($lResumoColeta.Text -eq 'Código recusado pela coleta' -and $lCodigo.CorNome -eq 'vermelho') 'codigo recusado pela coleta'
         $fake.envio_status = 'fora'
@@ -283,6 +283,7 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             Exercise-Dialog 'team'
             Assert (Has-Command 'adicionar-time') 'dialogo de adicionar usa validacao do backend'
             Assert (($commands | Where-Object { $_.Args -eq 'adicionar-time' } | Select-Object -Last 1).Input -match '^TimeSintetico\nPikachu') 'time e export enviados pela entrada padrao'
+            $fake.senha = 'nao' # Login pelo navegador permite desafiar sem senha no painel.
             Exercise-Dialog 'challenge'
             Assert (Has-Command 'desafiar|3') 'dialogo desafia com quantidade selecionada'
             Assert (($commands | Where-Object { $_.Args -eq 'desafiar|3' } | Select-Object -Last 1).Input -eq "RivalSintetico`n") 'alvo do desafio enviado pela entrada padrao'
@@ -308,9 +309,10 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             $bDesligar.PerformClick()
             Assert ((Has-Command 'desligar') -and -not $bLigar.Enabled) 'parada normal aguarda termino'
             Fresh-State; Atualizar-Tela
-            $tUsuario.Caixa.Text = 'ContaTesteNova'; $tSenha.Caixa.Text = 'senha-sintetica'
+            $tUsuario.Caixa.Text = 'ContaTesteNova'
             $bConta.PerformClick()
-            Assert ((Has-Command 'conta') -and $tSenha.Caixa.Text -eq '' -and (Has-Command 'reiniciar')) 'salvar conta limpa senha e agenda troca'
+            Assert ((Has-Command 'conta-navegador') -and (Has-Command 'reiniciar')) 'salvar conta pelo navegador agenda troca'
+            Assert (($script:commands | Where-Object { $_.Args -eq 'conta-navegador' } | Select-Object -Last 1).Input -eq "ContaTesteNova`n") 'salvar conta nao transmite senha'
             $tCodigo.Caixa.Text = 'codigo-sintetico'; $bCodigo.PerformClick()
             Assert ((Has-Command 'codigo') -and $tCodigo.Caixa.Text -eq '') 'salvar codigo limpa campo'
             Assert ($script:messages[$script:messages.Count - 1] -like 'Código de joao conferido*') 'codigo conferido diz de quem e'

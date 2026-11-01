@@ -29,8 +29,10 @@ vão para a coleta do time, que alimenta o treino e o canal do Discord.
    irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/estavel/windows/instalar.ps1 | iex
    ```
    </details>
-4. No **Painel LoR Bots** (atalho na Área de Trabalho): preencha a conta e a senha do bot e o
-   código da coleta e clique em **Ligar**.
+4. No **Painel LoR Bots** (atalho na Área de Trabalho): salve o usuário do bot e o código da
+   coleta e clique em **Ligar**. O Edge ou Chrome abre o site oficial do Showdown em um perfil
+   separado. Entre na mesma conta nessa janela, em até 5 minutos; a senha é digitada no site.
+   Ao concluir a autorização, a janela fecha e o bot continua.
 
 O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separada do WSL
 (`LoRBots`), sem mexer em outras que você tenha.
@@ -49,7 +51,7 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   o tamanho da janela. Histórico continua abrindo os replays do Showdown; também há acesso à pasta local.
 - **Ligar / Desligar (após a partida) / Desligar agora**. "Desligar" espera terminar a partida ou
   a série Bo3 atual, para o bot não perder por W.O.
-- **Conta do Showdown**: usuário e senha do bot. A senha fica só no seu PC.
+- **Conta do Showdown**: salve somente o usuário; o login acontece no navegador ao ligar.
 - **Código da coleta**: conferido na coleta ao salvar (o painel diz de quem é o código). Se depois a
   coleta recusar o código ou estiver fora do ar, o aviso aparece ali mesmo.
 - **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em
@@ -78,6 +80,27 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   quando o bot para com erro, e **Copiar diagnóstico**, que junta versão, estado e logs (sem senha
   nem código) para colar no Discord quando precisar de ajuda.
 
+### Login pelo navegador
+
+Requer Microsoft Edge ou Google Chrome instalado no Windows. Cada conta usa um perfil em
+`%LOCALAPPDATA%\LoRBots\login\<id-da-conta>`, separado do seu navegador pessoal. A sessão fica
+nesse perfil: nas próximas conexões, o navegador pode autorizar sem pedir a senha novamente.
+Se entrar em outra conta, o bot aguarda a conta configurada; não assume a conta que estiver aberta.
+
+A janela abre a cada conexão, inclusive ao reconectar. O bot recebe uma autorização assinada
+para a sua conexão, sem receber a senha nem copiar cookies para o Linux. Essa autorização expira
+e é apagada depois de consumida. Se o login falhar ou passar de 5 minutos, o bot para; abra o painel
+e clique em **Ligar** para tentar novamente. Não há retorno automático ao login por senha.
+
+Contas já configuradas pelo painel passam a esse fluxo ao ligar/reiniciar com esta versão.
+Arquivos de senha antigos não são lidos no modo navegador. Uma configuração manual que tenha
+`login=senha` continua no modo legado; **Salvar conta** no painel muda para navegador.
+
+**Isso não garante evitar a marca de bot do Showdown e não remove uma marca existente.** A
+classificação vem na resposta assinada pelo servidor e é preservada. O novo fluxo muda como a
+conta é autenticada; não mascara a automação nem modifica a classificação da conta. Os testes
+automatizados usam respostas sintéticas, sem autenticar contas reais.
+
 ## Cópia de segurança da coleta (só no PC de quem guarda a cópia)
 
 Uma vez por dia o PC baixa da coleta (VPS) as partidas de todos os membros que ainda não tem, para
@@ -104,8 +127,22 @@ desafios, desafiar outro bot) e `sudo systemctl enable --now lor-bot@<nome>`. En
 coleta: `COLETA_CODIGO=...` em `/etc/lor-bots/coleta.env` e `sudo systemctl enable --now lor-envio`.
 Atualizar: `sudo /opt/lor-bots/atualizar.sh`.
 
+O exemplo Linux mantém `LOGIN=senha` para instalações sem interface gráfica. O fluxo pelo
+navegador desta versão integra o painel Windows e a distribuição `LoRBots`; não é um login
+por navegador remoto para servidores Linux.
+
 ## Para quem mantém
 
+- Login: `linux/login-navegador.py` troca pedidos e respostas temporários em `/run/lor-login-<bot>`
+  (systemd, modo 0700). `windows/Login-Navegador.ps1` acompanha o bot, abre o perfil dedicado e
+  solicita `getassertion` no cliente oficial, com a sessão do próprio navegador. O CDP usa uma
+  porta aleatória em loopback, disponível apenas enquanto essa janela está aberta. A conta, o
+  desafio e o prazo são conferidos antes de entregar a resposta intacta ao Ai-vgc.
+- Teste do auxiliar Windows: `powershell.exe -NoProfile -File tests/test_login_navegador.ps1`
+  (Node.js necessário apenas para o servidor sintético do teste). Exercita o transporte CDP,
+  origem, serialização, cliente atual/antigo e falhas, sem navegador ou contas reais.
+- Testes Linux: `python3 -m unittest discover -s tests -v` (zsh e numpy). Depois de aplicar o
+  patch no Ai-vgc, rode também `tests/ai_vgc/login_navegador.py` com o caminho do `player.py`.
 - Teste nativo do painel no Windows: `powershell.exe -NoProfile -STA -File tests/test_panel_ui.ps1`.
   Compila o C# embutido com PowerShell 5.1, exercita os controles com comandos simulados e verifica os
   três layouts e dois temas nas escalas 100%, 125% e 150%. Não inicia WSL/bot, não usa credenciais reais
