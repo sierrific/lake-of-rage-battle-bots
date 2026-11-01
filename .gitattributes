@@ -1,4 +1,1 @@
 *.bat text eol=crlf
-linux/* text eol=lf
-# Linhas de contexto vazias de um diff unificado contêm um espaço obrigatório.
-*.patch whitespace=-blank-at-eol

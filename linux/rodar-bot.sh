@@ -71,23 +71,13 @@ export PATH="$HOME/.local/bin:$PATH"
 export UV_NO_SYNC=1  # o instalador escolhe o PyTorch (CPU); o uv run não deve trocar
 export SERVER=showdown  # bot.sh: login pelo servidor oficial (vale também para o nosso)
 
-case "${LOGIN:-senha}" in
-navegador)
-	# Sem senha no Python, inclusive em reconexões. Uma falha não muda para o modo antigo.
-	export LOR_BROWSER_LOGIN=/opt/lor-bots/login-navegador.py
-	PS_PASSWORD=''
-	;;
-senha)
-	# Compatibilidade explícita com bots Linux configurados à mão.
-	unset LOR_BROWSER_LOGIN
-	if [ -n "${SENHA_ARQUIVO:-}" ]; then PS_PASSWORD="$(cat "$SENHA_ARQUIVO")"; fi
-	if [ -z "${PS_PASSWORD:-}" ]; then
-		echo "Sem senha para a conta $BOT: configure no painel (ou PS_PASSWORD no .env)." >&2
-		exit 78
-	fi
-	;;
-*) echo "Modo de login inválido." >&2; exit 78 ;;
-esac
+if [ -n "${SENHA_ARQUIVO:-}" ]; then
+	PS_PASSWORD="$(cat "$SENHA_ARQUIVO")"
+fi
+if [ -z "${PS_PASSWORD:-}" ]; then
+	echo "Sem senha para a conta $BOT: configure no painel (ou PS_PASSWORD no .env)." >&2
+	exit 1
+fi
 export BOT PS_PASSWORD
 
 read -ra args <<<"$MODO"

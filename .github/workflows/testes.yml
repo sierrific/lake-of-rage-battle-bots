@@ -67,9 +67,6 @@ jobs:
       - name: Painel nativo (PowerShell 5.1, C# 5, layouts, temas e comandos simulados)
         shell: powershell
         run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_panel_ui.ps1 -OutputDirectory "$env:RUNNER_TEMP/lor-panel-ui"
-      - name: Login pelo navegador (PowerShell 5.1, CDP e cliente sinteticos)
-        shell: powershell
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_login_navegador.ps1
       - name: Capturas sinteticas dos layouts
         if: always()
         uses: actions/upload-artifact@v4
@@ -90,7 +87,7 @@ jobs:
       - name: Sintaxe dos scripts
         run: |
           for f in linux/*.sh; do bash -n "$f"; done
-          python3 -m py_compile linux/enviar-partidas.py linux/treino-oponente.py linux/backup-coleta.py linux/login-navegador.py
+          python3 -m py_compile linux/enviar-partidas.py linux/treino-oponente.py linux/backup-coleta.py
 
       - name: Testes (envio de partidas, parada do bot, reinício do painel)
         run: python3 -m unittest discover -s tests -v
@@ -110,7 +107,6 @@ jobs:
           git apply "$GITHUB_WORKSPACE/linux/ai-vgc-lor.patch"
           python3 -m py_compile src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/tempos_por_turno.py" src/ai_vgc/nn/player.py
-          python3 "$GITHUB_WORKSPACE/tests/ai_vgc/login_navegador.py" src/ai_vgc/nn/player.py
 
       - name: PowerShell do Windows (sintaxe; acentos só com UTF-8 com BOM)
         shell: pwsh

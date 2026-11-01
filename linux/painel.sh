@@ -12,7 +12,6 @@
 #   painel.sh ligar | desligar | agora | reiniciar   (ligar e desafiar só com um código da
 #                                       coleta válido, conferido na coleta: rodar-bot.sh --conferir)
 #   painel.sh conta                     stdin: usuário na 1ª linha, senha na 2ª
-#   painel.sh conta-navegador           stdin: usuário; senha só no site oficial
 #   painel.sh codigo                    stdin: o código da coleta (conferido na coleta antes de salvar)
 #   painel.sh formato bo3|bo1
 #   painel.sh timer sim|nao             o bot liga o timer no começo de cada partida (padrão: sim)
@@ -123,13 +122,11 @@ gerar_env() {
 	done
 	{
 		printf 'BOT="%s"\n' "$conta"
-		printf 'LOGIN=%s\n' "$(conf_get login || true)"
 		printf 'SENHA_ARQUIVO=%s\n' "$SENHA"
 		printf 'SERVIDOR=%s\n' "$(conf_get servidor || true)"
 		printf 'MODO="%s"\n' "$modo"
 	} >"$ENV.tmp"
 	sed -i 's/^SERVIDOR=$/SERVIDOR=oficial/' "$ENV.tmp"
-	sed -i 's/^LOGIN=$/LOGIN=navegador/' "$ENV.tmp"
 	chown root:bots "$ENV.tmp"
 	chmod 640 "$ENV.tmp"
 	mv "$ENV.tmp" "$ENV"
@@ -256,11 +253,6 @@ PY
 
 nome_valido() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,32}$ ]]; }
 
-conta_pronta() {
-	[ -n "$(conf_get conta)" ] || return 1
-	[ "$(conf_get login)" != senha ] || [ -s "$SENHA" ]
-}
-
 # O id do Showdown: só letras minúsculas e números ("Sier VGC" -> siervgc).
 id_showdown() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'; }
 
@@ -344,7 +336,6 @@ estado)
 	fi
 	echo "envio_status=$st"
 	echo "conta=$(conf_get conta)"
-	echo "login=$(conf_get login)"
 	echo "senha=$([ -s "$SENHA" ] && echo sim || echo nao)"
 	echo "codigo=$([ -s "$ETC/coleta.env" ] && echo sim || echo nao)"
 	f="$(conf_get formato)"
@@ -397,7 +388,7 @@ diagnostico)
 	journalctl -u lor-backup -n 10 -o short-iso --no-pager 2>/dev/null || true
 	;;
 ligar)
-	conta_pronta || { echo "erro=configure a conta primeiro"; exit 1; }
+	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
 	conferido="$(LOR_ETC="$ETC" LOR_COLETA_PING="$COLETA_PING" bash "$RODAR_BOT" --conferir)" \
 		|| { echo "$conferido"; exit 1; }
 	[[ "$conferido" == aviso=* ]] && echo "$conferido"
@@ -453,10 +444,9 @@ reiniciar)
 		echo ok=parado
 	fi
 	;;
-conta|conta-navegador)
+conta)
 	IFS= read -r usuario || true
-	senha=''
-	if [ "$cmd" = conta ]; then IFS= read -r senha || true; fi
+	IFS= read -r senha || true
 	usuario="${usuario%$'\r'}"
 	senha="${senha%$'\r'}"
 	if [[ ! "$usuario" =~ ^[A-Za-z0-9\ _.-]{1,18}$ ]]; then
@@ -464,7 +454,6 @@ conta|conta-navegador)
 		exit 1
 	fi
 	conf_set conta "$usuario"
-	if [ "$cmd" = conta-navegador ]; then conf_set login navegador; else conf_set login senha; fi
 	if [ -n "$senha" ]; then
 		umask 077
 		printf '%s' "$senha" >"$SENHA.tmp"
@@ -601,7 +590,7 @@ desafiar)
 	n="${1:-1}"
 	[[ "$alvo" =~ ^[a-z0-9]{1,18}$ ]] || { echo "erro=usuário do Showdown inválido"; exit 1; }
 	[[ "$n" =~ ^([1-9]|10)$ ]] || { echo "erro=partidas: de 1 a 10"; exit 1; }
-	conta_pronta || { echo "erro=configure a conta primeiro"; exit 1; }
+	[ -n "$(conf_get conta)" ] && [ -s "$SENHA" ] || { echo "erro=configure a conta e a senha primeiro"; exit 1; }
 	[ "$alvo" != "$(id_showdown "$(conf_get conta)")" ] || { echo "erro=essa é a conta do próprio bot"; exit 1; }
 	desafio_ativo && { echo "erro=já tem um desafio em andamento (contra $(desafio_get alvo))"; exit 1; }
 	conferido="$(LOR_ETC="$ETC" LOR_COLETA_PING="$COLETA_PING" bash "$RODAR_BOT" --conferir)" \

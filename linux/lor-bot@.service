@@ -7,13 +7,10 @@ Wants=network-online.target
 Type=simple
 User=bots
 EnvironmentFile=/etc/lor-bots/%i.env
-RuntimeDirectory=lor-login-%i
-RuntimeDirectoryMode=0700
-Environment=LOR_BROWSER_DIR=/run/lor-login-%i
 ExecStart=/opt/lor-bots/rodar-bot.sh
 Restart=on-failure
 RestartSec=30
-# 78 = código inválido ou login não concluído: não repetir autenticações sozinho.
+# 78 = sem código da coleta válido (rodar-bot.sh): religar não adianta até salvar outro.
 RestartPreventExitStatus=78
 # Parar = terminar a partida/série atual: SIGINT só no script principal (ele repassa ao bot),
 # e até 45 min de espera. "Desligar agora" no painel usa systemctl kill.
