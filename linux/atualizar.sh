@@ -21,16 +21,34 @@ REPO=https://github.com/sierrific/lake-of-rage-battle-bots
 RAMO="${LOR_RAMO:-estavel}"  # outra branch (main, ou uma de teste) só para testar uma versão
 FONTE="$DIR/fonte"
 
-nova="$(curl -fsSL --max-time 20 "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$RAMO/VERSION")"
+# Resolve a branch uma única vez. O painel pode fornecer o mesmo SHA que usou para seu download.
+revisao="${LOR_REVISION:-}"
+if [ -z "$revisao" ]; then
+	ramo_url="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$RAMO")"
+	revisao="$(curl -fsSL --max-time 20 "https://api.github.com/repos/sierrific/lake-of-rage-battle-bots/commits/$ramo_url" |
+		python3 -c 'import json, sys; print(json.load(sys.stdin)["sha"])')"
+fi
+[[ "$revisao" =~ ^[0-9a-f]{40}$ ]] || { echo 'Revisão inválida; atualização cancelada.' >&2; exit 1; }
+nova="$(curl -fsSL --max-time 20 "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$revisao/VERSION")"
+[[ "$nova" =~ ^[A-Za-z0-9._-]+$ ]] || { echo 'Versão inválida.' >&2; exit 1; }
+if [ -n "${LOR_VERSION:-}" ] && [ "$nova" != "$LOR_VERSION" ]; then
+	echo 'A versão do runtime diverge da versão solicitada pelo painel.' >&2
+	exit 1
+fi
 atual="$(cat "$DIR/VERSION" 2>/dev/null || echo nenhuma)"
-if [ "$nova" = "$atual" ] && [ "${1:-}" != --forcar ]; then
+if [ "$nova" = "$atual" ] && [ "$(cat "$DIR/REVISION" 2>/dev/null || true)" = "$revisao" ] && [ "${1:-}" != --forcar ]; then
 	echo "Já está na versão mais nova ($atual)."
 	exit 0
 fi
 echo "==> Atualizando de $atual para $nova"
 rm -rf "$FONTE.novo"
 mkdir -p "$FONTE.novo"
-curl -fsSL --max-time 300 "$REPO/archive/refs/heads/$RAMO.tar.gz" | tar xz -C "$FONTE.novo" --strip-components 1 --no-same-owner
+curl -fsSL --max-time 300 "$REPO/archive/$revisao.tar.gz" | tar xz -C "$FONTE.novo" --strip-components 1 --no-same-owner
+if [ "$(cat "$FONTE.novo/VERSION")" != "$nova" ]; then
+	echo 'O pacote baixado diverge da versão consultada; nada foi ativado.' >&2
+	exit 1
+fi
+printf '%s\n' "$revisao" >"$FONTE.novo/REVISION"
 
 # Mesma conta do instalar.sh: muda quando muda o que um bot jogando usa.
 impressao() { cat "$1/linux/instalar.sh" "$1/linux/ai-vgc-lor.patch" | sha256sum | cut -d' ' -f1; }
@@ -96,6 +114,9 @@ mv "$FONTE.novo" "$FONTE"
 if ! bash "$FONTE/linux/instalar.sh"; then
 	echo
 	echo "==> A instalação de $nova parou no meio: voltando para $atual"
+	# Um instalador antigo pode restaurar VERSION sem conhecer REVISION. Nunca deixe o SHA
+	# da tentativa falha nesse caso; a ausência da marca faz a próxima atualização conferir tudo.
+	rm -f "$DIR/REVISION"
 	if [ -d "$FONTE.anterior" ]; then
 		rm -rf "$FONTE.falhou"
 		mv "$FONTE" "$FONTE.falhou"

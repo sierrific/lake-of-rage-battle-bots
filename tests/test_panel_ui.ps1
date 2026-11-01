@@ -91,7 +91,11 @@ function Install-Fakes {
     function script:Manter-Vivo { $script:keepalive++ }
     function script:Mudar-Auto { $script:startupChanges++ }
     function script:Start-Process { param([string]$FilePath, $ArgumentList, [switch]$PassThru) $script:launches.Add("$FilePath $ArgumentList") }
-    function script:Invoke-WebRequest { param($Uri, $OutFile, $TimeoutSec, [switch]$UseBasicParsing) if ($OutFile) { throw 'Download nao permitido neste teste.' }; [pscustomobject]@{ Content = '2026.10.25.01' } }
+    function script:Invoke-WebRequest {
+        param($Uri, $OutFile, $TimeoutSec, [switch]$UseBasicParsing)
+        if ($OutFile) { throw 'Download nao permitido neste teste.' }
+        [pscustomobject]@{ Content = $(if ($Uri -like '*/commits/*') { '{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' } else { '2026.10.25.01' }) }
+    }
 }
 function Assert-Layout($parent) {
     foreach ($child in $parent.Controls) {
@@ -151,6 +155,7 @@ foreach ($scale in @(1, 1.25, 1.5)) {
     $AtalhoLigar = Join-Path $OutputDirectory 'startup-inexistente.lnk'
     $Lancador = Join-Path $OutputDirectory 'Painel.vbs'
     $Distro = 'LoRBots'
+    $Ramo = 'estavel'
     $Raw = 'https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/main'
     [IO.File]::WriteAllText($ArquivoVersao, '2026.10.24.19')
     $startupLayout = if ($scale -eq 1) { 'invalido' } elseif ($scale -eq 1.25) { 'arena' } else { 'refinado' }

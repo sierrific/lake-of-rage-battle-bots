@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import types
+from time import perf_counter
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +15,16 @@ from unittest.mock import AsyncMock
 
 source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
 definition = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == "_public_login")
+
+
+# Contrato real de poke-env 379a046, ps_client.py:337-343 (sem importar a biblioteca inteira).
+async def wait_for_login(self, checking_interval=0.001, wait_for=5):
+    start = perf_counter()
+    while perf_counter() - start < wait_for:
+        await asyncio.sleep(checking_interval)
+        if self.logged_in.is_set():
+            return
+    assert self.logged_in.is_set(), f"Expected {self.username} to be logged in."
 
 
 class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
@@ -78,7 +89,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
                                        server_configuration=types.SimpleNamespace(authentication_url="https://example.test"),
                                        send_message=send, change_avatar=AsyncMock(), _avatar=None,
-                                       wait_for_login=named.wait, search_ladder_game=search)
+                                       wait_for_login=lambda **kw: named.wait(), search_ladder_game=search)
         namespace = {"Player": object, "os": os, "asyncio": asyncio, "json": json}
         exec(compile(ast.Module(body=[definition], type_ignores=[]), "player.py", "exec"), namespace)
         assertion = "b" * 256 + ",contateste,2,123,sim3.psim.us;" + "c" * 256
@@ -154,6 +165,67 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, LOR_BROWSER_LOGIN="helper.py"):
             exec(compile(ast.Module(body=[gate], type_ignores=[]), "player.py", "exec"), namespace)
         self.assertIsNone(namespace["password"])
+
+    async def test_confirmacao_depois_de_cinco_segundos(self):
+        named = asyncio.Event()
+        client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+            username="ContaTeste", logged_in=named, server_configuration=types.SimpleNamespace(authentication_url="x"),
+            send_message=AsyncMock(), change_avatar=AsyncMock(), _avatar=None, search_ladder_game=AsyncMock())
+        client.wait_for_login = types.MethodType(wait_for_login, client)
+        namespace = {"Player": object, "os": os, "asyncio": asyncio, "json": json}
+        exec(compile(ast.Module(body=[definition], type_ignores=[]), "player.py", "exec"), namespace)
+        fake = types.SimpleNamespace(request=lambda *a, **k: types.SimpleNamespace(text=']{"assertion":"a,u,2;sig"}'))
+        with patch.dict(sys.modules, requests=fake), patch.dict(os.environ, {}, clear=True):
+            namespace["_public_login"](types.SimpleNamespace(ps_client=client), "senha")
+            handle = asyncio.get_running_loop().call_later(5.2, named.set)
+            try:
+                await asyncio.wait_for(client.log_in(["", "challstr", "4", "a"]), 8)
+                await asyncio.wait_for(client.search_ladder_game("fmt", "time"), 1)
+            finally:
+                handle.cancel()
+        client.send_message.assert_any_await("/blockbots")
+
+    async def test_falhas_de_confirmacao_encerram_sem_busca(self):
+        class FatalLogin(Exception): pass
+        for caso in ("ausente", "preferencia-falhou", "preferencia-travou", "trn-falhou"):
+            with self.subTest(caso=caso):
+                named = asyncio.Event()
+                if caso != "ausente": named.set()
+                async def send(message):
+                    if caso == "trn-falhou" or (message == "/blockbots" and caso == "preferencia-falhou"):
+                        raise OSError("falha sintetica")
+                    if message == "/blockbots" and caso == "preferencia-travou":
+                        await asyncio.Event().wait()
+                client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+                    username="ContaTeste", logged_in=named, server_configuration=types.SimpleNamespace(authentication_url="x"),
+                    send_message=send, change_avatar=AsyncMock(), _avatar=None, search_ladder_game=AsyncMock())
+                original_search = client.search_ladder_game
+                client.wait_for_login = types.MethodType(wait_for_login, client)
+                deadlines = []
+                async def prazo_curto(awaitable, timeout):
+                    deadlines.append(timeout)
+                    return await asyncio.wait_for(awaitable, 0.05)
+                async_api = types.SimpleNamespace(**vars(asyncio))
+                async_api.wait_for = prazo_curto
+                namespace = {"Player": object, "os": os, "asyncio": async_api, "json": json}
+                exec(compile(ast.Module(body=[definition], type_ignores=[]), "player.py", "exec"), namespace)
+                fake = types.SimpleNamespace(request=lambda *a, **k: types.SimpleNamespace(text=']{"assertion":"a,u,2;sig"}'))
+                with patch.dict(sys.modules, requests=fake), patch.dict(os.environ, {}, clear=True), \
+                     patch("os._exit", side_effect=FatalLogin) as sair:
+                    namespace["_public_login"](types.SimpleNamespace(ps_client=client), "senha")
+                    busca = asyncio.create_task(client.search_ladder_game("fmt", "time"))
+                    try:
+                        with self.assertRaises(FatalLogin):
+                            await client.log_in(["", "challstr", "4", "a"])
+                        named.set()  # updateuser tardio nunca libera uma sessao que falhou.
+                        await asyncio.sleep(0)
+                        self.assertFalse(busca.done())
+                        sair.assert_called_once_with(78)
+                        original_search.assert_not_awaited()
+                        self.assertEqual(deadlines, [30])
+                    finally:
+                        busca.cancel()
+                        await asyncio.gather(busca, return_exceptions=True)
 
 
 if __name__ == "__main__":
