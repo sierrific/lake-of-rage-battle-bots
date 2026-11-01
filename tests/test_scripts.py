@@ -139,16 +139,18 @@ class TestRodarBot(unittest.TestCase):
     def test_navegador_nao_le_senha_antiga_nem_herdada(self):
         (self.d / "ai/scripts/bot.sh").write_text(
             '#!/usr/bin/env zsh\npython3 -c \'import os,json; '
-            'print(json.dumps({k:os.environ.get(k) for k in ("PS_PASSWORD","LOR_BROWSER_LOGIN","LOR_ALLOW_BOTS_FILE","LOR_SKIP_BOT_WAIT_FILE")}))\'\n')
+            'print(json.dumps({k:os.environ.get(k) for k in ("PS_PASSWORD","LOR_BROWSER_LOGIN","LOR_ALLOW_BOTS_FILE","LOR_SKIP_BOT_WAIT_FILE","LOR_FAST_DECISIONS_FILE")}))\'\n')
         r = subprocess.run([str(self.d / "rodar.sh")], capture_output=True, text=True, timeout=10,
                            env={**self.env_rodar(), "MODO": "--ladder", "LOGIN": "navegador",
                                 "PERMITIR_BOTS_ARQUIVO": str(self.d / "bot.permitir-bots"),
                                 "SEM_ESPERA_BOTS_ARQUIVO": str(self.d / "bot.sem-espera-bots"),
+                                "DECISOES_RAPIDAS_ARQUIVO": str(self.d / "bot.decisoes-rapidas"),
                                 "SENHA_ARQUIVO": str(self.d / "nao-existe")})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), {"PS_PASSWORD": "",
                                               "LOR_ALLOW_BOTS_FILE": str(self.d / "bot.permitir-bots"),
                                               "LOR_SKIP_BOT_WAIT_FILE": str(self.d / "bot.sem-espera-bots"),
+                                              "LOR_FAST_DECISIONS_FILE": str(self.d / "bot.decisoes-rapidas"),
                                               "LOR_BROWSER_LOGIN": "/opt/lor-bots/login-navegador.py"})
 
     def test_modo_invalido_nao_liga_nem_reconecta(self):
@@ -517,6 +519,29 @@ class TestPainelEsperarBots(TestPainelDesafio):
         self.painel("esperar-bots", "sim")
         self.assertFalse(flag.exists())
         self.assertIn("esperar_bots=sim", self.painel("estado").splitlines())
+
+
+class TestPainelDecisoesInstantaneas(TestPainelDesafio):
+    def test_padrao_nao_sim_envia_sem_espera_e_nao_restaura_intervalo(self):
+        self.assertIn("decisoes_instantaneas=nao", self.painel("estado").splitlines())
+        self.painel("formato", "bo3")
+        before = (self.d / "bot.env").read_text()
+        self.assertIn(f"DECISOES_RAPIDAS_ARQUIVO={self.d}/bot.decisoes-rapidas", before)
+        for _ in range(2):
+            self.assertIn("ok=decisoes-instantaneas", self.painel("decisoes-instantaneas", "sim"))
+        flag = self.d / "bot.decisoes-rapidas"
+        self.assertEqual(flag.stat().st_mode & 0o777, 0o644)
+        state = self.painel("estado").splitlines()
+        self.assertIn("decisoes_instantaneas=sim", state)
+        self.assertIn("esperar_bots=sim", state)
+        self.assertIn("bloquear_bots=sim", state)
+        self.assertEqual((self.d / "bot.env").read_text(), before)
+        self.assertFalse(any("restart" in call or "start lor-bot@" in call for call in self.chamadas()))
+        self.assertIn("erro=", self.painel("decisoes-instantaneas", "talvez", ok=False))
+        self.assertTrue(flag.exists())
+        self.painel("decisoes-instantaneas", "nao")
+        self.assertFalse(flag.exists())
+        self.assertIn("decisoes_instantaneas=nao", self.painel("estado").splitlines())
 
 
 class TestPainelDiscord(TestPainelDesafio):

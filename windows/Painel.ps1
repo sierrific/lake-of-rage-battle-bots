@@ -1328,13 +1328,19 @@ $ttTema.SetToolTip($lBloquearBots, 'Ligado: /blockbots. Desligado: /allowbots. V
 $ttTema.SetToolTip($xBloquearBots, 'Bloquear bots no ladder (/blockbots) ou permitir (/allowbots).')
 $tUsuario = Novo-Campo '' 20 72 365 38 $cConta
 $tUsuario.Caixa.AccessibleName = 'Usuário do Showdown'
-[void](Novo-Rotulo 'Login no navegador' 20 120 350 20 $cConta)
-$tSenha = Novo-Campo '' 20 142 365 38 $cConta
-$tSenha.Caixa.AccessibleName = 'Autenticação pelo navegador'
-$tSenha.Caixa.ReadOnly = $true
-$tSenha.Caixa.TabStop = $false
-$tSenha.Caixa.Text = 'Entre no site oficial ao ligar o bot'
-$ttTema.SetToolTip($tSenha.Caixa, 'A senha é digitada apenas no Showdown.')
+$lLoginNavegador = Novo-Rotulo 'Login no navegador ao ligar o bot' 20 120 365 20 $cConta 'suave' 9.5
+$ttTema.SetToolTip($lLoginNavegador, 'A senha é digitada apenas no site oficial do Showdown.')
+$xDecisoesInstantaneas = New-Object LoR.Chave
+$xDecisoesInstantaneas.FundoNome = 'cartao'
+$xDecisoesInstantaneas.Marcado = $false
+$xDecisoesInstantaneas.AccessibleName = 'Decisões Instantâneas: Não'
+[void](Pos $xDecisoesInstantaneas 20 154 36 20 $cConta)
+$lDecisoesInstantaneas = Novo-Rotulo 'Decisões Instantâneas' 66 154 235 22 $cConta 'texto' 9.5
+$lDecisoesInstantaneas.Cursor = 'Hand'
+$lDecisoesValor = Novo-Rotulo 'Não' 303 154 68 22 $cConta 'suave' 9.5
+$lDecisoesValor.Cursor = 'Hand'
+$ajudaDecisoes = 'Sim: envia assim que a IA termina o cálculo. Não: completa a decisão até 10–20 segundos, incluindo a escolha dos Pokémon. Reduz a espera quando há pouco tempo no relógio.'
+foreach ($c in @($xDecisoesInstantaneas, $lDecisoesInstantaneas, $lDecisoesValor)) { $ttTema.SetToolTip($c, $ajudaDecisoes) }
 $xEsperarBots = New-Object LoR.Chave
 $xEsperarBots.FundoNome = 'cartao'
 $xEsperarBots.Marcado = $true
@@ -1571,7 +1577,7 @@ function Aplicar-Layout {
         } elseif ($script:secao -eq 'ajustes') {
             $cConta.SetBounds((S 22), (S 181), (S 483), (S 286))
             $cColeta.SetBounds((S 521), (S 181), (S 483), (S 286))
-            $tUsuario.Width = S 443; $tSenha.Width = S 443; $tCodigo.Width = S 443
+            $tUsuario.Width = S 443; $tCodigo.Width = S 443
             $bConta.Left = S 312; $bCodigo.Left = S 312
             $lCodigo.Width = S 423; $lColetaAjuda.Width = S 443
         } else {
@@ -1616,7 +1622,7 @@ function Aplicar-Layout {
         $cJogo.Controls.Add($bDesafiar)
         $bDesafiar.SetBounds((S 344), (S 124), (S 231), (S 32))
         $cConta.SetBounds((S 618), (S 230), (S 393), (S 277))
-        $tUsuario.Width = S 353; $tSenha.Width = S 353
+        $tUsuario.Width = S 353
         $bConta.Left = S 222
         $cColeta.SetBounds((S 13), (S 405), (S 595), (S 102))
         $tCodigo.SetBounds((S 20), (S 50), (S 419), (S 32))
@@ -1923,7 +1929,6 @@ function Atualizar-EstadoTela($Resposta = $null) {
     if (Precisa-Atualizar) { $lAtualizar.Text = "Atualizar para $($script:versaoNova)"; $lAtualizar.Negrito = $true }
     else { $lAtualizar.Text = 'Verificar atualização'; $lAtualizar.Negrito = $false }
     if (-not $tUsuario.Caixa.Focused -and -not $tUsuario.Caixa.Modified) { $tUsuario.Caixa.Text = $e['conta'] }
-    $tSenha.Dica = ''
     $lNavConta.Text = if ($e['conta']) { $e['conta'] } else { 'Sem conta' }
     $ttTema.SetToolTip($lNavConta, $lNavConta.Text)
     $configurada = [bool]$e['conta']
@@ -1970,7 +1975,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, replays e arquivos locais.' }
@@ -2056,7 +2061,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -2073,6 +2078,8 @@ function Carregar-Opcoes {
     $xChat.Marcado = $e['chat'] -ne 'nao'
     $xBloquearBots.Marcado = $e['bloquear_bots'] -ne 'nao'
     $xEsperarBots.Marcado = $e['esperar_bots'] -ne 'nao'
+    $xDecisoesInstantaneas.Marcado = $e['decisoes_instantaneas'] -eq 'sim'
+    Atualizar-RotuloDecisoes
     $cTime.Itens.Clear()
     $cTime.Itens.Add('Padrão (MC371/MC196)')
     foreach ($t in ((Invoke-Painel @('times')).Saida -split "`n")) { if ($t.Trim()) { $cTime.Itens.Add($t.Trim()) } }
@@ -2159,6 +2166,23 @@ function Mudar-EsperarBots {
 }
 $xEsperarBots.add_Mudou({ Mudar-EsperarBots })
 $lEsperarBots.Add_Click({ if ($xEsperarBots.Enabled) { $xEsperarBots.Marcado = -not $xEsperarBots.Marcado; Mudar-EsperarBots } })
+
+function Atualizar-RotuloDecisoes {
+    $lDecisoesValor.Text = if ($xDecisoesInstantaneas.Marcado) { 'Sim' } else { 'Não' }
+    $xDecisoesInstantaneas.AccessibleName = "Decisões Instantâneas: $($lDecisoesValor.Text)"
+}
+function Mudar-DecisoesInstantaneas {
+    $v = if ($xDecisoesInstantaneas.Marcado) { 'sim' } else { 'nao' }
+    if (Resultado (Invoke-Painel @('decisoes-instantaneas', $v)) '') {
+        if ($xDecisoesInstantaneas.Marcado) { Mensagem 'Decisões Instantâneas: Sim. O bot envia assim que termina o cálculo, encerrando também uma espera adicional em curso.' }
+        else { Mensagem 'Decisões Instantâneas: Não. As próximas escolhas de Pokémon e de cada turno levam cerca de 10–20 segundos, contando o cálculo. Com pouco tempo no relógio, o bot reduz a espera.' }
+    } else { $xDecisoesInstantaneas.Marcado = -not $xDecisoesInstantaneas.Marcado }
+    Atualizar-RotuloDecisoes
+}
+$xDecisoesInstantaneas.add_Mudou({ Mudar-DecisoesInstantaneas })
+foreach ($c in @($lDecisoesInstantaneas, $lDecisoesValor)) {
+    $c.Add_Click({ if ($xDecisoesInstantaneas.Enabled) { $xDecisoesInstantaneas.Marcado = -not $xDecisoesInstantaneas.Marcado; Mudar-DecisoesInstantaneas } })
+}
 
 $bAplicar.Add_Click({
     $f = if ($cFormato.Indice -eq 1) { 'bo1' } else { 'bo3' }
@@ -2358,7 +2382,7 @@ function Atualizar-Painel {
     # Espera sem congelar a janela (a atualização leva minutos): o timer fica parado e os botões
     # desligados até ela terminar.
     $timer.Stop()
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {

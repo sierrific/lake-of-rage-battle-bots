@@ -40,7 +40,7 @@ function Fresh-State {
     $script:fake = @{
         hoje_vitorias = '3'; hoje_derrotas = '1'; hoje_times = 'MC371 2-1, MC196 1-0'
         bot = 'active'; conta = 'LoRBotTeste'; senha = 'sim'; codigo = 'sim'; envio = 'active'
-        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; bloquear_bots = 'sim'; esperar_bots = 'sim'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
+        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; bloquear_bots = 'sim'; esperar_bots = 'sim'; decisoes_instantaneas = 'nao'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
         partida = 'https://play.pokemonshowdown.com/battle-teste'; desafio = ''; desafio_fase = ''
         placar_oponente = 'AdversarioTeste'; placar_bo3 = 'sim'; placar_jogo = '2'; placar_vitorias = '1'; placar_derrotas = '0'
         placar_turno = '4'; placar_nossos = '3'; placar_deles = '1'; placar_resultado = ''
@@ -73,6 +73,7 @@ function Install-Fakes {
             chat { $script:fake.chat = $Argumentos[1] }
             'bloquear-bots' { $script:fake.bloquear_bots = $Argumentos[1] }
             'esperar-bots' { $script:fake.esperar_bots = $Argumentos[1] }
+            'decisoes-instantaneas' { $script:fake.decisoes_instantaneas = $Argumentos[1] }
             time { $script:fake.time = $Argumentos[1] }
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
             'conta-navegador' { $script:fake.conta = ($Entrada -split "`n")[0]; $script:fake.login = 'navegador' }
@@ -191,7 +192,7 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             Assert ($bVer.Visible -and -not $bLigar.Visible) 'acao principal em partida'
             Assert ($atividade.Itens.Count -eq 4) 'atividade estruturada'
             Assert ($tLog.Caixa.Text -match 'WARNING exemplo') 'log bruto conservado'
-            Assert ($tSenha.Caixa.ReadOnly -and $tCodigo.Caixa.UseSystemPasswordChar) 'senha fora do painel e codigo mascarado'
+            Assert ($lLoginNavegador.Text -match 'Login no navegador' -and $tCodigo.Caixa.UseSystemPasswordChar) 'login no navegador e codigo mascarado'
             Assert ($xAuto.TabStop -and $cFormato.TabStop -and $nTimes.TabStop -and $lAtualizar.TabStop) 'acesso por teclado'
             $isKey = [LoR.Base].GetMethod('IsInputKey', [Reflection.BindingFlags]'Instance,NonPublic')
             Assert ($isKey.Invoke($bAplicar, @([System.Windows.Forms.Keys]::Enter))) 'Enter roteado ao botao'
@@ -391,6 +392,20 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             $fake.Remove('esperar_bots'); $script:opcoesCarregadas = $false; Atualizar-Tela
             Assert $xEsperarBots.Marcado 'estado antigo preserva espera ligada'
             $fake.esperar_bots = 'sim'
+            Assert (-not $xDecisoesInstantaneas.Marcado -and $lDecisoesValor.Text -eq 'Não') 'instantaneas nao por padrao'
+            $script:commands.Clear(); $xDecisoesInstantaneas.Marcado = $true; Mudar-DecisoesInstantaneas
+            Assert ((Has-Command 'decisoes-instantaneas|sim') -and $fake.decisoes_instantaneas -eq 'sim' -and -not (Has-Command 'reiniciar')) 'instantaneas sim sem reiniciar'
+            Assert ($lDecisoesValor.Text -eq 'Sim') 'rotulo instantaneas sim'
+            Assert ($fake.esperar_bots -eq 'sim' -and $fake.bloquear_bots -eq 'sim') 'instantaneas independente das opcoes de bots'
+            $script:failure = 'decisoes-instantaneas'; $xDecisoesInstantaneas.Marcado = $false; Mudar-DecisoesInstantaneas
+            Assert ($xDecisoesInstantaneas.Marcado -and $lDecisoesValor.Text -eq 'Sim') 'falha restaura estado e rotulo das decisoes'
+            $script:failure = ''; $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert ($xDecisoesInstantaneas.Marcado -and $lDecisoesValor.Text -eq 'Sim') 'instantaneas recupera preferencia salva'
+            $xDecisoesInstantaneas.Marcado = $false; Mudar-DecisoesInstantaneas
+            Assert ($fake.decisoes_instantaneas -eq 'nao' -and $lDecisoesValor.Text -eq 'Não') 'instantaneas nao restaura 10-20 segundos'
+            $fake.Remove('decisoes_instantaneas'); $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert (-not $xDecisoesInstantaneas.Marcado) 'estado antigo usa instantaneas nao'
+            $fake.decisoes_instantaneas = 'nao'
             $cTime.Indice = 1; $bRemTime.PerformClick()
             Assert (-not (Has-Command 'remover-time|SolUgarte')) 'remover recusa sem confirmacao'
             $script:approve = $true; $bRemTime.PerformClick()
@@ -409,9 +424,9 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             Assert ($script:startupChanges -eq 1) 'alternancia inicializacao Windows'
             $script:failure = 'estado'
             Atualizar-Tela
-            Assert ($lBot.Text -eq 'Sem resposta do WSL' -and -not $bVer.Enabled -and -not $bAgora.Enabled -and -not $bAplicar.Enabled) 'erro WSL limpa acoes antigas'
+            Assert ($lBot.Text -eq 'Sem resposta do WSL' -and -not $bVer.Enabled -and -not $bAgora.Enabled -and -not $bAplicar.Enabled -and -not $xDecisoesInstantaneas.Enabled) 'erro WSL limpa acoes antigas'
             $script:failure = ''; Atualizar-Tela
-            Assert ($bAplicar.Enabled -and $lBot.Text -eq 'Bot em execução') 'recuperacao do WSL'
+            Assert ($bAplicar.Enabled -and $xDecisoesInstantaneas.Enabled -and $lBot.Text -eq 'Bot em execução') 'recuperacao do WSL'
         }
     } finally {
         $form.Close(); $form.Dispose(); $ttTema.Dispose()
