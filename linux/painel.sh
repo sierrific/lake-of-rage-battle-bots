@@ -16,6 +16,7 @@
 #   painel.sh codigo                    stdin: o código da coleta (conferido na coleta antes de salvar)
 #   painel.sh formato bo3|bo1
 #   painel.sh timer sim|nao             o bot liga o timer no começo de cada partida (padrão: sim)
+#   painel.sh bloquear-bots sim|nao     /blockbots ou /allowbots no login e antes da próxima busca
 #   painel.sh chat sim|nao              o bot diz "glhf" no começo e "gg wp" no fim de cada partida
 #                                       (padrão: sim; vale já na próxima partida, sem reiniciar)
 #   painel.sh discord sim|nao           as séries deste PC são postadas no Discord do time (padrão:
@@ -82,6 +83,8 @@ COLETA_STATUS="$AIVGC/data/live_games/.coleta-status"
 SEM_DISCORD="$ETC/sem-discord"
 # Existe = o bot não manda "glhf" / "gg wp" no chat da partida (--chat-off: ele confere a cada partida).
 SEM_CHAT="$ETC/$BOT_ID.sem-chat"
+# Ausente = /blockbots; presente = /allowbots. O bot relê antes de cada busca no ladder.
+PERMITIR_BOTS="$ETC/$BOT_ID.permitir-bots"
 # O bot só liga com um código da coleta aceito pela coleta: rodar-bot.sh --conferir.
 RODAR_BOT="$(dirname "$(readlink -f "$0")")/rodar-bot.sh"
 
@@ -125,6 +128,7 @@ gerar_env() {
 		printf 'BOT="%s"\n' "$conta"
 		printf 'LOGIN=%s\n' "$(conf_get login || true)"
 		printf 'SENHA_ARQUIVO=%s\n' "$SENHA"
+		printf 'PERMITIR_BOTS_ARQUIVO=%s\n' "$PERMITIR_BOTS"
 		printf 'SERVIDOR=%s\n' "$(conf_get servidor || true)"
 		printf 'MODO="%s"\n' "$modo"
 	} >"$ENV.tmp"
@@ -355,6 +359,7 @@ estado)
 	echo "timer=${tm:-sim}"
 	echo "discord=$([ -e "$SEM_DISCORD" ] && echo nao || echo sim)"
 	echo "chat=$([ -e "$SEM_CHAT" ] && echo nao || echo sim)"
+	echo "bloquear_bots=$([ -e "$PERMITIR_BOTS" ] && echo nao || echo sim)"
 	mem=$(systemctl show -p MemoryCurrent --value "$UNIT" 2>/dev/null || true)
 	[[ "$mem" =~ ^[0-9]+$ ]] && echo "memoria_mb=$((mem / 1024 / 1024))" || echo "memoria_mb="
 	# A batalha em andamento: a última anunciada no log ("watch: https://play.pokemonshowdown.com/battle-..."),
@@ -523,6 +528,14 @@ timer)
 	conf_set timer "$1"
 	gerar_env
 	echo ok=timer
+	;;
+bloquear-bots)
+	case "${1:-}" in
+	sim) rm -f "$PERMITIR_BOTS" ;;
+	nao) touch "$PERMITIR_BOTS" && chmod 644 "$PERMITIR_BOTS" ;;
+	*) echo "erro=use sim ou nao"; exit 1 ;;
+	esac
+	echo ok=bloquear-bots
 	;;
 chat)
 	# Vale já na próxima partida, sem reiniciar o bot (ele confere o arquivo a cada partida).

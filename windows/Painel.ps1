@@ -1316,7 +1316,16 @@ $bEditarConta = Novo-Botao 'Editar' 'Fantasma' '' 319 9 80 32 $cResumoConta
 
 # Ajustes: os mesmos campos e eventos de salvamento do painel anterior.
 $cConta = Novo-Cartao 'Conta do Showdown' '' 170 137 405 286
-[void](Novo-Rotulo 'Usuário' 20 50 350 20 $cConta)
+[void](Novo-Rotulo 'Usuário' 20 50 170 20 $cConta)
+$xBloquearBots = New-Object LoR.Chave
+$xBloquearBots.FundoNome = 'cartao'
+$xBloquearBots.Marcado = $true
+$xBloquearBots.AccessibleName = 'Bloquear bots no ladder'
+[void](Pos $xBloquearBots 202 50 36 20 $cConta)
+$lBloquearBots = Novo-Rotulo 'Bloquear bots' 248 50 125 20 $cConta 'texto' 9.5
+$lBloquearBots.Cursor = 'Hand'
+$ttTema.SetToolTip($lBloquearBots, 'Ligado: /blockbots. Desligado: /allowbots. Vale no próximo login ou antes da próxima busca no ladder.')
+$ttTema.SetToolTip($xBloquearBots, 'Bloquear bots no ladder (/blockbots) ou permitir (/allowbots).')
 $tUsuario = Novo-Campo '' 20 72 365 38 $cConta
 $tUsuario.Caixa.AccessibleName = 'Usuário do Showdown'
 [void](Novo-Rotulo 'Login no navegador' 20 120 350 20 $cConta)
@@ -1918,7 +1927,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, replays e arquivos locais.' }
@@ -2004,7 +2013,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -2019,6 +2028,7 @@ function Carregar-Opcoes {
     $cTimer.Indice = if ($e['timer'] -eq 'nao') { 1 } else { 0 }
     $xDiscord.Marcado = $e['discord'] -ne 'nao'
     $xChat.Marcado = $e['chat'] -ne 'nao'
+    $xBloquearBots.Marcado = $e['bloquear_bots'] -ne 'nao'
     $cTime.Itens.Clear()
     $cTime.Itens.Add('Padrão (MC371/MC196)')
     foreach ($t in ((Invoke-Painel @('times')).Saida -split "`n")) { if ($t.Trim()) { $cTime.Itens.Add($t.Trim()) } }
@@ -2085,6 +2095,16 @@ function Mudar-Chat {
 }
 $xChat.add_Mudou({ Mudar-Chat })
 $lChat.Add_Click({ if ($xChat.Enabled) { $xChat.Marcado = -not $xChat.Marcado; Mudar-Chat } })
+
+function Mudar-BloquearBots {
+    $v = if ($xBloquearBots.Marcado) { 'sim' } else { 'nao' }
+    if (Resultado (Invoke-Painel @('bloquear-bots', $v)) '') {
+        $comando = if ($xBloquearBots.Marcado) { '/blockbots' } else { '/allowbots' }
+        Mensagem "Preferência salva. O bot envia $comando no próximo login ou antes da próxima busca por partida."
+    } else { $xBloquearBots.Marcado = -not $xBloquearBots.Marcado }
+}
+$xBloquearBots.add_Mudou({ Mudar-BloquearBots })
+$lBloquearBots.Add_Click({ if ($xBloquearBots.Enabled) { $xBloquearBots.Marcado = -not $xBloquearBots.Marcado; Mudar-BloquearBots } })
 
 $bAplicar.Add_Click({
     $f = if ($cFormato.Indice -eq 1) { 'bo1' } else { 'bo3' }
@@ -2284,7 +2304,7 @@ function Atualizar-Painel {
     # Espera sem congelar a janela (a atualização leva minutos): o timer fica parado e os botões
     # desligados até ela terminar.
     $timer.Stop()
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {
