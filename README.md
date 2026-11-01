@@ -65,6 +65,9 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
 - **Postar no Discord** (em Ajustes, no cartão da coleta): desligado, as séries deste PC não aparecem
   no canal do Discord, mas as partidas continuam indo para a coleta e o treino. Vale já para a
   próxima partida, sem reiniciar o bot.
+- **glhf / gg wp no chat** (em Ajustes, no cartão da conta; ligado por padrão): o bot diz "glhf" no
+  chat da batalha no começo da partida (no Bo3, só no jogo 1) e "gg wp" no fim de cada jogo. Vale já
+  para a próxima partida, sem reiniciar o bot.
 - **Ligar o bot junto com o Windows**.
 - Enquanto o bot está ligado, o PC **não entra em suspensão** sozinho (com o PC dormindo, o timer da
   partida corre e o bot perde). A tela ainda apaga normalmente. Num notebook, fechar a tampa segue a

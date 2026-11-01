@@ -412,6 +412,25 @@ class TestPainelTimer(TestPainelDesafio):
         self.assertIn("erro=", self.painel("timer", "talvez", ok=False))
 
 
+class TestPainelChat(TestPainelDesafio):
+    """chat sim|nao: "glhf" / "gg wp" no chat da partida, por um arquivo que o bot confere a cada
+    partida (--chat-off), sem reiniciar."""
+
+    def test_chat_liga_por_padrao_e_desliga_sem_reiniciar(self):
+        self.assertIn("chat=sim", self.painel("estado").splitlines())
+        self.painel("formato", "bo3")
+        self.assertIn(f"--chat-off {self.d}/bot.sem-chat", (self.d / "bot.env").read_text())
+        antes = (self.d / "bot.env").read_text()
+        self.assertIn("ok=chat", self.painel("chat", "nao"))
+        self.assertTrue((self.d / "bot.sem-chat").exists())
+        self.assertIn("chat=nao", self.painel("estado").splitlines())
+        self.assertEqual((self.d / "bot.env").read_text(), antes)
+        self.painel("chat", "sim")
+        self.assertFalse((self.d / "bot.sem-chat").exists())
+        self.assertIn("chat=sim", self.painel("estado").splitlines())
+        self.assertIn("erro=", self.painel("chat", "talvez", ok=False))
+
+
 class TestPainelDiscord(TestPainelDesafio):
     """discord sim|nao: o arquivo que o enviar-partidas.py lê para marcar as partidas."""
 

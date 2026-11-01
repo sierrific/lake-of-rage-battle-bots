@@ -40,7 +40,7 @@ function Fresh-State {
     $script:fake = @{
         hoje_vitorias = '3'; hoje_derrotas = '1'; hoje_times = 'MC371 2-1, MC196 1-0'
         bot = 'active'; conta = 'LoRBotTeste'; senha = 'sim'; codigo = 'sim'; envio = 'active'
-        formato = 'bo3'; timer = 'sim'; discord = 'sim'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
+        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
         partida = 'https://play.pokemonshowdown.com/battle-teste'; desafio = ''; desafio_fase = ''
         placar_oponente = 'AdversarioTeste'; placar_bo3 = 'sim'; placar_jogo = '2'; placar_vitorias = '1'; placar_derrotas = '0'
         placar_turno = '4'; placar_nossos = '3'; placar_deles = '1'; placar_resultado = ''
@@ -70,6 +70,7 @@ function Install-Fakes {
             formato { $script:fake.formato = $Argumentos[1] }
             timer { $script:fake.timer = $Argumentos[1] }
             discord { $script:fake.discord = $Argumentos[1] }
+            chat { $script:fake.chat = $Argumentos[1] }
             time { $script:fake.time = $Argumentos[1] }
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
             conta { $script:fake.conta = ($Entrada -split "`n")[0]; $script:fake.senha = 'sim' }
@@ -323,6 +324,16 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             Assert (-not $xDiscord.Marcado) 'chave do discord vem do estado'
             $xDiscord.Marcado = $true; Mudar-Discord
             Assert ($fake.discord -eq 'sim') 'religar discord'
+            Assert $xChat.Marcado 'glhf/gg wp ligado por padrao'
+            $script:commands.Clear(); $xChat.Marcado = $false; Mudar-Chat
+            Assert ((Has-Command 'chat|nao') -and $fake.chat -eq 'nao' -and -not (Has-Command 'reiniciar')) 'desligar chat vale sem reiniciar'
+            $script:failure = 'chat'; $xChat.Marcado = $true; Mudar-Chat
+            Assert (-not $xChat.Marcado) 'falha no backend volta a chave do chat'
+            $script:failure = ''
+            $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert (-not $xChat.Marcado) 'chave do chat vem do estado'
+            $xChat.Marcado = $true; Mudar-Chat
+            Assert ($fake.chat -eq 'sim') 'religar chat'
             $cTime.Indice = 1; $bRemTime.PerformClick()
             Assert (-not (Has-Command 'remover-time|SolUgarte')) 'remover recusa sem confirmacao'
             $script:approve = $true; $bRemTime.PerformClick()

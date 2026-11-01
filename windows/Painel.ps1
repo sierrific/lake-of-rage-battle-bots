@@ -1325,6 +1325,15 @@ $iCadeado.Text = [string][char]0xE72E
 [void](Pos $iCadeado 20 190 20 22 $cConta)
 [void](Novo-Rotulo 'A senha fica apenas neste PC.' 46 190 339 22 $cConta 'suave' 10)
 $bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 228 151 38 $cConta
+# "glhf" no começo e "gg wp" no fim de cada partida, no chat da batalha; vale já na próxima.
+$xChat = New-Object LoR.Chave
+$xChat.FundoNome = 'cartao'
+$xChat.Marcado = $true
+$xChat.AccessibleName = 'Dizer glhf e gg wp no chat das partidas'
+[void](Pos $xChat 20 237 36 20 $cConta)
+$lChat = Novo-Rotulo 'glhf / gg wp no chat' 66 230 160 34 $cConta 'texto' 9.5
+$lChat.Cursor = 'Hand'
+$ttTema.SetToolTip($lChat, 'O bot diz "glhf" no começo da partida (no Bo3, da série) e "gg wp" no fim de cada jogo.')
 $cColeta = Novo-Cartao 'Coleta de partidas' 'Código para treino e Discord' 591 137 413 286
 $tCodigo = Novo-Campo 'Cole seu código' 20 72 373 38 $cColeta
 $tCodigo.Caixa.AccessibleName = 'Código da coleta de partidas'
@@ -1903,7 +1912,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, replays e arquivos locais.' }
@@ -1989,7 +1998,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -2003,6 +2012,7 @@ function Carregar-Opcoes {
     $cFormato.Indice = if ($e['formato'] -eq 'bo1') { 1 } else { 0 }
     $cTimer.Indice = if ($e['timer'] -eq 'nao') { 1 } else { 0 }
     $xDiscord.Marcado = $e['discord'] -ne 'nao'
+    $xChat.Marcado = $e['chat'] -ne 'nao'
     $cTime.Itens.Clear()
     $cTime.Itens.Add('Padrão (MC371/MC196)')
     foreach ($t in ((Invoke-Painel @('times')).Saida -split "`n")) { if ($t.Trim()) { $cTime.Itens.Add($t.Trim()) } }
@@ -2059,6 +2069,17 @@ function Mudar-Discord {
 }
 $xDiscord.add_Mudou({ Mudar-Discord })
 $lDiscord.Add_Click({ if ($xDiscord.Enabled) { $xDiscord.Marcado = -not $xDiscord.Marcado; Mudar-Discord } })
+
+# Vale já na próxima partida, sem reiniciar o bot.
+function Mudar-Chat {
+    $v = if ($xChat.Marcado) { 'sim' } else { 'nao' }
+    if (Resultado (Invoke-Painel @('chat', $v)) '') {
+        if ($xChat.Marcado) { Mensagem 'A partir da próxima partida, o bot diz "glhf" no começo e "gg wp" no fim.' }
+        else { Mensagem 'A partir da próxima partida, o bot não manda mais nada no chat.' }
+    } else { $xChat.Marcado = -not $xChat.Marcado }
+}
+$xChat.add_Mudou({ Mudar-Chat })
+$lChat.Add_Click({ if ($xChat.Enabled) { $xChat.Marcado = -not $xChat.Marcado; Mudar-Chat } })
 
 $bAplicar.Add_Click({
     $f = if ($cFormato.Indice -eq 1) { 'bo1' } else { 'bo3' }
@@ -2258,7 +2279,7 @@ function Atualizar-Painel {
     # Espera sem congelar a janela (a atualização leva minutos): o timer fica parado e os botões
     # desligados até ela terminar.
     $timer.Stop()
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {

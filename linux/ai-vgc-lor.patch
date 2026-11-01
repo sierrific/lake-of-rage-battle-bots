@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..6d0c56b 100644
+index eb60a97..a32b27b 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -12,7 +12,7 @@ index eb60a97..6d0c56b 100644
  $PS_PASSWORD, or you type it at a prompt (blank for an unregistered name). `--from` accepts
  challenges only from those accounts; without it, anyone on the server can start a game.
  
-@@ -525,15 +526,57 @@ class ChallengeMixin:
+@@ -525,15 +526,66 @@ class ChallengeMixin:
      save_dir: Path | None = None  # games.jsonl plus an HTML replay per game
      logs_dir: Path | None = None  # logs_<format>.json, the scraped logs' layout, for the bot's games only
      watch_url: str | None = None  # "https://play.pokemonshowdown.com/": print each battle's link there
@@ -21,10 +21,19 @@ index eb60a97..6d0c56b 100644
      _watching: list[str] | None = None  # [current battle url, tag], read by the watch page's server
      stop_after_match = False  # set by the first Ctrl-C: finish the current game / Bo3 series, then stop
      timer = False  # turn the battle timer on in every game (so opponents can't stall)
++    chat = False  # say "glhf" when a game (Bo3: the series) starts and "gg wp" when each game ends
++    chat_off: Path | None = None  # ...except while this file exists (the panel's switch, read live)
 +    challenge_wait = 0  # --challenge: give up on a challenge not accepted after this many seconds (0: never)
 +    _challenge_out: bool | None = None  # our challenge: None not seen yet, True standing, False gone
++
++    def _chat_on(self) -> bool:
++        return self.chat and not (self.chat_off is not None and self.chat_off.exists())
  
      async def teampreview(self, battle: AbstractBattle) -> str:
++        if self._chat_on() and getattr(self, "series_of", {}).get(battle.battle_tag, (None, 1))[1] == 1:
++            await self.ps_client.send_message("glhf", battle.battle_tag)
++            if self.timer:
++                await asyncio.sleep(1)  # Showdown drops messages sent too close together
          if self.timer:
              await self.ps_client.send_message("/timer on", battle.battle_tag)
 -        return await super().teampreview(battle)
@@ -71,7 +80,7 @@ index eb60a97..6d0c56b 100644
  
      def _busy(self) -> bool:
          """A battle is still being played, or a Bo3 series has games left (the next game starts
-@@ -549,18 +592,254 @@ class ChallengeMixin:
+@@ -549,18 +601,254 @@ class ChallengeMixin:
          for _ in range(n_games):
              if self.stop_after_match:
                  break
@@ -333,20 +342,25 @@ index eb60a97..6d0c56b 100644
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
          opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
-@@ -645,6 +924,12 @@ class ChallengeMixin:
+@@ -645,6 +933,17 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
-+        # Upload the replay while still in the room (poke-env /leaves right after |win|).
-+        if self.replay_url and any(len(m) > 1 and m[1] in ("win", "tie") for m in split_messages[1:]):
-+            await self.ps_client.send_message("/savereplay silent", split_messages[0][0].removeprefix(">"))
-+            # Showdown throttles messages sent too close together ("typing too quickly"); without
-+            # this pause the /leave and the next ladder /search that follow could be dropped.
-+            await asyncio.sleep(1.5)
++        # Say "gg wp" and upload the replay while still in the room (poke-env /leaves right after |win|).
++        if any(len(m) > 1 and m[1] in ("win", "tie") for m in split_messages[1:]):
++            room = split_messages[0][0].removeprefix(">")
++            if self._chat_on():
++                await self.ps_client.send_message("gg wp", room)
++                await asyncio.sleep(1.5)
++            if self.replay_url:
++                await self.ps_client.send_message("/savereplay silent", room)
++                # Showdown throttles messages sent too close together ("typing too quickly"); without
++                # this pause the /leave and the next ladder /search that follow could be dropped.
++                await asyncio.sleep(1.5)
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -663,6 +948,8 @@ class ChallengeMixin:
+@@ -663,6 +962,8 @@ class ChallengeMixin:
          return battle
  
      def _battle_finished_callback(self, battle: AbstractBattle) -> None:
@@ -355,7 +369,7 @@ index eb60a97..6d0c56b 100644
          super()._battle_finished_callback(battle)
          self._last_end = time.time()
          if self.save_dir is None:
-@@ -674,8 +961,12 @@ class ChallengeMixin:
+@@ -674,8 +975,12 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -368,7 +382,7 @@ index eb60a97..6d0c56b 100644
                     # Team file the pool last handed out (ladder plays one match at a time).
                     "team": getattr(self._team, "last_name", None),
                     "model": getattr(self, "model_name", None),
-@@ -714,6 +1005,11 @@ class ChallengeMixin:
+@@ -714,6 +1019,11 @@ class ChallengeMixin:
                  and (self.allowed is None or to_id_str(user) in self.allowed))
  
      async def _handle_challenge_request(self, split_message: list[str]):
@@ -380,7 +394,7 @@ index eb60a97..6d0c56b 100644
          if len(split_message) >= 6 and self._wanted(split_message[2], split_message[5]):
              await self._challenge_queue.put((split_message[2].strip(), split_message[5]))
  
-@@ -725,8 +1021,19 @@ class ChallengeMixin:
+@@ -725,8 +1035,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -401,7 +415,7 @@ index eb60a97..6d0c56b 100644
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -785,12 +1092,26 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -785,12 +1106,26 @@ def _public_login(player: Player, password: str | None) -> None:
              if not assertion or assertion.startswith("{"):
                  print(f"login server refused '{name}': {assertion[:200]}", flush=True)
                  os._exit(1)
@@ -428,7 +442,7 @@ index eb60a97..6d0c56b 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +1139,12 @@ def main() -> None:
+@@ -818,6 +1153,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -441,7 +455,7 @@ index eb60a97..6d0c56b 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -829,6 +1156,9 @@ def main() -> None:
+@@ -829,6 +1170,9 @@ def main() -> None:
      ap.add_argument("--challenge", nargs="+", metavar="NAME",
                      help="challenge these accounts (e.g. scripts/vgcbench_bot.py) --n times in total, "
                           "one battle per account at a time")
@@ -451,7 +465,7 @@ index eb60a97..6d0c56b 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1187,8 @@ def main() -> None:
+@@ -857,6 +1201,8 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
@@ -460,7 +474,18 @@ index eb60a97..6d0c56b 100644
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -913,17 +1245,21 @@ def main() -> None:
+@@ -882,6 +1228,10 @@ def main() -> None:
+                     help="draw each match's team at random from just these --teams files (stems)")
+     ap.add_argument("--no-timer", action="store_true",
+                     help="on Showdown, don't turn the battle timer on at the start of each game")
++    ap.add_argument("--no-chat", action="store_true",
++                    help="on Showdown, don't say glhf at the start (Bo3: of the series) and gg wp at the end of each game")
++    ap.add_argument("--chat-off", type=Path, default=None, metavar="FILE",
++                    help="on Showdown, skip glhf / gg wp while FILE exists (checked at every game)")
+     ap.add_argument("--no-munchstats", action="store_true",
+                     help="--search on Showdown: don't fetch MunchStats usage for unknown opposing species")
+     ap.add_argument("--closed-sheets", action="store_true",
+@@ -913,17 +1263,21 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -485,7 +510,7 @@ index eb60a97..6d0c56b 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -949,7 +1285,7 @@ def main() -> None:
+@@ -949,7 +1303,7 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -494,7 +519,7 @@ index eb60a97..6d0c56b 100644
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -967,8 +1303,11 @@ def main() -> None:
+@@ -967,51 +1321,63 @@ def main() -> None:
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
              bot.logs_dir = args.logs_dir
@@ -505,9 +530,11 @@ index eb60a97..6d0c56b 100644
 +            # Replays only upload from the official server (other servers must be registered with it).
 +            bot.replay_url = "https://replay.pokemonshowdown.com/" if public and not args.server_url else None
              bot.timer = public and not args.no_timer
++            bot.chat = public and not args.no_chat
++            bot.chat_off = args.chat_off
              if public:
                  import threading
-@@ -976,42 +1315,49 @@ def main() -> None:
+ 
                  def watchdog():
                      # poke-env's listener just ends when the server drops the connection, leaving the
                      # bot waiting forever; exit with 75 instead so scripts/bot.sh logs in again.
@@ -575,7 +602,7 @@ index eb60a97..6d0c56b 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1381,7 @@ def main() -> None:
+@@ -1035,7 +1401,7 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
