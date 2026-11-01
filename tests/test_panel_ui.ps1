@@ -40,7 +40,7 @@ function Fresh-State {
     $script:fake = @{
         hoje_vitorias = '3'; hoje_derrotas = '1'; hoje_times = 'MC371 2-1, MC196 1-0'
         bot = 'active'; conta = 'LoRBotTeste'; senha = 'sim'; codigo = 'sim'; envio = 'active'
-        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; bloquear_bots = 'sim'; esperar_bots = 'sim'; decisoes_instantaneas = 'nao'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
+        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; bloquear_bots = 'sim'; esperar_bots = 'sim'; esperar_colmeia = 'sim'; decisoes_instantaneas = 'nao'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
         partida = 'https://play.pokemonshowdown.com/battle-teste'; desafio = ''; desafio_fase = ''
         placar_oponente = 'AdversarioTeste'; placar_bo3 = 'sim'; placar_jogo = '2'; placar_vitorias = '1'; placar_derrotas = '0'
         placar_turno = '4'; placar_nossos = '3'; placar_deles = '1'; placar_resultado = ''
@@ -73,6 +73,7 @@ function Install-Fakes {
             chat { $script:fake.chat = $Argumentos[1] }
             'bloquear-bots' { $script:fake.bloquear_bots = $Argumentos[1] }
             'esperar-bots' { $script:fake.esperar_bots = $Argumentos[1] }
+            'esperar-colmeia' { $script:fake.esperar_colmeia = $Argumentos[1] }
             'decisoes-instantaneas' { $script:fake.decisoes_instantaneas = $Argumentos[1] }
             time { $script:fake.time = $Argumentos[1] }
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
@@ -411,6 +412,19 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             $fake.Remove('esperar_bots'); $script:opcoesCarregadas = $false; Atualizar-Tela
             Assert $xEsperarBots.Marcado 'estado antigo preserva espera ligada'
             $fake.esperar_bots = 'sim'
+            Assert $xEsperarColmeia.Marcado 'espera da colmeia ligada por padrao'
+            $script:commands.Clear(); $xEsperarColmeia.Marcado = $false; Mudar-EsperarColmeia
+            Assert ((Has-Command 'esperar-colmeia|nao') -and $fake.esperar_colmeia -eq 'nao' -and -not (Has-Command 'reiniciar')) 'desligar espera da colmeia sem reiniciar'
+            Assert ($fake.esperar_bots -eq 'sim' -and $fake.bloquear_bots -eq 'sim') 'colmeia independente dos adversarios e blockbots'
+            $script:failure = 'esperar-colmeia'; $xEsperarColmeia.Marcado = $true; Mudar-EsperarColmeia
+            Assert (-not $xEsperarColmeia.Marcado) 'falha restaura toggle da colmeia'
+            $script:failure = ''; $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert (-not $xEsperarColmeia.Marcado) 'colmeia recupera preferencia salva'
+            $xEsperarColmeia.Marcado = $true; Mudar-EsperarColmeia
+            Assert ($fake.esperar_colmeia -eq 'sim') 'religar espera da colmeia'
+            $fake.Remove('esperar_colmeia'); $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert $xEsperarColmeia.Marcado 'estado antigo mantem espera da colmeia'
+            $fake.esperar_colmeia = 'sim'
             Assert (-not $xDecisoesInstantaneas.Marcado -and $lDecisoesValor.Text -eq 'Não') 'instantaneas nao por padrao'
             $script:commands.Clear(); $xDecisoesInstantaneas.Marcado = $true; Mudar-DecisoesInstantaneas
             Assert ((Has-Command 'decisoes-instantaneas|sim') -and $fake.decisoes_instantaneas -eq 'sim' -and -not (Has-Command 'reiniciar')) 'instantaneas sim sem reiniciar'
@@ -443,9 +457,9 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             Assert ($script:startupChanges -eq 1) 'alternancia inicializacao Windows'
             $script:failure = 'estado'
             Atualizar-Tela
-            Assert ($lBot.Text -eq 'Sem resposta do WSL' -and -not $bVer.Enabled -and -not $bAgora.Enabled -and -not $bAplicar.Enabled -and -not $xDecisoesInstantaneas.Enabled) 'erro WSL limpa acoes antigas'
+            Assert ($lBot.Text -eq 'Sem resposta do WSL' -and -not $bVer.Enabled -and -not $bAgora.Enabled -and -not $bAplicar.Enabled -and -not $xDecisoesInstantaneas.Enabled -and -not $xEsperarColmeia.Enabled) 'erro WSL limpa acoes antigas'
             $script:failure = ''; Atualizar-Tela
-            Assert ($bAplicar.Enabled -and $xDecisoesInstantaneas.Enabled -and $lBot.Text -eq 'Bot em execução') 'recuperacao do WSL'
+            Assert ($bAplicar.Enabled -and $xEsperarColmeia.Enabled -and $xDecisoesInstantaneas.Enabled -and $lBot.Text -eq 'Bot em execução') 'recuperacao do WSL'
         }
     } finally {
         $form.Close(); $form.Dispose(); $ttTema.Dispose()
