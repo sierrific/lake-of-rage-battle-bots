@@ -61,6 +61,12 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   adversários recorrentes saírem da fila antes de buscar partida. Desligado, pula essa espera e
   encerra uma espera em curso, sem reiniciar. A escolha fica salva. A coordenação entre os bots
   do nosso time e a pausa entre partidas continuam funcionando; `/blockbots` é uma opção separada.
+- **Decisões Instantâneas** (em Ajustes; **Não** por padrão): com **Não**, completa o tempo de cada
+  escolha de Pokémon e de cada turno até um alvo entre 10 e 20 segundos, contando o cálculo da IA.
+  Com **Sim**, envia assim que o cálculo termina; vale também para uma espera em curso, sem reiniciar.
+  Com pouco tempo no relógio, reduz ou pula a espera adicional, reservando 5 segundos para envio.
+  Correções de jogadas recusadas não recebem nova espera. Se o cálculo sozinho passar de 20 segundos,
+  envia ao terminar, sem espera extra. A preferência fica salva por bot e vale para cada jogo do Bo3.
 - **Código da coleta**: conferido na coleta ao salvar (o painel diz de quem é o código). Se depois a
   coleta recusar o código ou estiver fora do ar, o aviso aparece ali mesmo.
 - **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em
