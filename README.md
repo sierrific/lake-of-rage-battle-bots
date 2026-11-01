@@ -67,6 +67,10 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   Com pouco tempo no relógio, reduz ou pula a espera adicional, reservando 5 segundos para envio.
   Correções de jogadas recusadas não recebem nova espera. Se o cálculo sozinho passar de 20 segundos,
   envia ao terminar, sem espera extra. A preferência fica salva por bot e vale para cada jogo do Bo3.
+- **Chat restrito pelo Showdown**: se o servidor recusar o chat por restrição do provedor,
+  o bot suspende `glhf`/`gg wp` nessa conexão e mostra um aviso específico. A opção de chat fica
+  salva como você escolheu; o bot não tenta reenviar as mensagens recusadas. Comandos e erros de
+  batalha continuam sendo tratados normalmente.
 - **Código da coleta**: conferido na coleta ao salvar (o painel diz de quem é o código). Se depois a
   coleta recusar o código ou estiver fora do ar, o aviso aparece ali mesmo.
 - **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em

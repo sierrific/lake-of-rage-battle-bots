@@ -1703,6 +1703,15 @@ $script:recolhido = $false
 # Respostas de comandos chegam como PMs sintéticas e o poke-env as registra como WARNING.
 # Só reclassifica os textos conhecidos do servidor (~); erros reais continuam em Avisos.
 function Ler-RespostaShowdown([string]$linha) {
+    $restricaoChat = "Due to spam from your internet provider, you can't speak except to staff."
+    $mensagem = $linha -replace '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+ - .*? - (?:WARNING|CRITICAL) - ', ''
+    if ($mensagem.StartsWith("showdown chat restricted: $restricaoChat")) {
+        return [pscustomobject]@{ Titulo = 'Chat restrito pelo Showdown'; Detalhe = 'Restrição do provedor. Mensagens automáticas suspensas nesta conexão.'; Tipo = 'aviso'; CorNome = 'ambar' }
+    }
+    $erroChatAntigo = '^' + [regex]::Escape("Unexpected error message: ['', 'error', ") + "[""']" + [regex]::Escape($restricaoChat)
+    if ($mensagem -match $erroChatAntigo) {
+        return [pscustomobject]@{ Titulo = 'Chat restrito pelo Showdown'; Detalhe = 'O Showdown restringiu o chat desta conexão por causa do provedor.'; Tipo = 'aviso'; CorNome = 'ambar' }
+    }
     if ($linha -match '^ladder preference: /(block|allow)bots sent$') {
         $detalhe = if ($Matches[1] -eq 'block') { 'Bloqueio de bots solicitado ao Showdown.' } else { 'Permissão para enfrentar bots solicitada ao Showdown.' }
         return [pscustomobject]@{ Titulo = 'Preferência enviada'; Detalhe = $detalhe; Tipo = 'outro'; CorNome = 'suave' }
