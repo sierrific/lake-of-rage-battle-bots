@@ -45,7 +45,7 @@ class TestChatRestriction(unittest.IsolatedAsyncioTestCase):
         self.bot.ps_client = types.SimpleNamespace(send_message=AsyncMock())
         self.bot._placar = Mock()
         self.bot._pace_decision = AsyncMock()
-        self.battle = types.SimpleNamespace(battle_tag="battle-test")
+        self.battle = types.SimpleNamespace(battle_tag="battle-test", finished=False)
 
     async def test_recusa_suspende_chat_e_avisa_uma_vez_sem_repetir_envios(self):
         for _ in range(3):

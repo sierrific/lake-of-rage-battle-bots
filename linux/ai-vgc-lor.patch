@@ -1,5 +1,5 @@
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..3522463 100644
+index eb60a97..d128714 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -12,7 +12,7 @@ index eb60a97..3522463 100644
  $PS_PASSWORD, or you type it at a prompt (blank for an unregistered name). `--from` accepts
  challenges only from those accounts; without it, anyone on the server can start a game.
  
-@@ -525,22 +526,199 @@ class ChallengeMixin:
+@@ -525,22 +526,225 @@ class ChallengeMixin:
      save_dir: Path | None = None  # games.jsonl plus an HTML replay per game
      logs_dir: Path | None = None  # logs_<format>.json, the scraped logs' layout, for the bot's games only
      watch_url: str | None = None  # "https://play.pokemonshowdown.com/": print each battle's link there
@@ -44,6 +44,15 @@ index eb60a97..3522463 100644
 +        return t
 +
 +    async def _handle_battle_request(self, battle: AbstractBattle, maybe_default_order: bool = False):
++        if battle.finished or getattr(battle, "_lor_ended", False):
++            return
++        try:
++            await self._live_battle_request(battle, maybe_default_order)
++        except asyncio.CancelledError:
++            if not (battle.finished or getattr(battle, "_lor_ended", False)):
++                raise
++
++    async def _live_battle_request(self, battle: AbstractBattle, maybe_default_order: bool = False):
 +        if maybe_default_order:  # a new choice after an invalid one: still the same cycle
 +            retries = self.__dict__.setdefault("_decision_retries", set())
 +            retries.add(battle.battle_tag)
@@ -75,6 +84,13 @@ index eb60a97..3522463 100644
 +                clocks.pop(tag, None)
 +            elif line.startswith("|win|") or line in ("|tie", "|deinit"):
 +                clocks[tag] = 0.0  # no extra wait after a game ends
++                closed = self.__dict__.setdefault("_closed_battles", {})
++                closed[tag] = True
++                if len(closed) > 256:
++                    del closed[next(iter(closed))]
++                battle = getattr(self, "_battles", {}).get(tag)
++                if battle is not None:
++                    battle._lor_ended = True  # the search thread sees this before the room lock
 +            elif line.startswith("|inactive|"):
 +                text = line.removeprefix("|inactive|")
 +                private = re.match(r"Time left: (\d+) sec this turn(?: \| (\d+) sec total)?(?: \||$)", text)
@@ -100,7 +116,7 @@ index eb60a97..3522463 100644
 +        seconds = (personality.decision_seconds(preview=getattr(battle, 'teampreview', False), forced=forced)
 +                   if personality else random.uniform(10, 20))
 +        target = started + seconds
-+        while not os.path.exists(off_file) and not battle.finished:
++        while not os.path.exists(off_file) and not battle.finished and not getattr(battle, "_lor_ended", False):
 +            now = time.monotonic()
 +            deadline = self.__dict__.get("_decision_clocks", {}).get(battle.battle_tag)
 +            end = min(target, deadline - 5) if deadline is not None else target
@@ -143,6 +159,8 @@ index eb60a97..3522463 100644
 +        return True
  
      async def teampreview(self, battle: AbstractBattle) -> str:
++        if battle.finished or getattr(battle, "_lor_ended", False):
++            raise asyncio.CancelledError()
 +        started = time.monotonic()
 +        if (getattr(self, "series_of", {}).get(battle.battle_tag, (None, 1))[1] == 1
 +                and await self._say_personality('start', battle.battle_tag)):
@@ -151,16 +169,24 @@ index eb60a97..3522463 100644
          if self.timer:
              await self.ps_client.send_message("/timer on", battle.battle_tag)
 -        return await super().teampreview(battle)
++        if battle.finished or getattr(battle, "_lor_ended", False):
++            raise asyncio.CancelledError()
 +        order = await super().teampreview(battle)
++        if battle.finished or getattr(battle, "_lor_ended", False):
++            raise asyncio.CancelledError()
 +        self._placar(battle)
 +        if order.startswith("/team "):
 +            await self._pace_decision(battle, started)
 +        return order
 +
 +    async def choose_move(self, battle: AbstractBattle):
++        if battle.finished or getattr(battle, "_lor_ended", False):
++            raise asyncio.CancelledError()
 +        started = time.monotonic()
 +        self._placar(battle)
 +        order = await super().choose_move(battle)
++        if battle.finished or getattr(battle, "_lor_ended", False):
++            raise asyncio.CancelledError()
 +        await self._pace_decision(battle, started)
 +        return order
 +
@@ -215,7 +241,7 @@ index eb60a97..3522463 100644
  
      async def _ladder(self, n_games: int):
          # poke-env's loop, plus a graceful stop: once `stop_after_match` is set, queue no more
-@@ -549,18 +727,287 @@ class ChallengeMixin:
+@@ -549,18 +753,287 @@ class ChallengeMixin:
          for _ in range(n_games):
              if self.stop_after_match:
                  break
@@ -510,7 +536,7 @@ index eb60a97..3522463 100644
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
          opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
-@@ -645,6 +1092,20 @@ class ChallengeMixin:
+@@ -645,6 +1118,20 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
@@ -531,7 +557,7 @@ index eb60a97..3522463 100644
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -663,8 +1124,19 @@ class ChallengeMixin:
+@@ -663,8 +1150,19 @@ class ChallengeMixin:
          return battle
  
      def _battle_finished_callback(self, battle: AbstractBattle) -> None:
@@ -552,7 +578,7 @@ index eb60a97..3522463 100644
          if self.save_dir is None:
              return
          try:
-@@ -674,13 +1146,19 @@ class ChallengeMixin:
+@@ -674,13 +1172,19 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -573,7 +599,7 @@ index eb60a97..3522463 100644
              with open(self.save_dir / "games.jsonl", "a") as f:
                  f.write(json.dumps(row) + "\n")
              if self.logs_dir:
-@@ -714,6 +1192,11 @@ class ChallengeMixin:
+@@ -714,6 +1218,11 @@ class ChallengeMixin:
                  and (self.allowed is None or to_id_str(user) in self.allowed))
  
      async def _handle_challenge_request(self, split_message: list[str]):
@@ -585,7 +611,7 @@ index eb60a97..3522463 100644
          if len(split_message) >= 6 and self._wanted(split_message[2], split_message[5]):
              await self._challenge_queue.put((split_message[2].strip(), split_message[5]))
  
-@@ -725,8 +1208,19 @@ class ChallengeMixin:
+@@ -725,8 +1234,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -606,7 +632,7 @@ index eb60a97..3522463 100644
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -750,6 +1244,37 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -750,6 +1270,48 @@ def _public_login(player: Player, password: str | None) -> None:
  
      client = player.ps_client
      name = client.account_configuration.username
@@ -619,6 +645,17 @@ index eb60a97..3522463 100644
 +            return await handle_message(message)
 +
 +        client._handle_message = handle_clock_message
++    send_message = client.send_message
++
++    async def send_live_choice(message, room="", *args, **kwargs):
++        if message.startswith(("/choose ", "/team ", "/undo")):
++            battle = getattr(player, "_battles", {}).get(room)
++            if (room in player.__dict__.get("_closed_battles", {})
++                    or (battle is not None and battle.finished)):
++                return
++        return await send_message(message, room, *args, **kwargs) if room else await send_message(message, *args, **kwargs)
++
++    client.send_message = send_live_choice
 +    login_ready = asyncio.Event()
 +    search_ladder_game = client.search_ladder_game
 +    preference_lock = asyncio.Lock()
@@ -644,7 +681,7 @@ index eb60a97..3522463 100644
  
      def call(method: str, **kw):
          # The login server is sometimes slow: wait longer than poke-env's 10s, and retry.
-@@ -763,8 +1288,24 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -763,8 +1325,24 @@ def _public_login(player: Player, password: str | None) -> None:
          os._exit(1)
  
      async def log_in(split_message: list[str]) -> None:
@@ -671,7 +708,7 @@ index eb60a97..3522463 100644
              r = call("POST", data={"act": "login", "name": name, "pass": password, "challstr": challstr})
              try:
                  reply = json.loads(r.text[1:])  # the reply starts with "]"
-@@ -785,12 +1326,36 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -785,12 +1363,36 @@ def _public_login(player: Player, password: str | None) -> None:
              if not assertion or assertion.startswith("{"):
                  print(f"login server refused '{name}': {assertion[:200]}", flush=True)
                  os._exit(1)
@@ -709,7 +746,7 @@ index eb60a97..3522463 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +1383,12 @@ def main() -> None:
+@@ -818,6 +1420,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -722,7 +759,7 @@ index eb60a97..3522463 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -829,6 +1400,9 @@ def main() -> None:
+@@ -829,6 +1437,9 @@ def main() -> None:
      ap.add_argument("--challenge", nargs="+", metavar="NAME",
                      help="challenge these accounts (e.g. scripts/vgcbench_bot.py) --n times in total, "
                           "one battle per account at a time")
@@ -732,7 +769,7 @@ index eb60a97..3522463 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1431,8 @@ def main() -> None:
+@@ -857,6 +1468,8 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
@@ -741,7 +778,7 @@ index eb60a97..3522463 100644
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -882,6 +1458,10 @@ def main() -> None:
+@@ -882,6 +1495,10 @@ def main() -> None:
                      help="draw each match's team at random from just these --teams files (stems)")
      ap.add_argument("--no-timer", action="store_true",
                      help="on Showdown, don't turn the battle timer on at the start of each game")
@@ -752,7 +789,7 @@ index eb60a97..3522463 100644
      ap.add_argument("--no-munchstats", action="store_true",
                      help="--search on Showdown: don't fetch MunchStats usage for unknown opposing species")
      ap.add_argument("--closed-sheets", action="store_true",
-@@ -913,17 +1493,24 @@ def main() -> None:
+@@ -913,17 +1530,24 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -780,7 +817,7 @@ index eb60a97..3522463 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -932,9 +1519,21 @@ def main() -> None:
+@@ -932,9 +1556,21 @@ def main() -> None:
              common.update(max_concurrent_battles=1)
              del common["battle_format"]
              password = None
@@ -803,7 +840,7 @@ index eb60a97..3522463 100644
              acct = AccountConfiguration(args.accept, password)
              kw = dict(rules=not args.no_rules, team=teams(), account_configuration=acct, **common)
              if args.search:
-@@ -949,7 +1548,7 @@ def main() -> None:
+@@ -949,7 +1585,7 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -812,7 +849,7 @@ index eb60a97..3522463 100644
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -958,6 +1557,7 @@ def main() -> None:
+@@ -958,6 +1594,7 @@ def main() -> None:
                      bot.refresher = Refresher()
              else:
                  bot = ChallengeNNPlayer(args.model, args.rating, args.greedy, formats=formats, **kw)
@@ -820,9 +857,13 @@ index eb60a97..3522463 100644
              if public:
                  _public_login(bot, password)
              bot.vary, bot.vary_k, bot.vary_margin = args.vary, args.vary_k, args.vary_margin
-@@ -967,51 +1567,67 @@ def main() -> None:
+@@ -966,52 +1603,71 @@ def main() -> None:
+             bot.set_guess = (str(args.sets or args.teams or TEAMS_DIR), formats[0]) if args.set_guess else None
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
++            if public:
++                from ai_vgc.nn.messages import install as install_history
++                install_history(bot)
              bot.logs_dir = args.logs_dir
 -            bot.watch_url = "https://play.pokemonshowdown.com/" if public else f"http://localhost:{args.port}/"
 +            bot.watch_url = (args.client_url or "https://play.pokemonshowdown.com/") if public \
@@ -907,7 +948,7 @@ index eb60a97..3522463 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1651,7 @@ def main() -> None:
+@@ -1035,7 +1691,7 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -917,10 +958,104 @@ index eb60a97..3522463 100644
          else:
              me = NNPlayer(args.model, args.rating, args.greedy, rules=not args.no_rules,
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
-index 9d7a515..a640f2a 100644
+index 9d7a515..efc97fb 100644
 --- a/src/ai_vgc/nn/search.py
 +++ b/src/ai_vgc/nn/search.py
-@@ -624,6 +624,45 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
+@@ -544,14 +544,26 @@ class Bridge:
+         self._start()
+ 
+     def _start(self) -> None:
++        previous = getattr(self, "proc", None)
++        if previous is not None:
++            for pipe in (previous.stdin, previous.stdout):
++                if pipe is not None:
++                    pipe.close()
+         self.proc = subprocess.Popen(["node", str(BRIDGE), str(self.showdown)], stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, text=True, bufsize=1)
+ 
+-    def _ask(self, req: dict) -> dict:
+-        with self.lock:
+-            return self._ask_locked(req)
++    def _ask(self, req: dict, stopped=None) -> dict:
++        while not self.lock.acquire(timeout=0.1):
++            if stopped and stopped():
++                raise SearchStopped()
++        try:
++            return self._ask_locked(req, stopped)
++        finally:
++            self.lock.release()
+ 
+-    def _ask_locked(self, req: dict) -> dict:
++    def _ask_locked(self, req: dict, stopped=None) -> dict:
++        if stopped and stopped():
++            raise SearchStopped()
+         # A bridge that died (e.g. killed on a busy node) is restarted rather than failing
+         # every later search in the run.
+         if self.proc.poll() is not None:
+@@ -560,10 +572,20 @@ class Bridge:
+         self.proc.stdin.write(json.dumps(req) + "\n")
+         # The read blocks the event loop and every battle on it, so a simulation that never
+         # returns (it happens on ilab) must not wait forever: kill it and start a fresh one.
+-        if not select.select([self.proc.stdout], [], [], self.timeout)[0]:
+-            self.proc.kill()
+-            self.proc.wait()
+-            raise RuntimeError(f"sim bridge took over {self.timeout:.0f}s; restarted")
++        deadline = time.monotonic() + self.timeout
++        while True:
++            if stopped and stopped():
++                # This lock belongs to this request: never kill another battle's work.
++                self.proc.kill()
++                self.proc.wait()
++                raise SearchStopped()
++            remaining = deadline - time.monotonic()
++            if remaining <= 0:
++                self.proc.kill()
++                self.proc.wait()
++                raise RuntimeError(f"sim bridge took over {self.timeout:.0f}s; restarted")
++            if select.select([self.proc.stdout], [], [], min(0.1, remaining))[0]:
++                break
+         line = self.proc.stdout.readline()
+         if not line:
+             raise RuntimeError(f"sim bridge exited with code {self.proc.wait()}")
+@@ -572,23 +594,32 @@ class Bridge:
+             raise RuntimeError(out["error"])
+         return out
+ 
+-    def run(self, state: dict, pairs: list[tuple[str, str]], seeds: list[int], keep: bool = False) -> list[dict]:
++    def run(self, state: dict, pairs: list[tuple[str, str]], seeds: list[int], keep: bool = False, stopped=None) -> list[dict]:
+         """Play each pair once per seed. With `keep`, results that end on an ordinary move turn
+         carry "next" ({"id", "request"}) and the bridge keeps that position for `cont`."""
+-        return self._ask({"state": state, "pairs": pairs, "seeds": seeds, "keep": keep})["results"]
++        return self._ask({"state": state, "pairs": pairs, "seeds": seeds, "keep": keep}, stopped)["results"]
+ 
+-    def cont(self, conts: list[dict]) -> list[list[dict]]:
++    def cont(self, conts: list[dict], stopped=None) -> list[list[dict]]:
+         """Turn 2 from positions kept by the last `run(..., keep=True)`: each item is
+         {"id", "pairs", "seeds"}. Hold `self.lock` across both calls, or another search's
+         `run` can replace the kept positions in between."""
+-        return self._ask({"cont": conts})["conts"]
++        return self._ask({"cont": conts}, stopped)["conts"]
+ 
+     def dump(self, state: dict) -> list:
+         """The position as the simulator rebuilt it, for checking against poke-env's."""
+         return self._ask({"state": state, "dump": True})["dump"]
+ 
+     def close(self) -> None:
+-        self.proc.terminate()
++        if self.proc.poll() is None:
++            self.proc.terminate()
++            try:
++                self.proc.wait(timeout=2)
++            except subprocess.TimeoutExpired:
++                self.proc.kill()
++                self.proc.wait()
++        for pipe in (self.proc.stdin, self.proc.stdout):
++            if pipe is not None:
++                pipe.close()
+ 
+ 
+ def after(battle: DoubleBattle, lines: list[str]) -> DoubleBattle:
+@@ -624,6 +655,45 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
      return sorted(out, key=lambda c: -c[1])[:k]
  
  
@@ -966,7 +1101,52 @@ index 9d7a515..a640f2a 100644
  def _slot_options(battle: DoubleBattle, state: dict, slot: int,
                    probs: tuple[np.ndarray, np.ndarray] | None) -> list[tuple[str, float]]:
      """(choice, probability) for one opposing slot, from the opponent head's (move-or-switch,
-@@ -780,16 +819,20 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
+@@ -705,15 +775,26 @@ def values(model: Policy, battles: list[DoubleBattle], rating: float) -> np.ndar
+     return torch.sigmoid(model.value(model.encode(b)[0])[:, 0]).numpy()
+ 
+ 
++class SearchStopped(Exception):
++    """The live battle ended; do not calculate a fallback or start more simulations."""
++
++
++def check_live(battle):
++    if battle.finished or getattr(battle, "_lor_ended", False):
++        raise SearchStopped()
++
++
+ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: DoubleBattle,
+                  res: list[dict], world: dict | None, fmt: str, teams_dir: str, rating: float,
+                  k2: int, opp_k2: int, seeds2: list[int]) -> np.ndarray:
+     """Value of each turn-1 playout in `res` after a second turn: we pick our best reply among the
+     policy's `k2` candidates, the opponent mixes over their `opp_k2` likeliest. Playouts that end
+     the game, force a switch or failed keep their one-turn value (value head after turn 1)."""
++    check_live(battle)
+     v = np.full(len(res), np.nan)
+     nodes, conts = [], []
+     for i, r in enumerate(res):
++        check_live(battle)
+         if r["winner"]:
+             v[i] = {"us": 1.0, "them": 0.0}.get(r["winner"], 0.5)
+             continue
+@@ -740,7 +821,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+     _second_turn.expanded += len(conts)
+     _second_turn.nodes += len(res)
+     if conts:
+-        outs = iter(bridge.cont(conts))
++        check_live(battle)
++        outs = iter(bridge.cont(conts, stopped=lambda: battle.finished or getattr(battle, "_lor_ended", False)))
+     leaves, where = [], []
+     for n, (i, b, k, q) in enumerate(nodes):
+         if not k:
+@@ -759,6 +841,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+                 where.append((n, j))
+         nodes[n] = (i, b, k, q, vals)
+     if leaves:
++        check_live(battle)
+         lv = values(model, leaves, rating)
+         for (n, j), x in zip(where, lv):
+             if j is None:
+@@ -780,16 +863,22 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
  def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: DoubleBattle,
             mask: np.ndarray, fmt: str, teams_dir: str, rating: float, k: int = 6, opp_k: int = 6,
             seeds: int = 2, prior: float = 0.0, n_worlds: int = 1, depth: int = 1, k2: int = 3,
@@ -981,14 +1161,52 @@ index 9d7a515..a640f2a 100644
 +    With `protect`, lines where a slot uses Protect/Wide Guard (`protective_candidates`) are
 +    scored too, however unlikely the policy finds them.
      `M` and `q` in the details are the most likely world's."""
++    check_live(battle)
      obs = encode(battle, rating)
++    check_live(battle)
      ours = our_candidates(model, obs | {"mask": mask}, mask, k)
 +    if protect:
 +        ours += protective_candidates(model, battle, obs | {"mask": mask}, mask, ours)
      if len(ours) < 2:
          return None
      choices = [DoublesEnv.action_to_order(a, battle, strict=False).message.removeprefix("/choose ")
-@@ -842,8 +885,9 @@ class SearchPlayer(NNPlayer):
+@@ -797,19 +886,23 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+     seed_list = [int(s) for s in np.random.randint(1, 2**30, seeds)]
+     value, first, errors, sims = np.zeros(len(ours)), None, [], 0
+     for world, w in worlds(battle, teams_dir, n_worlds, fmt):
++        check_live(battle)
+         state = position(battle, fmt, teams_dir, world)
+         if state is None:
+             return None
+         theirs = opp_candidates(opp_model, battle, obs, state, opp_k)
+         pairs = [(c, t) for c in choices for t, _ in theirs]
++        check_live(battle)
+         if depth >= 2:
+             seeds2_list = [int(s) for s in np.random.randint(1, 2**30, seeds2)]
+             with bridge.lock:  # the kept turn-1 positions must survive until the turn-2 request
+-                res = bridge.run(state, pairs, seed_list, keep=True)
++                check_live(battle)
++                res = bridge.run(state, pairs, seed_list, keep=True, stopped=lambda: battle.finished or getattr(battle, "_lor_ended", False))
+                 v = _second_turn(model, opp_model, bridge, battle, res, world, fmt, teams_dir, rating,
+                                  k2, opp_k2, seeds2_list)
+         else:
+-            res = bridge.run(state, pairs, seed_list)
++            res = bridge.run(state, pairs, seed_list, stopped=lambda: battle.finished or getattr(battle, "_lor_ended", False))
++            check_live(battle)
+             v = np.full(len(res), np.nan)
+             live, idx = [], []
+             for i, r in enumerate(res):
+@@ -819,7 +912,9 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+                     live.append(after(battle, r["lines"]))
+                     idx.append(i)
+             if live:
++                check_live(battle)
+                 v[idx] = values(model, live, rating)
++        check_live(battle)
+         M = v.reshape(len(ours), len(theirs), seeds).mean(-1)
+         q = np.array([p for _, p in theirs])
+         value += w * (M @ q)
+@@ -842,8 +937,9 @@ class SearchPlayer(NNPlayer):
      def __init__(self, *args, opp_model: Policy | str | Path | None = None, fmt: str,
                   teams_dir: str | Path, showdown: str | Path = "pokemon-showdown", k: int = 6,
                   opp_k: int = 6, seeds: int = 2, prior: float = 0.0, worlds: int = 1, depth: int = 1,
@@ -999,15 +1217,26 @@ index 9d7a515..a640f2a 100644
          self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
          self.fmt, self.teams_dir = fmt, str(teams_dir)
          self.bridge = Bridge(showdown)
-@@ -889,7 +933,7 @@ class SearchPlayer(NNPlayer):
+@@ -889,7 +985,9 @@ class SearchPlayer(NNPlayer):
              out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
                                            self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
                                            self.seeds, self.prior, self.worlds, self.depth, self.k2,
 -                                          self.opp_k2, self.seeds2)
 +                                          self.opp_k2, self.seeds2, self.protect)
++        except SearchStopped:
++            raise asyncio.CancelledError() from None
          except Exception as e:  # a position the bridge can't handle: play the policy
              self.logger.warning("search failed on turn %s: %r", battle.turn, e)
              out = None
+@@ -902,6 +1000,8 @@ class SearchPlayer(NNPlayer):
+         else:
+             self.failed_in_a_row = 0
+         self.search_time += time.time() - t
++        if battle.finished or getattr(battle, "_lor_ended", False):
++            raise asyncio.CancelledError()
+         if out is None:
+             self.fallbacks += 1
+             return await super().choose_move(battle)
 diff --git a/src/ai_vgc/nn/sim_bridge.js b/src/ai_vgc/nn/sim_bridge.js
 index bf07ddc..7909614 100644
 --- a/src/ai_vgc/nn/sim_bridge.js
@@ -1046,7 +1275,6 @@ index bf07ddc..7909614 100644
        }
 diff --git a/src/ai_vgc/nn/personality.py b/src/ai_vgc/nn/personality.py
 new file mode 100644
-index 0000000..678c612
 --- /dev/null
 +++ b/src/ai_vgc/nn/personality.py
 @@ -0,0 +1,81 @@
@@ -1131,3 +1359,167 @@ index 0000000..678c612
 +        phrase = self.rng.choice(choices)
 +        self._last[event] = phrase
 +        return phrase
+diff --git a/src/ai_vgc/nn/messages.py b/src/ai_vgc/nn/messages.py
+new file mode 100644
+--- /dev/null
++++ b/src/ai_vgc/nn/messages.py
+@@ -0,0 +1,159 @@
++"""Local conversation history. Never writes private messages to games or stdout."""
++from collections import deque
++from datetime import datetime, timezone
++import json
++import logging
++import os
++from pathlib import Path
++import re
++import sys
++
++MAX_BYTES = 5 * 1024 * 1024
++READ_BYTES = 1024 * 1024
++LIMIT = 300
++
++
++def user_id(name):
++    return re.sub(r"[^a-z0-9]", "", name.lstrip(" ~&@%+*#!").split("@", 1)[0].lower())
++
++
++class PrivateMessages(logging.Filter):
++    def filter(self, record):
++        # Keep server responses (recipient '~'), but never copy a player's PM to
++        # journal, diagnostics or an exception log. Challenge handling is unchanged.
++        text = record.getMessage()
++        if "|pm|" in text:
++            parts = text.split("|pm|", 1)[1].split("|", 2)
++            if len(parts) == 3 and parts[1].strip() != "~":
++                record.msg, record.args = "Private Showdown message received (local history).", ()
++                record.exc_info, record.exc_text = None, None
++        return True
++
++
++class History:
++    def __init__(self, root, account):
++        self.account = user_id(account)
++        self.path = Path(root) / ".messages" / (self.account + ".jsonl")
++        self.players = {}
++
++    def append(self, kind, sender, text, room="", timestamp=None):
++        if not text or not self.account:
++            return
++        row = {"kind": kind, "sender": sender.lstrip(" ~&@%+*#!"), "text": text,
++               "room": room, "time": timestamp or datetime.now(timezone.utc).isoformat(),
++               "own": user_id(sender) == self.account}
++        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
++        if self.path.exists() and self.path.stat().st_size >= MAX_BYTES:
++            os.replace(self.path, self.path.with_suffix(".jsonl.1"))
++        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
++        with os.fdopen(fd, "a", encoding="utf-8") as stream:
++            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
++
++    def receive(self, message):
++        lines = message.split("\n")
++        room = lines.pop(0)[1:] if lines[0].startswith(">") else ""
++        if not room:
++            for line in lines:
++                p = line.split("|", 4)
++                if len(p) == 5 and p[1] == "pm" and user_id(p[3]) == self.account and user_id(p[2]) != self.account:
++                    # Protocol challenges are handled by poke-env, not conversation.
++                    if not p[4].startswith("/challenge"):
++                        self.append("pm", p[2], p[4])
++            return
++        if not room.startswith(("battle-", "game-")):
++            return
++        players = self.players.setdefault(room, {})
++        if len(self.players) > 128:
++            del self.players[next(iter(self.players))]
++        # Scan players first: init packets can contain older chat before player lines.
++        for line in lines:
++            p = line.split("|")
++            if len(p) >= 4 and p[1] == "player" and p[2] in ("p1", "p2"):
++                players[p[2]] = user_id(p[3])
++        for line in lines:
++            p = line.split("|", 4)
++            timestamp = None
++            if len(p) >= 4 and p[1] == "c":
++                sender, text = p[2], "|".join(p[3:])
++            elif len(p) == 5 and p[1] == "c:":
++                sender, text = p[3], p[4]
++                try:
++                    timestamp = datetime.fromtimestamp(int(p[2]), timezone.utc).isoformat()
++                except (ValueError, OverflowError, OSError):
++                    pass
++            else:
++                continue
++            if self.account in players.values() and user_id(sender) in players.values():
++                self.append("chat", sender, text, room, timestamp)
++        if "|deinit" in lines:
++            self.players.pop(room, None)
++
++
++def install(player):
++    client = player.ps_client
++    history = History(player.save_dir.parent, client.account_configuration.username)
++    original = client._handle_message
++    client.logger.addFilter(PrivateMessages())
++    failed = False
++
++    async def receive(message):
++        nonlocal failed
++        try:
++            history.receive(message)
++        except OSError:
++            if not failed:
++                client.logger.warning("Could not save local conversation history.")
++                failed = True
++        return await original(message)
++
++    client._handle_message = receive
++
++
++def recent(root, account):
++    if not user_id(account):
++        return []
++    path = Path(root) / ".messages" / (user_id(account) + ".jsonl")
++    rows = deque(maxlen=LIMIT)
++    for item in (path.with_suffix(".jsonl.1"), path):
++        try:
++            with item.open("rb") as stream:
++                stream.seek(0, 2)
++                start = max(0, stream.tell() - READ_BYTES)
++                stream.seek(start)
++                if start:
++                    stream.readline()
++                for line in stream:
++                    try:
++                        row = json.loads(line)
++                        if isinstance(row, dict) and row.get("kind") in ("pm", "chat"):
++                            rows.append(row)
++                    except (ValueError, UnicodeError):
++                        continue
++        except OSError:
++            continue
++    return list(rows)
++
++
++def panel(root, account, count, journal):
++    logs = []
++    for line in journal:
++        try:
++            entry = json.loads(line)
++            text = entry.get("MESSAGE", "")
++            if not isinstance(text, str) or "|pm|" in text:
++                continue
++            date = datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1e6, timezone.utc)
++            logs.append({"kind": "log", "text": text, "time": date.isoformat()})
++        except (ValueError, KeyError, TypeError, OverflowError, OSError):
++            continue
++    print("---log---")
++    for row in logs[-count:]:
++        print(row["text"])
++    print("---historico---")
++    rows = logs + recent(root, account)
++    for row in sorted(rows, key=lambda row: row.get("time", ""))[-LIMIT:]:
++        print(json.dumps(row, ensure_ascii=False))
++
++
++if __name__ == "__main__":
++    panel(sys.argv[1], sys.argv[2], min(300, max(1, int(sys.argv[3]))), sys.stdin)

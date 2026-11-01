@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
 mixin = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == "ChallengeMixin")
-names = {"_cycle", "_handle_battle_request", "_track_decision_clock", "_pace_decision",
+names = {"_cycle", "_handle_battle_request", "_live_battle_request", "_track_decision_clock", "_pace_decision",
          "_chat_on", "_say_personality", "teampreview", "choose_move"}
 members = [n for n in mixin.body if (
     isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names
@@ -206,7 +206,7 @@ class TestDecisionPacing(unittest.IsolatedAsyncioTestCase):
                 entered.set()
                 await release.wait()
                 forwarded.append(message)
-        client = types.SimpleNamespace(_handle_message=receive, search_ladder_game=AsyncMock(),
+        client = types.SimpleNamespace(_handle_message=receive, search_ladder_game=AsyncMock(), send_message=AsyncMock(),
                                        account_configuration=types.SimpleNamespace(username="ContaTeste"))
         self.bot.ps_client = client
         self.ns["asyncio"] = asyncio

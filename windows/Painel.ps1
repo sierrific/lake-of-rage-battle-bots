@@ -877,6 +877,44 @@ namespace LoR
         }
     }
 
+    public class HistoricoAtividade : Base, ITematico
+    {
+        public readonly List<EventoAtividade> Itens = new List<EventoAtividade>();
+        public TextBox Caixa = new TextBox();
+        public HistoricoAtividade()
+        {
+            Caixa.ReadOnly = true; Caixa.BorderStyle = BorderStyle.None;
+            Caixa.Multiline = true; Caixa.WordWrap = true;
+            Caixa.ScrollBars = ScrollBars.Vertical;
+            Caixa.Font = new Font("Segoe UI", 10f);
+            Caixa.HandleCreated += delegate { try { CaixaLog.TemaEscuro(Caixa.Handle); } catch { } };
+            Caixa.AccessibleName = "Conversas e partidas; texto completo";
+            Controls.Add(Caixa); AplicarTema();
+        }
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Caixa.SetBounds(0, 0, Width, Height);
+        }
+        public void AplicarTema() { Caixa.BackColor = Tema.Atual.Cartao; Caixa.ForeColor = Tema.Atual.Texto; }
+        public void Definir(EventoAtividade[] itens)
+        {
+            Itens.Clear(); if (itens != null) Itens.AddRange(itens);
+            var partes = new List<string>();
+            foreach (var item in Itens) partes.Add(item.Titulo + "\r\n" + item.Detalhe.Replace("\r\n", "\n").Replace("\n", "\r\n"));
+            var texto = partes.Count == 0 ? "Nenhum evento neste filtro. As conversas são registradas a partir desta atualização." : string.Join("\r\n\r\n", partes.ToArray());
+            if (Caixa.Text == texto) return;
+            int linha = (int)SendMessage(Caixa.Handle, 0x00CE, IntPtr.Zero, IntPtr.Zero);
+            int inicio = Caixa.SelectionStart, tamanho = Caixa.SelectionLength;
+            Caixa.Text = texto;
+            Caixa.Select(Math.Min(inicio, Caixa.TextLength), Math.Min(tamanho, Caixa.TextLength - Math.Min(inicio, Caixa.TextLength)));
+            SendMessage(Caixa.Handle, 0x00B6, IntPtr.Zero, (IntPtr)linha);
+            AccessibleDescription = partes.Count == 0 ? texto : Itens.Count + " eventos; use a rolagem para ler.";
+        }
+        [DllImport("user32.dll")]
+        static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
+    }
+
     // Caixa do log (TextBox somente leitura, sem barra de rolagem clara, dentro de uma borda arredondada).
     public class CaixaLog : Base, ITematico
     {
@@ -1045,8 +1083,14 @@ function Ler-Estado($Resposta = $null) {
     # Estado e log numa chamada só ao WSL; a resposta pode vir pronta da consulta em segundo plano.
     $r = if ($Resposta) { $Resposta } else { Invoke-Painel @('estado', '--log', '80') }
     if ($r.Codigo -ne 0) { throw (($r.Saida + "`n" + $r.Erro).Trim()) }
-    $chaves = $r.Saida
+    $chaves = $r.Saida.Replace("`r`n", "`n")
     $script:logLinhas = $null
+    $script:historicoLinhas = $null
+    $h = $chaves.IndexOf("`n---historico---`n")
+    if ($h -ge 0) {
+        $script:historicoLinhas = @($chaves.Substring($h + 17).Trim() -split "`n")
+        $chaves = $chaves.Substring(0, $h)
+    }
     $i = $chaves.IndexOf('---log---')
     if ($i -ge 0) {
         $script:logLinhas = @($chaves.Substring($i + 9).Trim() -split "`n")
@@ -1429,9 +1473,11 @@ $r.Alinhar = [System.Windows.Forms.TextFormatFlags]'WordBreak'
 $cHistorico = Novo-Cartao 'Histórico e replays' 'Abra os replays salvos ou os arquivos de partidas neste PC.' 170 137 834 443
 $bHistorico = Novo-Botao 'Abrir histórico de replays' 'Primario' ([string][char]0xE8A7) 20 65 267 38 $cHistorico
 $bPastaPartidas = Novo-Botao 'Abrir pasta de partidas' 'Neutro' ([string][char]0xE8B7) 301 65 251 38 $cHistorico
-[void](Novo-Rotulo 'Eventos recentes de partidas' 20 121 794 26 $cHistorico 'suave' 10)
-$atividadeHistorico = New-Object LoR.ListaAtividade
-$atividadeHistorico.AccessibleName = 'Eventos recentes de partidas'
+[void](Novo-Rotulo 'Atividade recente · conversas salvas neste PC' 20 121 570 26 $cHistorico 'suave' 10)
+$cFiltroHistorico = Nova-Lista @('Todos', 'Partidas', 'Mensagens') 634 117 180 32 $cHistorico
+$cFiltroHistorico.AccessibleName = 'Filtrar histórico'
+$atividadeHistorico = New-Object LoR.HistoricoAtividade
+$atividadeHistorico.AccessibleName = 'Histórico de partidas e mensagens'
 [void](Pos $atividadeHistorico 20 157 794 272 $cHistorico)
 
 # Rodapé permanece fixo ao navegar ou recolher a atividade.
@@ -1502,7 +1548,7 @@ function Mostrar-Secao([string]$secao) {
         $cTimesAjuda.Visible = $secao -eq 'times'
         $cHistorico.Visible = $secao -eq 'historico'
         $titulos = @{ batalhas = 'Central de batalhas'; times = 'Seus times'; historico = 'Histórico de partidas'; ajustes = 'Ajustes' }
-        $subtitulos = @{ batalhas = 'Ladder oficial · Regulamento M-C'; times = 'Formato, timer e times das próximas partidas.'; historico = 'Resultados, replays e arquivos locais.'; ajustes = 'Conta do Showdown e envio de partidas.' }
+        $subtitulos = @{ batalhas = 'Ladder oficial · Regulamento M-C'; times = 'Formato, timer e times das próximas partidas.'; historico = 'Resultados, mensagens, replays e arquivos locais.'; ajustes = 'Conta do Showdown e envio de partidas.' }
         $lTitulo.Text = $titulos[$secao]
         $lSubtitulo.Text = $subtitulos[$secao]
         if ($secao -eq 'historico' -and $script:resumoHoje) { $lSubtitulo.Text = $script:resumoHoje }
@@ -1907,12 +1953,43 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
     }
 }
 
+function Ler-Historico([string[]]$linhas, [string]$filtro) {
+    if ($null -eq $script:historicoLinhas) {
+        if ($filtro -ne 'Mensagens') { Ler-Atividade $linhas 'Partidas' }
+        return
+    }
+    for ($i = $script:historicoLinhas.Count - 1; $i -ge 0; $i--) {
+        try { $r = $script:historicoLinhas[$i] | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+        $evento = $null
+        if ($r.kind -eq 'log') {
+            if ($filtro -eq 'Mensagens') { continue }
+            $itens = @(Ler-Atividade @([string]$r.text) 'Partidas')
+            if ($itens.Count) { $evento = $itens[0] }
+        } elseif ($r.kind -in @('chat', 'pm')) {
+            if ($filtro -eq 'Partidas') { continue }
+            $evento = New-Object LoR.EventoAtividade
+            $origem = if ($r.kind -eq 'pm') { 'PM recebida' } elseif ($r.own) { 'Seu bot' } else { 'Oponente' }
+            $evento.Titulo = "$origem · $($r.sender)"
+            $evento.Detalhe = [string]$r.text
+            if ($r.room) { $evento.Detalhe += "`r`nSala: $($r.room)" }
+            $evento.Tipo = 'mensagem'
+        }
+        if ($evento) {
+            try {
+                $hora = [DateTimeOffset]::Parse([string]$r.time).ToLocalTime().ToString('dd/MM HH:mm:ss')
+                $evento.Titulo = "$hora · $($evento.Titulo)"
+            } catch { }
+            $evento
+        }
+    }
+}
+
 function Atualizar-Atividade {
     # O log veio junto com o estado; só sem ele (resposta antiga) pede à parte.
     $linhas = if ($null -ne $script:logLinhas) { $script:logLinhas } else { (Invoke-Painel @('log', '80')).Saida -split "`n" }
     $eventos = @(Ler-Atividade $linhas $cFiltro.Escolhido | Select-Object -First 4)
     $atividade.Definir([LoR.EventoAtividade[]]$eventos)
-    $recentes = @(Ler-Atividade $linhas 'Partidas' | Select-Object -First 3)
+    $recentes = @(Ler-Historico $linhas $cFiltroHistorico.Escolhido)
     $atividadeHistorico.Definir([LoR.EventoAtividade[]]$recentes)
     $texto = $linhas -join "`r`n"
     if ($tLog.Caixa.Text -ne $texto) {
@@ -2026,7 +2103,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
-        $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, replays e arquivos locais.' }
+        $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, mensagens, replays e arquivos locais.' }
     }
     Avisar-Bandeja $bot
 }
@@ -2396,6 +2473,7 @@ $bReplays.Add_Click({ $bHistorico.PerformClick() })
 $bPastaPartidas.Add_Click({ Start-Process explorer.exe "\\wsl$\$Distro\opt\lor-bots\ai-vgc\data\live_games" })
 
 $cFiltro.add_Escolheu({ $tLog.Caixa.Text = ''; Atualizar-Tela })
+$cFiltroHistorico.add_Escolheu({ Atualizar-Atividade })
 $bRecolher.Add_Click({
     $script:recolhido = -not $script:recolhido
     Arrumar-Atividade

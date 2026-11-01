@@ -113,6 +113,18 @@ class TestEnvio(unittest.TestCase):
         self.ciclo()  # nada novo: não reenvia
         self.assertEqual(len(self.todas()), 2)
 
+    def test_historico_privado_nunca_vai_para_coleta(self):
+        mensagens = self.raiz / '.messages'
+        mensagens.mkdir()
+        privada = json.dumps({'kind': 'pm', 'sender': 'Amigo', 'text': 'segredo-sintetico'}) + '\n'
+        (mensagens / 'conta.jsonl').write_text(privada)
+        (mensagens / 'conta.jsonl.1').write_text(privada)
+        self.escrever(partida('2026-10-24 13:00:00'))
+        self.ciclo()
+        self.assertEqual(len(self.todas()), 1)
+        self.assertNotIn('segredo-sintetico', json.dumps(self.todas()))
+        self.assertNotIn('.messages', json.dumps(self.estado))
+
     def test_discord_desligado_marca_as_partidas(self):
         self.escrever(partida("2026-10-24 13:00:00"))
         self.ciclo()

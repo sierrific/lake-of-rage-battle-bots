@@ -119,6 +119,7 @@ class TestLoginStartup(unittest.TestCase):
             "ai_vgc.showdown": types.SimpleNamespace(account=Mock(), ensure_server=Mock(return_value=None), wilson=Mock()),
             "ai_vgc.teams": types.SimpleNamespace(TEAMS_DIR=Path("teams"), RandomPoolTeambuilder=Mock()),
             "ai_vgc.nn.search": types.SimpleNamespace(SearchPlayer=Player),
+            "ai_vgc.nn.messages": types.SimpleNamespace(install=Mock()),
             "requests": types.SimpleNamespace(request=direct_login),
             "threading": types.SimpleNamespace(Thread=Mock()),
         }
