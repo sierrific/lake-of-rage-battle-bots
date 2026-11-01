@@ -1328,16 +1328,16 @@ $ttTema.SetToolTip($lBloquearBots, 'Ligado: /blockbots. Desligado: /allowbots. V
 $ttTema.SetToolTip($xBloquearBots, 'Bloquear bots no ladder (/blockbots) ou permitir (/allowbots).')
 $tUsuario = Novo-Campo '' 20 72 365 38 $cConta
 $tUsuario.Caixa.AccessibleName = 'Usuário do Showdown'
-$lLoginNavegador = Novo-Rotulo 'Login no navegador ao ligar o bot' 20 120 365 20 $cConta 'suave' 9.5
+$lLoginNavegador = Novo-Rotulo 'Login no navegador ao ligar o bot' 20 116 365 20 $cConta 'suave' 9.5
 $ttTema.SetToolTip($lLoginNavegador, 'A senha é digitada apenas no site oficial do Showdown.')
 $xDecisoesInstantaneas = New-Object LoR.Chave
 $xDecisoesInstantaneas.FundoNome = 'cartao'
 $xDecisoesInstantaneas.Marcado = $false
 $xDecisoesInstantaneas.AccessibleName = 'Decisões Instantâneas: Não'
-[void](Pos $xDecisoesInstantaneas 20 154 36 20 $cConta)
-$lDecisoesInstantaneas = Novo-Rotulo 'Decisões Instantâneas' 66 154 235 22 $cConta 'texto' 9.5
+[void](Pos $xDecisoesInstantaneas 20 142 36 20 $cConta)
+$lDecisoesInstantaneas = Novo-Rotulo 'Decisões Instantâneas' 66 142 235 22 $cConta 'texto' 9.5
 $lDecisoesInstantaneas.Cursor = 'Hand'
-$lDecisoesValor = Novo-Rotulo 'Não' 303 154 68 22 $cConta 'suave' 9.5
+$lDecisoesValor = Novo-Rotulo 'Não' 303 142 68 22 $cConta 'suave' 9.5
 $lDecisoesValor.Cursor = 'Hand'
 $ajudaDecisoes = 'Sim: envia assim que a IA termina o cálculo. Não: completa a decisão até 10–20 segundos, incluindo a escolha dos Pokémon. Reduz a espera quando há pouco tempo no relógio.'
 foreach ($c in @($xDecisoesInstantaneas, $lDecisoesInstantaneas, $lDecisoesValor)) { $ttTema.SetToolTip($c, $ajudaDecisoes) }
@@ -1345,12 +1345,22 @@ $xEsperarBots = New-Object LoR.Chave
 $xEsperarBots.FundoNome = 'cartao'
 $xEsperarBots.Marcado = $true
 $xEsperarBots.AccessibleName = 'Esperar bots adversários conhecidos saírem da fila'
-[void](Pos $xEsperarBots 20 190 36 20 $cConta)
-$lEsperarBots = Novo-Rotulo 'Esperar bots conhecidos' 66 190 305 22 $cConta 'texto' 9.5
+[void](Pos $xEsperarBots 20 170 36 20 $cConta)
+$lEsperarBots = Novo-Rotulo 'Esperar bots conhecidos' 66 170 305 22 $cConta 'texto' 9.5
 $lEsperarBots.Cursor = 'Hand'
 $ajudaEsperaBots = 'Ligado: espera até 10 minutos por bots adversários conhecidos. Desligado: pula essa espera, inclusive se já estiver esperando. A fila do nosso time e a pausa entre partidas continuam iguais.'
 $ttTema.SetToolTip($lEsperarBots, $ajudaEsperaBots)
 $ttTema.SetToolTip($xEsperarBots, $ajudaEsperaBots)
+$xEsperarColmeia = New-Object LoR.Chave
+$xEsperarColmeia.FundoNome = 'cartao'
+$xEsperarColmeia.Marcado = $true
+$xEsperarColmeia.AccessibleName = 'Esperar bots da colmeia saírem da fila'
+[void](Pos $xEsperarColmeia 20 198 36 20 $cConta)
+$lEsperarColmeia = Novo-Rotulo 'Esperar bots da colmeia' 66 198 305 22 $cConta 'texto' 9.5
+$lEsperarColmeia.Cursor = 'Hand'
+$ajudaColmeia = 'Ligado: espera a vez entre os bots do nosso time. Desligado: busca junto com eles e encerra uma espera em curso. Os nossos bots poderão se enfrentar. Religar vale na próxima busca.'
+$ttTema.SetToolTip($lEsperarColmeia, $ajudaColmeia)
+$ttTema.SetToolTip($xEsperarColmeia, $ajudaColmeia)
 $bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 228 151 38 $cConta
 # "glhf" no começo e "gg wp" no fim de cada partida, no chat da batalha; vale já na próxima.
 $xChat = New-Object LoR.Chave
@@ -1753,8 +1763,9 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         elseif ($l -match "^'(.+)' challenging (\S+) to ") { $txt = "Conta $($Matches[1]) conectada · desafio enviado a $($Matches[2]), esperando aceitar" }
         elseif ($l -match '^(Started|Finished) lor-desafio-|^lor-desafio-') { continue }
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $txt = "A conta $($Matches[1]) está registrada no Showdown como bot: no ladder ela só enfrenta outros bots (e quem aceitou jogar contra bots)"; $tipo = 'aviso' }
-        elseif ($l -match '^waiting for our turn: team bot (\S+) is searching') { $txt = "Esperando a vez: $($Matches[1]), outro bot do time, está procurando partida (assim os nossos nunca se enfrentam)" }
+        elseif ($l -match '^waiting for our turn: team bot (\S+) is searching') { $txt = "Esperando a vez: $($Matches[1]), outro bot do time, está procurando partida pela colmeia" }
         elseif ($l -match '^waiting: known bots free, probably in the queue: (.+)') { $txt = "Esperando para procurar partida: bots que sempre aparecem estão livres na fila ($($Matches[1]))" }
+        elseif ($l -eq 'team bot wait disabled: searching without a turn') { $txt = 'Espera pela colmeia desativada; buscando sem aguardar os bots do time' }
         elseif ($l -eq 'known bots wait disabled: searching now') { $txt = 'Espera por bots conhecidos desativada; seguindo para a busca de partida' }
         elseif ($l -match '^known bots still free after (\d+) min') { $txt = "Os bots conhecidos seguem livres depois de $($Matches[1]) min · procurando partida mesmo assim" }
         elseif ($l -match '^pausing ([\d.]+) min before the next ladder search') { $txt = "Pausa de $($Matches[1]) min antes de procurar a próxima partida (para não cair sempre com os mesmos bots)" }
@@ -1856,6 +1867,7 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $evento.Titulo = 'Conta marcada como bot'; $evento.Detalhe = "$($Matches[1]): no ladder do Showdown, só enfrenta outros bots"; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^waiting for our turn: team bot (\S+) is searching') { $evento.Titulo = 'Esperando a vez na fila'; $evento.Detalhe = "$($Matches[1]) (do time) está procurando partida" }
         elseif ($l -match '^waiting: known bots free, probably in the queue: (.+)') { $evento.Titulo = 'Esperando bots saírem da fila'; $evento.Detalhe = $Matches[1] }
+        elseif ($l -eq 'team bot wait disabled: searching without a turn') { $evento.Titulo = 'Espera pela colmeia desativada'; $evento.Detalhe = 'Buscando sem aguardar os bots do time' }
         elseif ($l -eq 'known bots wait disabled: searching now') { $evento.Titulo = 'Espera por bots desativada'; $evento.Detalhe = 'Seguindo para a busca de partida' }
         elseif ($l -match '^pausing ([\d.]+) min before') { $evento.Titulo = 'Pausa entre partidas'; $evento.Detalhe = "$($Matches[1]) min até a próxima busca" }
         elseif ($l -match '^challenge ') { $evento.Titulo = 'Desafio'; $evento.CorNome = 'ambar'; $evento.Tipo = 'partida' }
@@ -1984,7 +1996,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, replays e arquivos locais.' }
@@ -2070,7 +2082,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -2087,6 +2099,7 @@ function Carregar-Opcoes {
     $xChat.Marcado = $e['chat'] -ne 'nao'
     $xBloquearBots.Marcado = $e['bloquear_bots'] -ne 'nao'
     $xEsperarBots.Marcado = $e['esperar_bots'] -ne 'nao'
+    $xEsperarColmeia.Marcado = $e['esperar_colmeia'] -ne 'nao'
     $xDecisoesInstantaneas.Marcado = $e['decisoes_instantaneas'] -eq 'sim'
     Atualizar-RotuloDecisoes
     $cTime.Itens.Clear()
@@ -2175,6 +2188,16 @@ function Mudar-EsperarBots {
 }
 $xEsperarBots.add_Mudou({ Mudar-EsperarBots })
 $lEsperarBots.Add_Click({ if ($xEsperarBots.Enabled) { $xEsperarBots.Marcado = -not $xEsperarBots.Marcado; Mudar-EsperarBots } })
+
+function Mudar-EsperarColmeia {
+    $v = if ($xEsperarColmeia.Marcado) { 'sim' } else { 'nao' }
+    if (Resultado (Invoke-Painel @('esperar-colmeia', $v)) '') {
+        if ($xEsperarColmeia.Marcado) { Mensagem 'Preferência salva. Na próxima busca, o bot espera a vez entre os bots da nossa colmeia.' }
+        else { Mensagem 'Preferência salva. O bot deixa de esperar pelos bots da nossa colmeia e libera a vez reservada. A espera por adversários conhecidos segue sua própria opção.' }
+    } else { $xEsperarColmeia.Marcado = -not $xEsperarColmeia.Marcado }
+}
+$xEsperarColmeia.add_Mudou({ Mudar-EsperarColmeia })
+$lEsperarColmeia.Add_Click({ if ($xEsperarColmeia.Enabled) { $xEsperarColmeia.Marcado = -not $xEsperarColmeia.Marcado; Mudar-EsperarColmeia } })
 
 function Atualizar-RotuloDecisoes {
     $lDecisoesValor.Text = if ($xDecisoesInstantaneas.Marcado) { 'Sim' } else { 'Não' }
@@ -2391,7 +2414,7 @@ function Atualizar-Painel {
     # Espera sem congelar a janela (a atualização leva minutos): o timer fica parado e os botões
     # desligados até ela terminar.
     $timer.Stop()
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {

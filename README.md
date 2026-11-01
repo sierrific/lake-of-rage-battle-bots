@@ -61,6 +61,11 @@ O bot usa ~1 GB de RAM enquanto joga. Ele roda numa distribuição Linux separad
   adversários recorrentes saírem da fila antes de buscar partida. Desligado, pula essa espera e
   encerra uma espera em curso, sem reiniciar. A escolha fica salva. A coordenação entre os bots
   do nosso time e a pausa entre partidas continuam funcionando; `/blockbots` é uma opção separada.
+- **Esperar bots da colmeia** (em Ajustes; ligado por padrão): espera a vez de buscar no mesmo
+  formato dos outros bots do time. Desligado, encerra essa espera e libera a vez reservada,
+  permitindo buscas simultâneas. Nossos bots poderão se enfrentar, conforme as regras do Showdown.
+  A escolha fica salva, sem reiniciar. Religar vale na próxima busca; a partida atual continua.
+  É independente de **Esperar bots conhecidos**, de `/blockbots` e da pausa entre partidas.
 - **Decisões Instantâneas** (em Ajustes; **Não** por padrão): com **Não**, completa o tempo de cada
   escolha de Pokémon e de cada turno até um alvo entre 10 e 20 segundos, contando o cálculo da IA.
   Com **Sim**, envia assim que o cálculo termina; vale também para uma espera em curso, sem reiniciar.
