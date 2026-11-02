@@ -29,7 +29,7 @@ vão para a coleta do time, que alimenta o treino e o canal do Discord.
    irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/estavel/windows/instalar.ps1 | iex
    ```
    </details>
-4. No **Painel LoR Bots** (atalho na Área de Trabalho): salve o usuário do bot e o código da
+4. No **Painel LoR Bots** (atalho na Área de Trabalho, com o Gyarados vermelho): salve o usuário do bot e o código da
    coleta e clique em **Ligar**. O Edge ou Chrome abre o site oficial do Showdown em um perfil
    separado. Entre na mesma conta nessa janela, em até 5 minutos; a senha é digitada no site.
    Ao concluir a autorização, a janela fecha e o bot continua.
@@ -262,3 +262,11 @@ por navegador remoto para servidores Linux.
 - Parar com calma: o serviço `lor-bot@` manda SIGINT ao `rodar-bot.sh`, que repassa ao Python do
   bot. É o mesmo que um Ctrl-C no `bot.sh`: termina a partida ou série atual e sai.
 - Senhas, códigos e webhooks nunca entram no repositório.
+
+## Ícone do painel
+
+O ícone (janela, barra de tarefas, bandeja e atalhos) é o Gyarados vermelho de
+`windows/icone/gyarados.png`. Para trocar, substitua esse PNG e rode `python3 tools/gerar_icone.py`:
+ele tira o fundo branco, gera `windows/painel.ico` (ampliado sem suavizar, para o pixel art ficar
+nítido) e regrava a cópia embutida no `Painel.ps1`. Ao abrir, o painel grava `Painel.ico` na pasta
+dele e troca o ícone padrão dos atalhos; um ícone escolhido à mão no atalho é mantido.

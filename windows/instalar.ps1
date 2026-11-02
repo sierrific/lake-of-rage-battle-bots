@@ -385,6 +385,12 @@ NoLinux "curl -fsSL $Raw/linux/atualizar.sh -o /tmp/lor-atualizar.sh && LOR_RAMO
 Passo 'Instalando o painel'
 Invoke-WebRequest -UseBasicParsing -Uri "$Raw/windows/Painel.ps1" -OutFile (Join-Path $Pasta 'Painel.ps1')
 Invoke-WebRequest -UseBasicParsing -Uri "$Raw/VERSION" -OutFile (Join-Path $Pasta 'VERSION')
+# Icone dos atalhos (Gyarados vermelho). Se nao baixar, fica o padrao e o painel grava o dele ao abrir.
+$iconeAtalho = 'shell32.dll,137'
+try {
+    Invoke-WebRequest -UseBasicParsing -Uri "$Raw/windows/painel.ico" -OutFile (Join-Path $Pasta 'Painel.ico')
+    $iconeAtalho = (Join-Path $Pasta 'Painel.ico') + ',0'
+} catch { }
 # A branch escolhida (main, ou outra num teste) fica gravada para o botao Atualizar do painel.
 Set-Content -Path (Join-Path $Pasta 'ramo.txt') -Value $Ramo -Encoding ASCII
 # O Painel.vbs abre o painel sem janela do PowerShell (com o Windows Terminal como console padrao, o
@@ -404,7 +410,7 @@ foreach ($d in $destinos) {
     $atalho.TargetPath = $wscript
     $atalho.Arguments = "`"$vbs`""
     $atalho.WorkingDirectory = $Pasta
-    $atalho.IconLocation = 'shell32.dll,137'
+    $atalho.IconLocation = $iconeAtalho
     $atalho.Save()
 }
 
