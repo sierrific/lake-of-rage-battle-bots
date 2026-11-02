@@ -14,7 +14,7 @@ if ($bytes[0] -ne 239 -or $bytes[1] -ne 187 -or $bytes[2] -ne 191) { throw 'Pain
 
 # Somente constantes e construção da UI são carregadas. O bootstrap operacional
 # (mutex, atalhos, DPI global, -Ligar, timer e ShowDialog) nunca é executado.
-foreach ($name in @('CodigoUI', 'CabecalhoDragao', 'CabecalhoLago')) {
+foreach ($name in @('CodigoUI', 'CabecalhoDragao', 'CabecalhoLago', 'IconePainel')) {
     $assignment = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq ('$' + $name) }, $false) | Select-Object -First 1
     $literal = $assignment.Right.Find({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $false)
     if (-not $literal) { throw "Constante literal ausente: $name" }
@@ -179,6 +179,21 @@ foreach ($scale in @(1, 1.25, 1.5)) {
     $form.Show()
     try {
         Assert ($form.ClientSize -eq $requiredSize) ('janela sintetica deve conservar tamanho solicitado: ' + $form.ClientSize + ' / esperado=' + $requiredSize)
+        # Ícone embutido (Gyarados): cada tamanho abre, o canto é transparente e o meio é vermelho.
+        foreach ($lado in @(16, 24, 32, 48, 256)) {
+            $quadro = New-Object System.Drawing.Icon($form.Icon, $lado, $lado)
+            $bmp = $quadro.ToBitmap()
+            try {
+                Assert ($bmp.Width -eq $lado -and $bmp.Height -eq $lado) "icone $lado px no tamanho certo ($($bmp.Width))"
+                Assert ($bmp.GetPixel(0, 0).A -eq 0) "icone $lado px com fundo transparente"
+                $vermelhos = 0
+                for ($y = 0; $y -lt $lado; $y++) { for ($x = 0; $x -lt $lado; $x++) {
+                    $c = $bmp.GetPixel($x, $y)
+                    if ($c.A -gt 200 -and $c.R -gt 170 -and $c.G -lt 130 -and $c.B -lt 100) { $vermelhos++ }
+                } }
+                Assert ($vermelhos -ge ($lado * $lado / 20)) "icone $lado px e o Gyarados vermelho ($vermelhos px)"
+            } finally { $bmp.Dispose(); $quadro.Dispose() }
+        }
         Escolher-Layout 'central'
         Carregar-Opcoes
         Atualizar-Tela
