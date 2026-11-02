@@ -1,9 +1,9 @@
 diff --git a/src/ai_vgc/nn/messages.py b/src/ai_vgc/nn/messages.py
 new file mode 100644
-index 0000000..c314fd2
+index 0000000..9ec907c
 --- /dev/null
 +++ b/src/ai_vgc/nn/messages.py
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,227 @@
 +"""Local conversation history. Never writes private messages to games or stdout."""
 +from collections import deque
 +from datetime import datetime, timezone
@@ -30,7 +30,42 @@ index 0000000..c314fd2
 +            and not re.match(r"^/(?:uhtmlchange|uhtml|raw|html|challenge)(?:\s|$)", text, re.I))
 +
 +
++CONTROL = re.compile(r"^/(?:uhtmlchange|uhtml|raw|html)(?:\s|$)", re.I)
++NOTICE = re.compile(r"^/(?:text|error|nonotify)(?:\s|$)", re.I)
++SERVER = "Showdown"
++
++
++def plain(text):
++    # Showdown notices: "||" is a line break in popups, HTML only decorates.
++    text = re.sub(r"<br\s*/?>", "\n", text.replace("||", "\n"), flags=re.I)
++    text = re.sub(r"<[^>]*>", "", text)
++    for a, b in (("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#39;", "'"), ("&amp;", "&")):
++        text = text.replace(a, b)
++    return "\n".join(line.strip() for line in text.split("\n") if line.strip())
++
++
++def challenge_format(text):
++    """'/challenge gen9x|gen9x|...' -> 'gen9x'; '' for the bare '/challenge' that ends one."""
++    m = re.match(r"^/challenge(?:(?=[|]|$)|\s+([^|\s]*))", text, re.I)
++    return (m.group(1) or "") if m else None
++
++
++def kind_of(text):
++    if challenge_format(text) is not None:
++        return "desafio"
++    if CONTROL.match(text):
++        return "controle"
++    if NOTICE.match(text):
++        return "aviso"
++    return "pm"
++
++
 +class PrivateMessages(logging.Filter):
++    LOG = {"desafio": "Showdown challenge received (local history).",
++           "aviso": "Showdown notice received (local history).",
++           "controle": "Showdown control message received.",
++           "pm": "Private Showdown message received (local history)."}
++
 +    def filter(self, record):
 +        # Keep server responses (recipient '~'), but never copy a player's PM to
 +        # journal, diagnostics or an exception log. Challenge handling is unchanged.
@@ -38,7 +73,7 @@ index 0000000..c314fd2
 +        if "|pm|" in text:
 +            parts = text.split("|pm|", 1)[1].split("|", 2)
 +            if len(parts) == 3 and parts[1].strip() != "~":
-+                record.msg, record.args = "Private Showdown message received (local history).", ()
++                record.msg, record.args = self.LOG[kind_of(parts[2])], ()
 +                record.exc_info, record.exc_text = None, None
 +        return True
 +
@@ -49,12 +84,14 @@ index 0000000..c314fd2
 +        self.path = Path(root) / ".messages" / (self.account + ".jsonl")
 +        self.players = {}
 +
-+    def append(self, kind, sender, text, room="", timestamp=None):
++    def append(self, kind, sender, text, room="", timestamp=None, to=""):
 +        if not self.account or not is_conversation(sender, text):
 +            return
 +        row = {"kind": kind, "sender": sender.lstrip(" ~&@%+*#!"), "text": text,
 +               "room": room, "time": timestamp or datetime.now(timezone.utc).isoformat(),
 +               "own": user_id(sender) == self.account}
++        if to:
++            row["to"] = to.lstrip(" ~&@%+*#!")
 +        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
 +        if self.path.exists() and self.path.stat().st_size >= MAX_BYTES:
 +            os.replace(self.path, self.path.with_suffix(".jsonl.1"))
@@ -68,8 +105,30 @@ index 0000000..c314fd2
 +        if not room:
 +            for line in lines:
 +                p = line.split("|", 4)
-+                if len(p) == 5 and p[1] == "pm" and user_id(p[3]) == self.account and user_id(p[2]) != self.account:
-+                    self.append("pm", p[2], p[4])
++                if len(p) >= 3 and p[1] == "popup":
++                    notice = plain(line.split("|", 2)[2].removeprefix("|html|"))
++                    if notice:
++                        self.append("aviso", SERVER, notice)
++                if len(p) < 5 or p[1] != "pm":
++                    continue
++                sender, to, text = p[2], p[3], p[4]
++                own, mine = user_id(sender) == self.account, user_id(to) == self.account
++                kind = kind_of(text)
++                if kind == "desafio":
++                    fmt = challenge_format(text)
++                    # Bare '/challenge' only says a challenge ended; the bot's own
++                    # challenges are kept too, so the panel shows both directions.
++                    if fmt and (own or mine) and user_id(to):
++                        self.append("desafio", sender, fmt, to=to)
++                elif kind == "aviso" and mine and not own:
++                    notice = plain(text.split(None, 1)[1] if " " in text.strip() else "")
++                    if notice:
++                        self.append("aviso", sender if user_id(sender) else SERVER, notice)
++                elif kind == "pm" and mine and not own:
++                    if user_id(sender):
++                        self.append("pm", sender, text)
++                    elif text.strip():
++                        self.append("aviso", SERVER, plain(text))
 +            return
 +        if not room.startswith(("battle-", "game-")):
 +            return
@@ -136,7 +195,10 @@ index 0000000..c314fd2
 +                for line in stream:
 +                    try:
 +                        row = json.loads(line)
-+                        if (isinstance(row, dict) and row.get("kind") in ("pm", "chat")
++                        kind = row.get("kind") if isinstance(row, dict) else None
++                        if (kind in ("desafio", "aviso") and isinstance(row.get("sender"), str)
++                                and isinstance(row.get("text"), str) and row["text"]) or (
++                                kind in ("pm", "chat")
 +                                and is_conversation(row.get("sender"), row.get("text"))):
 +                            rows.append(row)
 +                    except (ValueError, UnicodeError):
