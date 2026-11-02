@@ -17,6 +17,12 @@ source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
 definition = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == "_public_login")
 
 
+def make_client(**kwargs):
+    kwargs.setdefault('_handle_message', AsyncMock())
+    kwargs.setdefault('logged_in', asyncio.Event())
+    return types.SimpleNamespace(**kwargs)
+
+
 # Contrato real de poke-env 379a046, ps_client.py:337-343 (sem importar a biblioteca inteira).
 async def wait_for_login(self, checking_interval=0.001, wait_for=5):
     start = perf_counter()
@@ -33,7 +39,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
             sent = []
             async def send(msg): sent.append(msg)
             async def avatar(_): pass
-            client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+            client = make_client(account_configuration=types.SimpleNamespace(username="ContaTeste"),
                                            send_message=send, change_avatar=avatar, _avatar=1,
                                            wait_for_login=AsyncMock(), search_ladder_game=AsyncMock())
             player = types.SimpleNamespace(ps_client=client, stop_after_match=False)
@@ -59,7 +65,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
             self.assertEqual("registered on Showdown as a bot" in output.getvalue(), kind == "10")
 
     async def test_falha_nao_faz_fallback_nem_reconexao_automatica(self):
-        client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+        client = make_client(account_configuration=types.SimpleNamespace(username="ContaTeste"),
                                        search_ladder_game=AsyncMock(), send_message=AsyncMock())
         namespace = {"Player": object, "os": os, "asyncio": asyncio, "json": json}
         exec(compile(ast.Module(body=[definition], type_ignores=[]), "player.py", "exec"), namespace)
@@ -88,7 +94,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         async def search(fmt, team):
             sent.append("/search " + fmt)
             return team
-        client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+        client = make_client(account_configuration=types.SimpleNamespace(username="ContaTeste"),
                                        server_configuration=types.SimpleNamespace(authentication_url="https://example.test"),
                                        send_message=send, change_avatar=AsyncMock(), _avatar=None,
                                        wait_for_login=lambda **kw: named.wait(), search_ladder_game=search)
@@ -118,7 +124,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent, [f"/trn ContaTeste,0,{assertion}", "/blockbots", "/search formato"])
 
     async def test_reenvia_blockbots_em_cada_login(self):
-        client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+        client = make_client(account_configuration=types.SimpleNamespace(username="ContaTeste"),
                                        server_configuration=types.SimpleNamespace(authentication_url="https://example.test"),
                                        send_message=AsyncMock(), change_avatar=AsyncMock(), _avatar=None,
                                        wait_for_login=AsyncMock(), search_ladder_game=AsyncMock())
@@ -136,7 +142,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.wait_for_login.await_count, 2)
 
     async def test_toggle_rele_preferencia_antes_da_busca_e_no_login(self):
-        client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+        client = make_client(account_configuration=types.SimpleNamespace(username="ContaTeste"),
                                        server_configuration=types.SimpleNamespace(authentication_url="https://example.test"),
                                        send_message=AsyncMock(), change_avatar=AsyncMock(), _avatar=None,
                                        wait_for_login=AsyncMock(), search_ladder_game=AsyncMock())
@@ -173,7 +179,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
 
     async def test_confirmacao_depois_de_cinco_segundos(self):
         named = asyncio.Event()
-        client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+        client = make_client(account_configuration=types.SimpleNamespace(username="ContaTeste"),
             username="ContaTeste", logged_in=named, server_configuration=types.SimpleNamespace(authentication_url="x"),
             send_message=AsyncMock(), change_avatar=AsyncMock(), _avatar=None, search_ladder_game=AsyncMock())
         client.wait_for_login = types.MethodType(wait_for_login, client)
@@ -202,7 +208,7 @@ class TestBrowserLogin(unittest.IsolatedAsyncioTestCase):
                         raise OSError("falha sintetica")
                     if message == "/blockbots" and caso == "preferencia-travou":
                         await asyncio.Event().wait()
-                client = types.SimpleNamespace(account_configuration=types.SimpleNamespace(username="ContaTeste"),
+                client = make_client(account_configuration=types.SimpleNamespace(username="ContaTeste"),
                     username="ContaTeste", logged_in=named, server_configuration=types.SimpleNamespace(authentication_url="x"),
                     send_message=send, change_avatar=AsyncMock(), _avatar=None, search_ladder_game=AsyncMock())
                 original_search = client.search_ladder_game

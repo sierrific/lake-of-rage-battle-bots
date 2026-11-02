@@ -1829,11 +1829,14 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         $resposta = Ler-RespostaShowdown $l
         if ($resposta) { $txt = $resposta.Detalhe; $tipo = $resposta.Tipo }
         elseif ($l -match '^Started lor-bot@') { $txt = 'Bot iniciado' }
-        elseif ($l -match "^'(.+)' laddering (\S+) at ([^:]+):") { $txt = "Conta $($Matches[1]) conectada · procurando partida no ladder" }
+        elseif ($l -match "^'(.+)' laddering (\S+) at ([^:]+):") { $txt = "Preparando a conexão de $($Matches[1]) para jogar no ladder" }
+        elseif ($l -match '^login confirmed: (.+)$') { $txt = "Login de $($Matches[1]) confirmado pelo Showdown" }
+        elseif ($l -match '^login navegador: entre como (.+) na janela') { $txt = "Aguardando login de $($Matches[1]) na janela do Showdown" }
+        elseif ($l -match '^login confirmation failed') { $txt = 'O Showdown não confirmou o login a tempo. Inicie o bot novamente.'; $tipo = 'aviso' }
         elseif ($l -match '^challenge declined by (\S+)') { $txt = "$($Matches[1]) recusou o desafio"; $tipo = 'partida' }
         elseif ($l -match '^challenge never reached (\S+)') { $txt = "O desafio não chegou a $($Matches[1]) (offline ou não aceita desafios?)"; $tipo = 'aviso' }
         elseif ($l -match '^challenge not accepted by (\S+) in (\d+) min') { $txt = "$($Matches[1]) não aceitou em $($Matches[2]) min · desafio cancelado"; $tipo = 'partida' }
-        elseif ($l -match "^'(.+)' challenging (\S+) to ") { $txt = "Conta $($Matches[1]) conectada · desafio enviado a $($Matches[2]), esperando aceitar" }
+        elseif ($l -match "^'(.+)' challenging (\S+) to ") { $txt = "Preparando a conexão de $($Matches[1]) para desafiar $($Matches[2])" }
         elseif ($l -match '^(Started|Finished) lor-desafio-|^lor-desafio-') { continue }
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $txt = "A conta $($Matches[1]) está registrada no Showdown como bot: no ladder ela só enfrenta outros bots (e quem aceitou jogar contra bots)"; $tipo = 'aviso' }
         elseif ($l -match '^waiting for our turn: team bot (\S+) is searching') { $txt = "Esperando a vez: $($Matches[1]), outro bot do time, está procurando partida pela colmeia" }
@@ -1880,6 +1883,17 @@ function Arrumar-Status {
     Posicionar-Status
 }
 
+function Estado-Login {
+    # O início mais recente invalida confirmações antigas do mesmo journal.
+    for ($i = $script:logLinhas.Count - 1; $i -ge 0; $i--) {
+        $linha = $script:logLinhas[$i]
+        if ($linha -match '^login confirmation failed|^login navegador: autorização') { return 'falhou' }
+        if ($linha -match '^login confirmed:|^ladder preference:|^watch:|^team:|^waiting for our turn:|^waiting: known bots') { return 'confirmado' }
+        if ($linha -match "^Started lor-bot@|^login navegador: entre como|^reconnecting in|^'(.+)' (laddering|challenging) ") { return 'pendente' }
+    }
+    return ''
+}
+
 function Mostrar-Placar($e) {
     $lNos.Text = if ($e['conta']) { $e['conta'] } else { 'Sem conta' }
     $time = if ($e['time'] -eq 'top3' -or -not $e['time']) { 'Padrão' } else { $e['time'] }
@@ -1907,7 +1921,13 @@ function Mostrar-Placar($e) {
         $lPlacar.Text = '—'
         $lPlacar.CorNome = 'suave'
         $lPlacarLegenda.Text = 'sem partida'
-        $lInfo.Text = if ($e['bot'] -eq 'active') { 'Procurando uma partida no ladder.' } else { 'Inicie o bot para buscar uma partida.' }
+        $lInfo.Text = if ($e['bot'] -eq 'active') {
+            switch (Estado-Login) {
+                'pendente' { 'Conclua o login na janela do Showdown.' }
+                'falhou' { 'O login não foi confirmado. Veja a atividade.' }
+                default { 'Aguardando a próxima partida. Acompanhe a fila na atividade.' }
+            }
+        } else { 'Inicie o bot para buscar uma partida.' }
     }
     $ttTema.SetToolTip($lRival, $lRival.Text)
     $lPlacar.AccessibleName = $lPlacarLegenda.Text + ': ' + $lPlacar.Text
@@ -1939,7 +1959,10 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
             $evento.CorNome = 'ouro'
             $evento.Tipo = 'partida'
         } elseif ($l -match '^Started lor-bot@') { $evento.Titulo = 'Bot iniciado'; $evento.Detalhe = 'Iniciando a sessão do bot.' }
-        elseif ($l -match "^'(.+)' (laddering|challenging) ") { $evento.Titulo = 'Conta conectada'; $evento.CorNome = 'verde' }
+        elseif ($l -match "^'(.+)' (laddering|challenging) ") { $evento.Titulo = 'Preparando conexão' }
+        elseif ($l -match '^login confirmed:') { $evento.Titulo = 'Conta conectada'; $evento.CorNome = 'verde' }
+        elseif ($l -match '^login navegador: entre como') { $evento.Titulo = 'Aguardando login'; $evento.CorNome = 'ambar' }
+        elseif ($l -match '^login confirmation failed') { $evento.Titulo = 'Login não confirmado'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^team: (\S+)') { $evento.Titulo = 'Time selecionado'; $evento.Detalhe = $Matches[1] }
         elseif ($l -match "^'(.+)' is registered on Showdown as a bot") { $evento.Titulo = 'Conta marcada como bot'; $evento.Detalhe = "$($Matches[1]): no ladder do Showdown, só enfrenta outros bots"; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^waiting for our turn: team bot (\S+) is searching') { $evento.Titulo = 'Esperando a vez na fila'; $evento.Detalhe = "$($Matches[1]) (do time) está procurando partida" }
@@ -2057,7 +2080,12 @@ function Atualizar-EstadoTela($Resposta = $null) {
         $selo.Tipo = if ($e['desafio_fase'] -eq 'aguardando') { 'neutra' } else { 'ambar' }
         $selo.Text = if ($fases[$e['desafio_fase']]) { $fases[$e['desafio_fase']] } else { "Desafio a $desafio" }
         $selo.Visible = $true
-    } elseif ($bot -eq 'active') { $selo.Tipo = 'neutra'; $selo.Text = 'Procurando partida'; $selo.Visible = $true }
+    } elseif ($bot -eq 'active') {
+        $faseLogin = Estado-Login
+        $selo.Tipo = if ($faseLogin -in @('pendente', 'falhou')) { 'ambar' } else { 'neutra' }
+        $selo.Text = switch ($faseLogin) { 'pendente' { 'Aguardando login' } 'falhou' { 'Login não confirmado' } default { 'Aguardando partida' } }
+        $selo.Visible = $true
+    }
     elseif ($bot -eq 'failed') { $selo.Tipo = 'ambar'; $selo.Text = 'Veja a atividade'; $selo.Visible = $true }
     else { $selo.Visible = $false }
     $ttTema.SetToolTip($selo, $selo.Text)
