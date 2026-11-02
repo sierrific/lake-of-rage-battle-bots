@@ -9,7 +9,9 @@ Também regrava a constante $IconePainel do windows/Painel.ps1.
 Uso: python3 tools/gerar_icone.py
 """
 import base64
+import io
 import re
+import struct
 from collections import deque
 from pathlib import Path
 
@@ -59,13 +61,52 @@ def quadro(sprite, lado):
     return tela
 
 
+def quadro_bmp(img):
+    # DIB clássico de 32 bits (BGRA de baixo para cima) + máscara AND de 1 bit, o formato que
+    # qualquer Windows e o System.Drawing do .NET Framework leem com transparência.
+    w, h = img.size
+    px = img.load()
+    cores = bytearray()
+    mascara = bytearray()
+    linha_mascara = ((w + 31) // 32) * 4
+    for y in range(h - 1, -1, -1):
+        bits = bytearray(linha_mascara)
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            cores += bytes((b, g, r, a))
+            if a == 0:
+                bits[x // 8] |= 0x80 >> (x % 8)
+        mascara += bits
+    cabecalho = struct.pack('<IiiHHIIiiII', 40, w, h * 2, 1, 32, 0, len(cores) + len(mascara), 0, 0, 0, 0)
+    return cabecalho + bytes(cores) + bytes(mascara)
+
+
+def quadro_png(img):
+    saida = io.BytesIO()
+    img.save(saida, format='PNG', optimize=True)
+    return saida.getvalue()
+
+
+def montar_ico(quadros):
+    # Até 48 px em BMP (é o que a janela, a barra de tarefas e a bandeja usam); maiores em PNG,
+    # como o Windows faz com os próprios ícones, para o arquivo embutido não crescer demais.
+    dados = [quadro_bmp(q) if q.width <= 48 else quadro_png(q) for q in quadros]
+    saida = bytearray(struct.pack('<HHH', 0, 1, len(quadros)))
+    deslocamento = 6 + 16 * len(quadros)
+    for q, d in zip(quadros, dados):
+        lado = q.width if q.width < 256 else 0
+        saida += struct.pack('<BBBBHHII', lado, lado, 0, 0, 1, 32, len(d), deslocamento)
+        deslocamento += len(d)
+    for d in dados:
+        saida += d
+    return bytes(saida)
+
+
 def main():
     sprite = tirar_fundo(Image.open(ORIGEM))
     sprite.save(SEM_FUNDO)
     quadros = [quadro(sprite, t) for t in TAMANHOS]
-    maior = quadros[-1]
-    maior.save(DESTINO, format='ICO', sizes=[(t, t) for t in TAMANHOS],
-               append_images=quadros[:-1])
+    DESTINO.write_bytes(montar_ico(quadros))
     # O Painel.ps1 leva o mesmo .ico em base64 (o Atualizar só baixa esse arquivo).
     fonte = PAINEL.read_text(encoding='utf-8-sig')
     b64 = base64.b64encode(DESTINO.read_bytes()).decode()

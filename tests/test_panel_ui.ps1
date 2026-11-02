@@ -185,7 +185,7 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             $bmp = $quadro.ToBitmap()
             try {
                 Assert ($bmp.Width -eq $lado -and $bmp.Height -eq $lado) "icone $lado px no tamanho certo ($($bmp.Width))"
-                Assert ($bmp.GetPixel(0, 0).A -eq 0) "icone $lado px com fundo transparente"
+                Assert ($bmp.GetPixel(0, 0).A -eq 0) "icone $lado px com fundo transparente ($($bmp.GetPixel(0, 0)))"
                 $vermelhos = 0
                 for ($y = 0; $y -lt $lado; $y++) { for ($x = 0; $x -lt $lado; $x++) {
                     $c = $bmp.GetPixel($x, $y)
