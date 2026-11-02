@@ -59,7 +59,17 @@ ADAPTA="--change-after-loss --counter-t1 0.5"
 # --search-protect: a busca sempre avalia Protect/Wide Guard, que a rede quase nunca sugere (nos
 # replays de 24–29/10, Wide Guard contra Clanging Scales era a melhor jogada e nunca foi avaliado).
 # Neutro em 1200 partidas locais (81,9% contra 81,6%), ~12% mais lento por decisão.
-BUSCA="--search-prior 0.03 --search-protect"
+# Revisão de 28 replays do PaiBrazVGC_Oficial (01/11): a busca passa a
+#   --search-escape  comparar trocar quem está preso num golpe só (Encore, item Choice);
+#   --search-charge  julgar Electro Shot carregando depois do turno em que ele dispara (morrer
+#                    antes de disparar não vale o +1);
+#   --search-field   deixar o adversário trocar para qualquer reserva e sempre testar Chilly
+#                    Reception, clima, terreno, Trick Room e Tailwind (e quem traz clima ao entrar);
+#   --search-series  no Bo3, pesar os golpes que cada Pokémon adversário usou nos jogos anteriores
+#                    (0.3 no turno 1, um terço disso depois).
+# Nos jogos da coleta, o acerto do turno 1 do adversário nos jogos 2 e 3 foi de 48,7% para 56,7%.
+# Local (Bo3 contra all-bo3-bc-v2, ~530 jogos cada): 92,7% contra 91,0%, ~0,9 s a mais por decisão.
+BUSCA="--search-prior 0.03 --search-protect --search-escape --search-charge --search-field --search-series 0.3"
 # Modelos do oponente da busca ajustados com os jogos da coleta (linux/treino-oponente.py), do mais
 # novo ao mais velho: vale o primeiro que existir. Só existem no PC onde foram treinados; nos outros a
 # busca segue com o all-bo3-opp-v2 do bot.sh. Nas 396 partidas mais novas (31/10, fora do treino),

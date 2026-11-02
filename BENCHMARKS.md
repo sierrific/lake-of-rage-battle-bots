@@ -3,13 +3,15 @@
 Cada mudança de busca, modelo ou time entra aqui com data, como foi medida e o resultado, para
 que a próxima mudança seja comparada com a base certa. Mais novo primeiro.
 
-Base atual (painel desde 2026.10.25.3): `--use MC371 MC196 --model data/models/mc-bo3-rnad-v5.pt
---change-after-loss --counter-t1 0.5 --search-prior 0.03`, Ai-vgc no commit `0bd586d`.
+Base atual (painel desde 2026.11.01.17): `--use MC371 MC196 --model data/models/mc-bo3-rnad-v5.pt
+--change-after-loss --counter-t1 0.5 --search-prior 0.03 --search-protect --search-escape --search-charge
+--search-field --search-series 0.3`, Ai-vgc no commit `0bd586d` com o patch.
 
 ## Testes locais (bot contra o pool, no PC)
 
 | Data | O que mudou | Como | Resultado |
 | --- | --- | --- | --- |
+| 2026-11-01 | `--search-escape --search-charge --search-field --search-series 0.3` (revisão dos replays do PaiBrazVGC_Oficial) | Na nuvem, Bo3 `MC371 MC196` contra `all-bo3-bc-v2` (pool `reg_mc`, repete a abertura como humano), 250 séries cada, opp `all-bo3-opp-v2`; memória da série medida nos 1.227 jogos 2 e 3 da coleta (Sier, Kaue, Bernardo; sem jogos entre bots nossos) | Jogos 92,7% [90,2–94,6] vs 91,0% [88,2–93,1] (séries 98,4% vs 96,4%; jogo 2 92% vs 88%), 3,5 vs 2,7 s por decisão. Acerto da jogada do oponente no turno 1 dos jogos 2 e 3: 48,7% → 56,7% (peso 0,3); demais turnos 55,1% → 55,3% (peso 0,1) |
 | 2026-10-31 | `--opp-model` lor-opp-v4-tudo (v2 ajustado com 2.337 jogos da coleta, sem jogos entre bots nossos) | Acerto da jogada do oponente nas 396 partidas mais novas (fora do treino); 1.200 jogos Bo1 contra `all-bo3-bc-v2` | 1º palpite 64,6% vs 59,9% do v1 e 54,4% do v2; dupla entre as 6 da busca 70,5% vs 65,8% / 63,0%. Local 83,8% [81,6–85,7] vs 83,5% (v1: 82,0%) → v4 no painel |
 | 2026-10-27 | `--opp-model` lor-opp-v1-tudo (v2 ajustado com 1.244 jogos da coleta, `linux/treino-oponente.py`) | Acerto da jogada do oponente nas 225 partidas mais novas (fora do treino); 1.200 jogos Bo1 contra `all-bo3-bc-v2` | 1º palpite 59,0% vs 55,5% do v2; dupla entre as 6 da busca 65,9% vs 63,1% (só a cabeça: 58,6% / 65,5%). Local 82,0% vs 83,5% (p≈0,33, sem diferença; o bc-v2 não joga como a ladder) → teste na ladder |
 | 2026-10-25 | `--search-prior` 0.03 vs 0.1 (confirmação) | 1.200 jogos Bo1 cada, contra `all-bo3-bc-v2` | 0.03: 83,5% · 0.1: 80,9% → 0.03 virou padrão (PR #27) |

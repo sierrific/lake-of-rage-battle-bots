@@ -1,5 +1,263 @@
+diff --git a/src/ai_vgc/nn/messages.py b/src/ai_vgc/nn/messages.py
+new file mode 100644
+index 0000000..c314fd2
+--- /dev/null
++++ b/src/ai_vgc/nn/messages.py
+@@ -0,0 +1,165 @@
++"""Local conversation history. Never writes private messages to games or stdout."""
++from collections import deque
++from datetime import datetime, timezone
++import json
++import logging
++import os
++from pathlib import Path
++import re
++import sys
++
++MAX_BYTES = 5 * 1024 * 1024
++READ_BYTES = 1024 * 1024
++LIMIT = 300
++
++
++def user_id(name):
++    return re.sub(r"[^a-z0-9]", "", name.lstrip(" ~&@%+*#!").split("@", 1)[0].lower())
++
++
++def is_conversation(sender, text):
++    # Showdown embeds UI controls in chat/PM packets, including Bo3 ready buttons.
++    return (isinstance(sender, str) and bool(user_id(sender))
++            and isinstance(text, str) and bool(text)
++            and not re.match(r"^/(?:uhtmlchange|uhtml|raw|html|challenge)(?:\s|$)", text, re.I))
++
++
++class PrivateMessages(logging.Filter):
++    def filter(self, record):
++        # Keep server responses (recipient '~'), but never copy a player's PM to
++        # journal, diagnostics or an exception log. Challenge handling is unchanged.
++        text = record.getMessage()
++        if "|pm|" in text:
++            parts = text.split("|pm|", 1)[1].split("|", 2)
++            if len(parts) == 3 and parts[1].strip() != "~":
++                record.msg, record.args = "Private Showdown message received (local history).", ()
++                record.exc_info, record.exc_text = None, None
++        return True
++
++
++class History:
++    def __init__(self, root, account):
++        self.account = user_id(account)
++        self.path = Path(root) / ".messages" / (self.account + ".jsonl")
++        self.players = {}
++
++    def append(self, kind, sender, text, room="", timestamp=None):
++        if not self.account or not is_conversation(sender, text):
++            return
++        row = {"kind": kind, "sender": sender.lstrip(" ~&@%+*#!"), "text": text,
++               "room": room, "time": timestamp or datetime.now(timezone.utc).isoformat(),
++               "own": user_id(sender) == self.account}
++        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
++        if self.path.exists() and self.path.stat().st_size >= MAX_BYTES:
++            os.replace(self.path, self.path.with_suffix(".jsonl.1"))
++        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
++        with os.fdopen(fd, "a", encoding="utf-8") as stream:
++            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
++
++    def receive(self, message):
++        lines = message.split("\n")
++        room = lines.pop(0)[1:] if lines[0].startswith(">") else ""
++        if not room:
++            for line in lines:
++                p = line.split("|", 4)
++                if len(p) == 5 and p[1] == "pm" and user_id(p[3]) == self.account and user_id(p[2]) != self.account:
++                    self.append("pm", p[2], p[4])
++            return
++        if not room.startswith(("battle-", "game-")):
++            return
++        players = self.players.setdefault(room, {})
++        if len(self.players) > 128:
++            del self.players[next(iter(self.players))]
++        # Scan players first: init packets can contain older chat before player lines.
++        for line in lines:
++            p = line.split("|")
++            if len(p) >= 4 and p[1] == "player" and p[2] in ("p1", "p2"):
++                players[p[2]] = user_id(p[3])
++        for line in lines:
++            p = line.split("|", 4)
++            timestamp = None
++            if len(p) >= 4 and p[1] == "c":
++                sender, text = p[2], "|".join(p[3:])
++            elif len(p) == 5 and p[1] == "c:":
++                sender, text = p[3], p[4]
++                try:
++                    timestamp = datetime.fromtimestamp(int(p[2]), timezone.utc).isoformat()
++                except (ValueError, OverflowError, OSError):
++                    pass
++            else:
++                continue
++            if self.account in players.values() and user_id(sender) in players.values():
++                self.append("chat", sender, text, room, timestamp)
++        if "|deinit" in lines:
++            self.players.pop(room, None)
++
++
++def install(player):
++    client = player.ps_client
++    history = History(player.save_dir.parent, client.account_configuration.username)
++    original = client._handle_message
++    client.logger.addFilter(PrivateMessages())
++    failed = False
++
++    async def receive(message):
++        nonlocal failed
++        try:
++            history.receive(message)
++        except OSError:
++            if not failed:
++                client.logger.warning("Could not save local conversation history.")
++                failed = True
++        return await original(message)
++
++    client._handle_message = receive
++
++
++def recent(root, account):
++    if not user_id(account):
++        return []
++    path = Path(root) / ".messages" / (user_id(account) + ".jsonl")
++    rows = deque(maxlen=LIMIT)
++    for item in (path.with_suffix(".jsonl.1"), path):
++        try:
++            with item.open("rb") as stream:
++                stream.seek(0, 2)
++                start = max(0, stream.tell() - READ_BYTES)
++                stream.seek(start)
++                if start:
++                    stream.readline()
++                for line in stream:
++                    try:
++                        row = json.loads(line)
++                        if (isinstance(row, dict) and row.get("kind") in ("pm", "chat")
++                                and is_conversation(row.get("sender"), row.get("text"))):
++                            rows.append(row)
++                    except (ValueError, UnicodeError):
++                        continue
++        except OSError:
++            continue
++    return list(rows)
++
++
++def panel(root, account, count, journal):
++    logs = []
++    for line in journal:
++        try:
++            entry = json.loads(line)
++            text = entry.get("MESSAGE", "")
++            if not isinstance(text, str) or "|pm|" in text:
++                continue
++            date = datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1e6, timezone.utc)
++            logs.append({"kind": "log", "text": text, "time": date.isoformat()})
++        except (ValueError, KeyError, TypeError, OverflowError, OSError):
++            continue
++    print("---log---")
++    for row in logs[-count:]:
++        print(row["text"])
++    print("---historico---")
++    rows = logs + recent(root, account)
++    for row in sorted(rows, key=lambda row: row.get("time", ""))[-LIMIT:]:
++        print(json.dumps(row, ensure_ascii=False))
++
++
++if __name__ == "__main__":
++    panel(sys.argv[1], sys.argv[2], min(300, max(1, int(sys.argv[3]))), sys.stdin)
+diff --git a/src/ai_vgc/nn/personality.py b/src/ai_vgc/nn/personality.py
+new file mode 100644
+index 0000000..678c612
+--- /dev/null
++++ b/src/ai_vgc/nn/personality.py
+@@ -0,0 +1,81 @@
++"""Account-level presentation and pacing; never changes the battle policy or its RNG.
++
++Ranges are design choices informed by low-score opponents in the LoR coleta,
++not a fitted human model. See README for the dated sample and its limitations.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++import hashlib
++import random
++import re
++
++
++@dataclass(frozen=True)
++class Profile:
++    key: str
++    label: str
++    avatar: int
++    move: tuple[float, float, float]  # low, high, mode (total seconds including compute)
++    preview: tuple[float, float, float]
++    pause: tuple[float, float, float]
++    greetings: tuple[str, ...]
++    endings: tuple[str, ...]
++
++
++PROFILES = (
++    Profile('reservado', 'Reservado', 43, (9, 20, 14), (18, 30, 22), (60, 240, 120),
++            ("glhf! I'm a LoR bot.", "LoR bot here. gl hf", "gl! I'm a LoR bot."),
++            ('gg', 'gg wp', 'wp, gg')),
++    Profile('cordial', 'Cordial', 68, (10, 24, 17), (20, 35, 25), (90, 300, 180),
++            ("Hi! I'm a LoR bot. Have fun!", "LoR bot here. Good luck, have fun!",
++             "Hey! I'm a LoR bot. glhf!"),
++            ('gg, thanks for the game!', 'well played, gg!', 'gg! good luck in your next games')),
++    Profile('analitico', 'Analítico', 54, (13, 26, 20), (23, 40, 29), (120, 300, 210),
++            ("I'm a LoR bot. Good luck!", "LoR bot ready. glhf!", "Hi, I'm a LoR bot. gl hf!"),
++            ('gg, well played', 'thanks for the game, gg', 'gg wp!')),
++    Profile('energetico', 'Energético', 90, (8, 21, 13), (17, 29, 21), (60, 210, 100),
++            ("LoR bot here. Let's play, glhf!", "I'm a LoR bot. Have a good game!",
++             "Ready! I'm a LoR bot. glhf!"),
++            ('gg! wp!', 'good game, wp!', 'gg, thanks!')),
++    Profile('tranquilo', 'Tranquilo', 120, (11, 25, 18), (21, 38, 27), (120, 300, 220),
++            ("Hey, I'm a LoR bot. Have fun!", "LoR bot here. Have a good game!",
++             "I'm a LoR bot. gl hf :)"),
++            ('gg, have a good one!', 'gg, thanks for playing', 'gg wp :)')),
++)
++
++
++def profile_for(account: str, selection: str = 'auto') -> Profile | None:
++    """The normalized account keeps its profile across restarts, PCs and Bo3 games."""
++    if selection == 'classico':
++        return None
++    if selection != 'auto':
++        for profile in PROFILES:
++            if profile.key == selection:
++                return profile
++        raise ValueError('personalidade inválida: use auto, classico, ' + ', '.join(p.key for p in PROFILES))
++    account_id = re.sub(r'[^a-z0-9]', '', account.lower())
++    digest = hashlib.sha256(account_id.encode('utf-8')).digest()
++    return PROFILES[int.from_bytes(digest[:8], 'big') % len(PROFILES)]
++
++
++class Personality:
++    def __init__(self, profile: Profile, rng: random.Random | None = None):
++        self.profile = profile
++        # A separate stream avoids changing model/search choices when cosmetics are sampled.
++        self.rng = rng if rng is not None else random.Random()
++        self._last: dict[str, str] = {}
++
++    def decision_seconds(self, *, preview: bool = False, forced: bool = False) -> float:
++        limits = self.profile.preview if preview else (4, 10, 6) if forced else self.profile.move
++        return self.rng.triangular(*limits)
++
++    def pause_seconds(self) -> float:
++        return self.rng.triangular(*self.profile.pause)
++
++    def phrase(self, event: str) -> str:
++        phrases = self.profile.greetings if event == 'start' else self.profile.endings
++        choices = [s for s in phrases if s != self._last.get(event)]
++        phrase = self.rng.choice(choices)
++        self._last[event] = phrase
++        return phrase
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..d128714 100644
+index eb60a97..b64a5ef 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -769,16 +1027,25 @@ index eb60a97..d128714 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1468,8 @@ def main() -> None:
+@@ -857,6 +1468,17 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
 +    ap.add_argument("--search-protect", action="store_true",
 +                    help="always score lines where a slot uses Protect/Wide Guard, however unlikely the policy finds them")
++    ap.add_argument("--search-escape", action="store_true",
++                    help="always score switching out a slot locked into one move (Encore, Choice item)")
++    ap.add_argument("--search-charge", action="store_true",
++                    help="score lines that charge a two-turn move (Electro Shot out of rain) after the turn it fires")
++    ap.add_argument("--search-field", action="store_true",
++                    help="opponent: switches into any Pokemon in the back, and weather/terrain/Trick Room/Tailwind "
++                         "options always played")
++    ap.add_argument("--search-series", type=float, default=0.0,
++                    help="Bo3: weight (0-1) on the moves each opposing Pokemon used in earlier games of the series")
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -882,6 +1495,10 @@ def main() -> None:
+@@ -882,6 +1504,10 @@ def main() -> None:
                      help="draw each match's team at random from just these --teams files (stems)")
      ap.add_argument("--no-timer", action="store_true",
                      help="on Showdown, don't turn the battle timer on at the start of each game")
@@ -789,7 +1056,7 @@ index eb60a97..d128714 100644
      ap.add_argument("--no-munchstats", action="store_true",
                      help="--search on Showdown: don't fetch MunchStats usage for unknown opposing species")
      ap.add_argument("--closed-sheets", action="store_true",
-@@ -913,17 +1530,24 @@ def main() -> None:
+@@ -913,17 +1539,24 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -817,7 +1084,7 @@ index eb60a97..d128714 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -932,9 +1556,21 @@ def main() -> None:
+@@ -932,9 +1565,21 @@ def main() -> None:
              common.update(max_concurrent_battles=1)
              del common["battle_format"]
              password = None
@@ -840,16 +1107,17 @@ index eb60a97..d128714 100644
              acct = AccountConfiguration(args.accept, password)
              kw = dict(rules=not args.no_rules, team=teams(), account_configuration=acct, **common)
              if args.search:
-@@ -949,7 +1585,7 @@ def main() -> None:
+@@ -949,7 +1594,8 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
 -                                            seeds2=args.search_seeds2, prior=args.search_prior, **kw)
-+                                            seeds2=args.search_seeds2, prior=args.search_prior, protect=args.search_protect, **kw)
++                                            seeds2=args.search_seeds2, prior=args.search_prior, protect=args.search_protect, escape=args.search_escape,
++                              charge=args.search_charge, field=args.search_field, series=args.search_series, **kw)
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -958,6 +1594,7 @@ def main() -> None:
+@@ -958,6 +1604,7 @@ def main() -> None:
                      bot.refresher = Refresher()
              else:
                  bot = ChallengeNNPlayer(args.model, args.rating, args.greedy, formats=formats, **kw)
@@ -857,7 +1125,7 @@ index eb60a97..d128714 100644
              if public:
                  _public_login(bot, password)
              bot.vary, bot.vary_k, bot.vary_margin = args.vary, args.vary_k, args.vary_margin
-@@ -966,52 +1603,71 @@ def main() -> None:
+@@ -966,52 +1613,71 @@ def main() -> None:
              bot.set_guess = (str(args.sets or args.teams or TEAMS_DIR), formats[0]) if args.set_guess else None
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
@@ -948,20 +1216,117 @@ index eb60a97..d128714 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1691,7 @@ def main() -> None:
+@@ -1035,7 +1701,8 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
 -                              seeds2=args.search_seeds2, prior=args.search_prior, **kw)
-+                              seeds2=args.search_seeds2, prior=args.search_prior, protect=args.search_protect, **kw)
++                              seeds2=args.search_seeds2, prior=args.search_prior, protect=args.search_protect, escape=args.search_escape,
++                              charge=args.search_charge, field=args.search_field, series=args.search_series, **kw)
              me.counter_t1 = args.counter_t1
          else:
              me = NNPlayer(args.model, args.rating, args.greedy, rules=not args.no_rules,
+@@ -1093,6 +1760,9 @@ def main() -> None:
+             extra = (f"  search: {me.searched} decisions, {me.search_time / max(me.searched, 1):.2f}s each, "
+                      f"{me.fallbacks} by policy, {me.sim_errors}/{me.sims} sims failed, "
+                      f"{me.countered} turn 1s countered")
++            from ai_vgc.nn.search import STATS
++            if STATS:
++                extra += "  " + ", ".join(f"{k} {v}" for k, v in sorted(STATS.items()))
+         print(f"{Path(args.model).name}{'+search' if args.search else ''} vs {args.opponent}: "
+               f"{wins}/{n} = {wins / max(n, 1):.1%}  95% CI [{lo:.1%}, {hi:.1%}]  {time.time() - t:.0f}s{extra}")
+         if me.games:
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
-index 9d7a515..efc97fb 100644
+index 9d7a515..cad6c9a 100644
 --- a/src/ai_vgc/nn/search.py
 +++ b/src/ai_vgc/nn/search.py
-@@ -544,14 +544,26 @@ class Bridge:
+@@ -30,6 +30,7 @@ Search only runs on ordinary move turns; forced switches and team preview use th
+ from __future__ import annotations
+ 
+ import asyncio
++import contextlib
+ import copy
+ import json
+ import random
+@@ -466,12 +467,67 @@ def _set(mon: Pokemon, teams_dir: str, world: dict | None = None) -> dict:
+             "evs": dict(zip(STATS, evs)), "ivs": dict(zip(STATS, ivs))}
+ 
+ 
+-def _mon_state(mon: Pokemon, ours: bool, teams_dir: str, world: dict | None = None) -> dict:
++# Two-turn moves that fire at once (no charge turn) in these weathers.
++CHARGE_WEATHER = {"electroshot": {"raindance", "primordialsea"}, "solarbeam": {"sunnyday", "desolateland"},
++                  "solarblade": {"sunnyday", "desolateland"}}
++
++
++def charges(move: Move | None) -> bool:
++    """A move with a charge turn (Electro Shot, Meteor Beam, Solar Beam...)."""
++    return move is not None and "charge" in (move.flags or set())
++
++
++def _charging(battle: DoubleBattle, mon: Pokemon, ours: bool) -> str:
++    """The two-turn move this active Pokemon charged last turn and must fire now, or "".
++    poke-env keeps `preparing_move` after a move that fired in the same turn (Electro Shot in
++    rain also shows "-prepare"), so our side checks the request (locked into that one move) and
++    the opponent's side the weather."""
++    mv = mon.preparing_move
++    if mon.fainted or not charges(mv):
++        return ""
++    if ours:
++        pos = battle.active_pokemon.index(mon) if mon in battle.active_pokemon else -1
++        avail = battle.available_moves[pos] if pos >= 0 else []
++        return mv.id if len(avail) == 1 and avail[0].id == mv.id else ""
++    if {w.name.lower() for w in battle.weather} & CHARGE_WEATHER.get(mv.id, set()):
++        return ""
++    return mv.id
++
++
++def _charge_loc(battle: DoubleBattle, mon: Pokemon, ours: bool) -> int:
++    """Target slot of a charged move, as Showdown numbers it from the user's side (foes 1, 2)."""
++    tgt = mon.preparing_target
++    foes = battle.opponent_active_pokemon if ours else battle.active_pokemon
++    for i, f in enumerate(foes):
++        if f is not None and f is tgt:
++            return i + 1
++    return 0
++
++
++def _encore(mon: Pokemon) -> tuple[str, int] | None:
++    """(move it is locked into, turns left) for an Encored Pokemon: Encore repeats the last move used."""
++    if mon.fainted or Effect.ENCORE not in mon.effects:
++        return None
++    last = next((m for m in mon.moves.values() if m._is_last_used), None)
++    if last is None:
++        return None
++    return last.id, max(1, 3 - int(mon.effects[Effect.ENCORE] or 0))
++
++
++def _mon_state(mon: Pokemon, ours: bool, teams_dir: str, world: dict | None = None,
++               battle: DoubleBattle | None = None) -> dict:
+     s = {"set": _set(mon, teams_dir, None if ours else world), "fainted": mon.fainted, "firstTurn": mon.first_turn,
+          "protect": mon.protect_counter, "boosts": dict(mon.boosts), "item": _item(mon),
+          "status": mon.status.name.lower() if mon.status and not mon.fainted else "",
+          "statusTurns": mon.status_counter,
+          "volatiles": [v for e, v in VOLATILES.items() if e in mon.effects]}
++    # Locks the simulator has to know about, or a charged Electro Shot charges again and an
++    # Encored Pokemon picks any move on the turn after (two-turn search and --search-charge).
++    if battle is not None and mon.active:
++        if charging := _charging(battle, mon, ours):
++            s["charging"], s["chargeLoc"] = charging, _charge_loc(battle, mon, ours)
++        if (enc := _encore(mon)) and enc[0] in s["set"]["moves"]:
++            s["encore"] = list(enc)
+     if ours:
+         s["hp"], s["maxhp"] = mon.current_hp, mon.max_hp
+         s["stats"] = {k: v for k, v in (mon.stats or {}).items() if v}
+@@ -504,7 +560,7 @@ def _side(battle: DoubleBattle, ours: bool, teams_dir: str, world: dict | None =
+     order += [m for m in brought if m not in order]
+     conds = battle.side_conditions if ours else battle.opponent_side_conditions
+     return {
+-        "mons": [_mon_state(m, ours, teams_dir, world) for m in order],
++        "mons": [_mon_state(m, ours, teams_dir, world, battle) for m in order],
+         "conditions": {c.name.lower().replace("_", ""): max(1, SIDE_TURNS[c] - (battle.turn - t))
+                        if c in SIDE_TURNS else 0 for c, t in conds.items()},
+         "megaUsed": battle.used_mega_evolve if ours else battle.opponent_used_mega_evolve,
+@@ -544,14 +600,26 @@ class Bridge:
          self._start()
  
      def _start(self) -> None:
@@ -992,7 +1357,7 @@ index 9d7a515..efc97fb 100644
          # A bridge that died (e.g. killed on a busy node) is restarted rather than failing
          # every later search in the run.
          if self.proc.poll() is not None:
-@@ -560,10 +572,20 @@ class Bridge:
+@@ -560,10 +628,20 @@ class Bridge:
          self.proc.stdin.write(json.dumps(req) + "\n")
          # The read blocks the event loop and every battle on it, so a simulation that never
          # returns (it happens on ilab) must not wait forever: kill it and start a fresh one.
@@ -1017,18 +1382,25 @@ index 9d7a515..efc97fb 100644
          line = self.proc.stdout.readline()
          if not line:
              raise RuntimeError(f"sim bridge exited with code {self.proc.wait()}")
-@@ -572,23 +594,32 @@ class Bridge:
+@@ -572,23 +650,37 @@ class Bridge:
              raise RuntimeError(out["error"])
          return out
  
 -    def run(self, state: dict, pairs: list[tuple[str, str]], seeds: list[int], keep: bool = False) -> list[dict]:
-+    def run(self, state: dict, pairs: list[tuple[str, str]], seeds: list[int], keep: bool = False, stopped=None) -> list[dict]:
++    def run(self, state: dict, pairs: list[tuple[str, str]], seeds: list[int], keep: bool = False, stopped=None,
++            fill: bool = False) -> list[dict]:
          """Play each pair once per seed. With `keep`, results that end on an ordinary move turn
-         carry "next" ({"id", "request"}) and the bridge keeps that position for `cont`."""
+-        carry "next" ({"id", "request"}) and the bridge keeps that position for `cont`."""
 -        return self._ask({"state": state, "pairs": pairs, "seeds": seeds, "keep": keep})["results"]
-+        return self._ask({"state": state, "pairs": pairs, "seeds": seeds, "keep": keep}, stopped)["results"]
- 
+-
 -    def cont(self, conts: list[dict]) -> list[list[dict]]:
++        carry "next" ({"id", "request"}) and the bridge keeps that position for `cont`; with
++        `fill` too, Pokemon that fainted are replaced first (the first legal switch-in)."""
++        req = {"state": state, "pairs": pairs, "seeds": seeds, "keep": keep}
++        if fill:
++            req["fill"] = True
++        return self._ask(req, stopped)["results"]
++
 +    def cont(self, conts: list[dict], stopped=None) -> list[list[dict]]:
          """Turn 2 from positions kept by the last `run(..., keep=True)`: each item is
          {"id", "pairs", "seeds"}. Hold `self.lock` across both calls, or another search's
@@ -1055,7 +1427,7 @@ index 9d7a515..efc97fb 100644
  
  
  def after(battle: DoubleBattle, lines: list[str]) -> DoubleBattle:
-@@ -624,6 +655,45 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
+@@ -624,8 +716,131 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
      return sorted(out, key=lambda c: -c[1])[:k]
  
  
@@ -1098,13 +1470,215 @@ index 9d7a515..efc97fb 100644
 +    return out
 +
 +
++def _locked_slot(mask: np.ndarray, pos: int) -> bool:
++    """The slot can use only one of its moves (Encore, a Choice item, a charged move) and could
++    still switch out."""
++    acts = np.flatnonzero(mask[pos])
++    moves = {(a - 7) % 20 // 5 for a in acts if a >= 7}
++    return len(moves) == 1 and any(1 <= a <= 6 for a in acts)
++
++
++@torch.no_grad()
++def escape_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
++                      have: list[tuple[np.ndarray, float]]) -> list[tuple[np.ndarray, float]]:
++    """For each slot locked into one move (`_locked_slot`) where no candidate in `have` switches it
++    out: every legal switch of that slot, with the partner's most likely action. The policy
++    rarely ranks the way out of an Encore/Choice lock in its top few (Nico67 G1, 2026-11-01), so
++    search never compared it with staying in."""
++    b = {key: torch.from_numpy(np.ascontiguousarray(v))[None] for key, v in obs.items()}
++    m = torch.from_numpy(mask)[None]
++    enc = model.encode(b)
++    lp_a = F.log_softmax(masked(model.slot_logits(enc, b, 0), m[:, 0]), -1)[0]
++    out = []
++    for pos in (0, 1):
++        if not _locked_slot(mask, pos) or any(1 <= a[pos] <= 6 for a, _ in have):
++            continue
++        for act in (a for a in range(1, 7) if mask[pos, a]):
++            if pos == 0:
++                prev = torch.tensor([act])
++                mb = slot_b_mask(m[:, 1], prev)
++                if not mb.any():
++                    continue
++                lp_b = F.log_softmax(masked(model.slot_logits(enc, b, 1, prev), mb), -1)[0]
++                a1 = int(lp_b.argmax())
++                out.append((np.array([act, a1]), (lp_a[act] + lp_b[a1]).item()))
++                continue
++            for a0 in lp_a.topk(min(4, int(mask[0].sum()))).indices.tolist():
++                prev = torch.tensor([a0])
++                mb = slot_b_mask(m[:, 1], prev)
++                if mb[0, act]:
++                    lp_b = F.log_softmax(masked(model.slot_logits(enc, b, 1, prev), mb), -1)[0]
++                    out.append((np.array([a0, act]), (lp_a[a0] + lp_b[act]).item()))
++                    break
++    return out
++
++
++# Opposing options that change the field for the rest of the turn (weather, terrain, Trick Room,
++# Tailwind), and abilities that do it on switch-in. Search always plays them against our
++# candidates (`--search-field`): a plan that only works in rain has to survive Chilly Reception
++# (Yutok G2/G3) or a Ninetales coming in (French1 G2).
++FIELD_MOVES = {"raindance", "sunnyday", "sandstorm", "snowscape", "hail", "chillyreception",
++               "electricterrain", "grassyterrain", "mistyterrain", "psychicterrain", "trickroom",
++               "tailwind"}
++FIELD_ABILITIES = {"drizzle", "drought", "sandstream", "snowwarning", "primordialsea", "desolateland",
++                   "electricsurge", "grassysurge", "mistysurge", "psychicsurge", "orichalcumpulse",
++                   "hadronengine", "seedsower", "sandspit"}
++
++
++def _field_choice(choice: str, state: dict) -> bool:
++    """A single-slot choice ("move chillyreception", "switch Ninetales") that changes the field."""
++    parts = choice.split()
++    if parts[0] == "move":
++        return parts[1] in FIELD_MOVES
++    if parts[0] == "switch":
++        name = choice.removeprefix("switch ")
++        return any(m["set"]["name"] == name and to_id_str(m["set"]["ability"]) in FIELD_ABILITIES
++                   for m in state["sides"]["them"]["mons"])
++    return False
++
++
++def _part(joint: str, slot: int) -> str:
++    """One slot's choice in a joint choice string, without the Mega flag."""
++    return joint.split(", ")[slot].removesuffix(" mega")
++
++
++def _series_moves(battle: DoubleBattle, mon: Pokemon, moves: list[Move]) -> np.ndarray | None:
++    """How often this opposing Pokemon used each move in the earlier games of the Bo3 series (on
++    turn 1 when it is turn 1, else at all), normalised; None in game 1 or with nothing seen."""
++    ctx = getattr(battle, "_series", None)
++    if ctx is None:
++        return None
++    col = 0 if battle.turn <= 1 else 1
++    f = np.array([ctx.mv(mon.name, False, mv.id)[col] for mv in moves], dtype=float)
++    return f / f.sum() if f.sum() > 0 else None
++
++
  def _slot_options(battle: DoubleBattle, state: dict, slot: int,
-                   probs: tuple[np.ndarray, np.ndarray] | None) -> list[tuple[str, float]]:
+-                  probs: tuple[np.ndarray, np.ndarray] | None) -> list[tuple[str, float]]:
++                  probs: tuple[np.ndarray, np.ndarray] | None, all_switches: bool = False,
++                  series: float = 0.0) -> list[tuple[str, float]]:
      """(choice, probability) for one opposing slot, from the opponent head's (move-or-switch,
-@@ -705,15 +775,26 @@ def values(model: Policy, battles: list[DoubleBattle], rating: float) -> np.ndar
+     target) probabilities, or every move and target equally likely without them."""
+     mon = battle.opponent_active_pokemon[slot]
+@@ -642,10 +857,29 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
+             ally = moves[i].target in (Target.ADJACENT_ALLY, Target.ADJACENT_ALLY_OR_SELF)
+             mv_p[i], tg_p[i] = guess, np.array([0.0, 0.0, 1.0] if ally else [0.5, 0.5, 0.0])
+         probs = (mv_p, tg_p)
++    # Locked: a charged move fires (its target is already set), an Encore repeats the last move.
++    mon_state = state["sides"]["them"]["mons"][slot]
++    lock = mon_state.get("charging") or (mon_state.get("encore") or [None])[0]
++    if mon_state.get("charging"):
++        # Locked, the target is ignored; given anyway, so the choice is valid if they aren't.
++        return [(f"move {lock} {mon_state.get('chargeLoc') or 1}", 1.0)]
++    # Bo3 memory (`--search-series`): mix in what this Pokemon did in the earlier games. On the
++    # collected ladder games (1.227 games 2-3, all-bo3-opp-v2) weight 0.3 on turn 1 took the
++    # opponent's move guess from 48.7% to 56.7%; later turns gain only with a third of it (55.1% ->
++    # 55.3%; 0.3 there costs 0.4 points).
++    if series > 0 and probs is not None and (f := _series_moves(battle, mon, moves)) is not None:
++        w = series if battle.turn <= 1 else series / 3
++        mv_p = probs[0].copy()
++        moved = mv_p[:len(moves)].sum()
++        mv_p[:len(moves)] = (1 - w) * mv_p[:len(moves)] + w * moved * f
++        probs = (mv_p, probs[1])
++        STATS["series_slots"] += 1
+     # Their view: our a / our b are foe slots 1 / 2; the ally is -1 (slot a) or -2 (slot b).
+     targets = [1, 2, -2 if slot == 0 else -1]
+     out: dict[str, float] = {}
+     for i, mv in enumerate(moves):
++        if lock and mv.id != lock:
++            continue
+         p_move = probs[0][i] if probs is not None else 1.0
+         if mv.target in TARGETED:
+             tgt = range(3) if probs is not None else range(2)
+@@ -656,24 +890,31 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
+             out[f"move {mv.id}"] = out.get(f"move {mv.id}", 0) + p_move
+     bench = [m["set"]["name"] for m in state["sides"]["them"]["mons"][2:] if not m["fainted"]]
+     if bench and probs is not None:
+-        out[f"switch {bench[0]}"] = float(probs[0][4])
++        # The head gives one chance to switch; it used to go all to the first Pokemon in the back,
++        # so a weather setter second in line (Ninetales) never came in during search.
++        into = bench if all_switches else bench[:1]
++        for name in into:
++            out[f"switch {name}"] = float(probs[0][4]) / len(into)
+     total = sum(out.values()) or 1.0
+     return [(c, p / total) for c, p in out.items()]
+ 
+ 
+ @torch.no_grad()
+ def opp_candidates(opp_model: Policy | None, battle: DoubleBattle, obs: dict[str, np.ndarray],
+-                   state: dict, k: int) -> list[tuple[str, float]]:
++                   state: dict, k: int, field: bool = False, series: float = 0.0) -> list[tuple[str, float]]:
+     """The opponent's k most likely joint choices (in their side's choice syntax), with
+     probabilities renormalised over the k (a random k, equally likely, without the head). A side that can still Mega Evolve does it with the
+-    first Pokemon holding its stone, as players nearly always do."""
++    first Pokemon holding its stone, as players nearly always do.
++    With `field`, the opponent can switch into any Pokemon in the back, and each field-changing
++    option (`_field_choice`) that missed the k comes in with its likeliest partner choice, at
++    its own probability. `series` mixes in the earlier games' moves (`_slot_options`)."""
+     probs = [None, None]
+     if opp_model is not None and opp_model.config.get("aux"):
+         b = {key: torch.from_numpy(np.ascontiguousarray(v))[None] for key, v in obs.items()}
+         mv, tg = opp_model.opp_logits(opp_model.encode(b), b)
+         mv, tg = F.softmax(mv[0], -1).numpy(), F.softmax(tg[0], -1).numpy()
+         probs = [(mv[0], tg[0]), (mv[1], tg[1])]
+-    per_slot = [_slot_options(battle, state, s, probs[s]) for s in (0, 1)]
++    per_slot = [_slot_options(battle, state, s, probs[s], field, series) for s in (0, 1)]
+     mega = -1
+     if not state["sides"]["them"]["megaUsed"]:
+         for s in (0, 1):
+@@ -692,7 +933,17 @@ def opp_candidates(opp_model: Policy | None, battle: DoubleBattle, obs: dict[str
+         joint.append((f"{ca}, {cb}", pa * pb))
+     if probs[0] is None:  # all equally likely: a random k of them
+         random.shuffle(joint)
+-    joint = sorted(joint, key=lambda c: -c[1])[:k]
++    ranked = sorted(joint, key=lambda c: -c[1])
++    joint = ranked[:k]
++    if field:
++        for slot in (0, 1):
++            for c, _ in per_slot[slot]:
++                if not _field_choice(c, state) or any(_part(j, slot) == c for j, _ in joint):
++                    continue
++                best = next((j for j in ranked if _part(j[0], slot) == c and j[1] > 0), None)
++                if best:
++                    joint.append(best)
++                    STATS["field_added"] += 1
+     total = sum(p for _, p in joint) or 1.0
+     return [(c, p / total) for c, p in joint]
+ 
+@@ -705,15 +956,56 @@ def values(model: Policy, battles: list[DoubleBattle], rating: float) -> np.ndar
      return torch.sigmoid(model.value(model.encode(b)[0])[:, 0]).numpy()
  
  
++# What the 2026-11-01 options did, for the end-of-run summary (player.py): escape lines scored /
++# chosen, charge playouts scored after the firing turn, field options added to the opponent's
++# candidates, opposing slots whose probabilities the series memory changed.
++STATS: Counter = Counter()
++
++
++def _starts_charge(battle: DoubleBattle, action: np.ndarray) -> bool:
++    """Our joint action uses a move with a charge turn (which may or may not fire at once)."""
++    for pos, a in enumerate(action):
++        mon = battle.active_pokemon[pos]
++        if a >= 7 and mon is not None:
++            moves = list(mon.moves.values())[:4]
++            k = (int(a) - 7) % 20 // 5
++            if k < len(moves) and charges(moves[k]):
++                return True
++    return False
++
++
++
++
++def _charge_held(r: dict) -> bool:
++    """A kept playout where one of our Pokemon is locked into firing a charged move next turn."""
++    req = (r.get("next") or {}).get("request") or {}
++    for slot in req.get("active", []):
++        mv = slot.get("moves", [])
++        if len(mv) == 1 and charges(Move(mv[0]["id"], gen=9)):
++            return True
++    return False
++
++
 +class SearchStopped(Exception):
 +    """The live battle ended; do not calculate a fallback or start more simulations."""
 +
@@ -1128,7 +1702,7 @@ index 9d7a515..efc97fb 100644
          if r["winner"]:
              v[i] = {"us": 1.0, "them": 0.0}.get(r["winner"], 0.5)
              continue
-@@ -740,7 +821,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+@@ -740,7 +1032,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
      _second_turn.expanded += len(conts)
      _second_turn.nodes += len(res)
      if conts:
@@ -1138,7 +1712,7 @@ index 9d7a515..efc97fb 100644
      leaves, where = [], []
      for n, (i, b, k, q) in enumerate(nodes):
          if not k:
-@@ -759,6 +841,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+@@ -759,6 +1052,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
                  where.append((n, j))
          nodes[n] = (i, b, k, q, vals)
      if leaves:
@@ -1146,12 +1720,13 @@ index 9d7a515..efc97fb 100644
          lv = values(model, leaves, rating)
          for (n, j), x in zip(where, lv):
              if j is None:
-@@ -780,16 +863,22 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
+@@ -780,16 +1074,32 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
  def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: DoubleBattle,
             mask: np.ndarray, fmt: str, teams_dir: str, rating: float, k: int = 6, opp_k: int = 6,
             seeds: int = 2, prior: float = 0.0, n_worlds: int = 1, depth: int = 1, k2: int = 3,
 -           opp_k2: int = 3, seeds2: int = 1) -> tuple[np.ndarray, dict] | None:
-+           opp_k2: int = 3, seeds2: int = 1, protect: bool = False) -> tuple[np.ndarray, dict] | None:
++           opp_k2: int = 3, seeds2: int = 1, protect: bool = False, escape: bool = False,
++           charge: bool = False, field: bool = False, series: float = 0.0) -> tuple[np.ndarray, dict] | None:
      """(our chosen action, details) by one-turn search, or None when the position can't be
      rebuilt. With closed team sheets the opponent's hidden sets are guessed `n_worlds` ways
      (`worlds`); each candidate is scored in every world and the scores averaged by how likely
@@ -1159,7 +1734,12 @@ index 9d7a515..efc97fb 100644
      With `depth` 2, each turn-1 playout is scored after a second turn (`_second_turn`) instead
      of by the value head right after turn 1.
 +    With `protect`, lines where a slot uses Protect/Wide Guard (`protective_candidates`) are
-+    scored too, however unlikely the policy finds them.
++    scored too, however unlikely the policy finds them; with `escape`, switching out a slot
++    locked into one move (`escape_candidates`).
++    With `charge`, a playout where one of our Pokemon only charged a two-turn move (Electro Shot
++    out of rain) is scored after the next turn, when the move fires, as at depth 2: the charge's
++    +1 is worth nothing if the Pokemon falls before firing (arrdamoin G1 T7).
++    `field` and `series` shape the opponent's candidates (`opp_candidates`).
      `M` and `q` in the details are the most likely world's."""
 +    check_live(battle)
      obs = encode(battle, rating)
@@ -1167,10 +1747,14 @@ index 9d7a515..efc97fb 100644
      ours = our_candidates(model, obs | {"mask": mask}, mask, k)
 +    if protect:
 +        ours += protective_candidates(model, battle, obs | {"mask": mask}, mask, ours)
++    first_escape = len(ours)
++    if escape:
++        ours += escape_candidates(model, obs | {"mask": mask}, mask, ours)
++        STATS["escape_lines"] += len(ours) - first_escape
      if len(ours) < 2:
          return None
      choices = [DoublesEnv.action_to_order(a, battle, strict=False).message.removeprefix("/choose ")
-@@ -797,19 +886,23 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -797,29 +1107,47 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      seed_list = [int(s) for s in np.random.randint(1, 2**30, seeds)]
      value, first, errors, sims = np.zeros(len(ours)), None, [], 0
      for world, w in worlds(battle, teams_dir, n_worlds, fmt):
@@ -1178,7 +1762,8 @@ index 9d7a515..efc97fb 100644
          state = position(battle, fmt, teams_dir, world)
          if state is None:
              return None
-         theirs = opp_candidates(opp_model, battle, obs, state, opp_k)
+-        theirs = opp_candidates(opp_model, battle, obs, state, opp_k)
++        theirs = opp_candidates(opp_model, battle, obs, state, opp_k, field, series)
          pairs = [(c, t) for c in choices for t, _ in theirs]
 +        check_live(battle)
          if depth >= 2:
@@ -1191,12 +1776,27 @@ index 9d7a515..efc97fb 100644
                                   k2, opp_k2, seeds2_list)
          else:
 -            res = bridge.run(state, pairs, seed_list)
-+            res = bridge.run(state, pairs, seed_list, stopped=lambda: battle.finished or getattr(battle, "_lor_ended", False))
-+            check_live(battle)
-             v = np.full(len(res), np.nan)
+-            v = np.full(len(res), np.nan)
++            keep = charge and any(_starts_charge(battle, a) for a, _ in ours)
++            # With `keep`, the kept positions must survive until `cont`: hold the bridge across both.
++            with bridge.lock if keep else contextlib.nullcontext():
++                res = bridge.run(state, pairs, seed_list, keep=keep, fill=keep,
++                                 stopped=lambda: battle.finished or getattr(battle, "_lor_ended", False))
++                check_live(battle)
++                v = np.full(len(res), np.nan)
++                held = [i for i, r in enumerate(res) if keep and not r["winner"] and _charge_held(r)]
++                if held:
++                    v[held] = _second_turn(model, opp_model, bridge, battle, [res[i] for i in held], world, fmt,
++                                           teams_dir, rating, k2, opp_k2,
++                                           [int(x) for x in np.random.randint(1, 2**30, seeds2)])
++                    STATS["charge_followed"] += len(held)
              live, idx = [], []
              for i, r in enumerate(res):
-@@ -819,7 +912,9 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
++                if i in held:
++                    continue
+                 if r["winner"]:
+                     v[i] = {"us": 1.0, "them": 0.0}.get(r["winner"], 0.5)
+                 else:
                      live.append(after(battle, r["lines"]))
                      idx.append(i)
              if live:
@@ -1206,29 +1806,40 @@ index 9d7a515..efc97fb 100644
          M = v.reshape(len(ours), len(theirs), seeds).mean(-1)
          q = np.array([p for _, p in theirs])
          value += w * (M @ q)
-@@ -842,8 +937,9 @@ class SearchPlayer(NNPlayer):
+@@ -830,6 +1158,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+     M, q, their_choices = first
+     score = value + prior * np.array([lp for _, lp in ours])
+     best = int(score.argmax())
++    STATS["escape_chosen"] += best >= first_escape
+     return ours[best][0], {"M": M, "q": q, "ours": choices, "theirs": their_choices,
+                            "actions": np.stack([a for a, _ in ours]), "value": value,
+                            "logp": np.array([lp for _, lp in ours]), "obs": obs | {"mask": mask},
+@@ -842,8 +1171,11 @@ class SearchPlayer(NNPlayer):
      def __init__(self, *args, opp_model: Policy | str | Path | None = None, fmt: str,
                   teams_dir: str | Path, showdown: str | Path = "pokemon-showdown", k: int = 6,
                   opp_k: int = 6, seeds: int = 2, prior: float = 0.0, worlds: int = 1, depth: int = 1,
 -                 k2: int = 3, opp_k2: int = 3, seeds2: int = 1, **kwargs):
-+                 k2: int = 3, opp_k2: int = 3, seeds2: int = 1, protect: bool = False, **kwargs):
++                 k2: int = 3, opp_k2: int = 3, seeds2: int = 1, protect: bool = False, escape: bool = False,
++                 charge: bool = False, field: bool = False, series: float = 0.0, **kwargs):
          super().__init__(*args, battle_format=fmt, **kwargs)
 +        self.protect = protect
++        self.escape, self.charge, self.field, self.series = escape, charge, field, series
          self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
          self.fmt, self.teams_dir = fmt, str(teams_dir)
          self.bridge = Bridge(showdown)
-@@ -889,7 +985,9 @@ class SearchPlayer(NNPlayer):
+@@ -889,7 +1221,10 @@ class SearchPlayer(NNPlayer):
              out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
                                            self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
                                            self.seeds, self.prior, self.worlds, self.depth, self.k2,
 -                                          self.opp_k2, self.seeds2)
-+                                          self.opp_k2, self.seeds2, self.protect)
++                                          self.opp_k2, self.seeds2, self.protect, self.escape,
++                                          self.charge, self.field, self.series)
 +        except SearchStopped:
 +            raise asyncio.CancelledError() from None
          except Exception as e:  # a position the bridge can't handle: play the policy
              self.logger.warning("search failed on turn %s: %r", battle.turn, e)
              out = None
-@@ -902,6 +1000,8 @@ class SearchPlayer(NNPlayer):
+@@ -902,6 +1237,8 @@ class SearchPlayer(NNPlayer):
          else:
              self.failed_in_a_row = 0
          self.search_time += time.time() - t
@@ -1238,10 +1849,29 @@ index 9d7a515..efc97fb 100644
              self.fallbacks += 1
              return await super().choose_move(battle)
 diff --git a/src/ai_vgc/nn/sim_bridge.js b/src/ai_vgc/nn/sim_bridge.js
-index bf07ddc..7909614 100644
+index bf07ddc..e5a0839 100644
 --- a/src/ai_vgc/nn/sim_bridge.js
 +++ b/src/ai_vgc/nn/sim_bridge.js
-@@ -111,6 +111,23 @@ function tryChoose(battle, side, choice) {
+@@ -44,6 +44,18 @@ function patchMon(battle, p, m) {
+       }
+     } catch (e) {}
+   }
++  // A charged two-turn move (fires this turn, the Pokemon is locked into it) and Encore (locked
++  // into its last move for a few turns): set the volatiles as the sim leaves them, since
++  // addVolatile would run their start effects (a new charge, or an Encore that needs lastMove).
++  if (m.charging && !m.fainted && p.hasMove(m.charging)) {
++    p.volatiles['twoturnmove'] = battle.initEffectState({id: 'twoturnmove', target: p, duration: 1, move: m.charging});
++    p.volatiles[m.charging] = battle.initEffectState({id: m.charging, target: p, targetLoc: m.chargeLoc || 0});
++    if (m.chargeLoc) p.lastMoveTargetLoc = m.chargeLoc;
++  }
++  if (m.encore && !m.fainted && p.hasMove(m.encore[0])) {
++    p.lastMove = battle.dex.moves.get(m.encore[0]);
++    p.volatiles['encore'] = battle.initEffectState({id: 'encore', target: p, duration: m.encore[1], move: m.encore[0]});
++  }
+   if (m.protect) {
+     p.addVolatile('stall');
+     if (p.volatiles['stall']) p.volatiles['stall'].counter = Math.pow(3, m.protect);
+@@ -111,6 +123,23 @@ function tryChoose(battle, side, choice) {
    return `default for ${choice}`;
  }
  
@@ -1265,7 +1895,29 @@ index bf07ddc..7909614 100644
  function dump(battle) {
    return battle.sides.map(side => side.pokemon.map(p => [
      p.name, p.species.id, p.hp, p.maxhp, p.status, p.item, p.ability,
-@@ -159,6 +176,7 @@ function play(json, sides, pairs, seeds, keep) {
+@@ -148,7 +177,20 @@ function start(req) {
+ let kept = new Map();
+ let keptSides = null;
+ 
+-function play(json, sides, pairs, seeds, keep) {
++// With "fill": true, replacements for fainted Pokemon (both sides) are sent in with the first
++// legal switch before a playout is kept, so a two-turn line goes on when someone fell on turn 1.
++function fillFaints(battle) {
++  for (let i = 0; i < 4 && !battle.ended; i++) {
++    const pending = battle.sides.filter(side => {
++      const req = side.activeRequest;
++      return req && !req.wait && req.forceSwitch;
++    });
++    if (!pending.length) return;
++    for (const side of pending) battle.choose(side.id, 'default');
++  }
++}
++
++function play(json, sides, pairs, seeds, keep, fill) {
+   const ch = +sides.us.slice(1);
+   const results = [];
+   for (const [us, them] of pairs) {
+@@ -159,6 +201,7 @@ function play(json, sides, pairs, seeds, keep) {
        let err = '';
        try {
          err = [tryChoose(b, sides.us, us), tryChoose(b, sides.them, them)].filter(Boolean).join('; ');
@@ -1273,259 +1925,22 @@ index bf07ddc..7909614 100644
        } catch (e) {
          err = String(e && e.message || e);
        }
-diff --git a/src/ai_vgc/nn/personality.py b/src/ai_vgc/nn/personality.py
-new file mode 100644
---- /dev/null
-+++ b/src/ai_vgc/nn/personality.py
-@@ -0,0 +1,81 @@
-+"""Account-level presentation and pacing; never changes the battle policy or its RNG.
-+
-+Ranges are design choices informed by low-score opponents in the LoR coleta,
-+not a fitted human model. See README for the dated sample and its limitations.
-+"""
-+from __future__ import annotations
-+
-+from dataclasses import dataclass
-+import hashlib
-+import random
-+import re
-+
-+
-+@dataclass(frozen=True)
-+class Profile:
-+    key: str
-+    label: str
-+    avatar: int
-+    move: tuple[float, float, float]  # low, high, mode (total seconds including compute)
-+    preview: tuple[float, float, float]
-+    pause: tuple[float, float, float]
-+    greetings: tuple[str, ...]
-+    endings: tuple[str, ...]
-+
-+
-+PROFILES = (
-+    Profile('reservado', 'Reservado', 43, (9, 20, 14), (18, 30, 22), (60, 240, 120),
-+            ("glhf! I'm a LoR bot.", "LoR bot here. gl hf", "gl! I'm a LoR bot."),
-+            ('gg', 'gg wp', 'wp, gg')),
-+    Profile('cordial', 'Cordial', 68, (10, 24, 17), (20, 35, 25), (90, 300, 180),
-+            ("Hi! I'm a LoR bot. Have fun!", "LoR bot here. Good luck, have fun!",
-+             "Hey! I'm a LoR bot. glhf!"),
-+            ('gg, thanks for the game!', 'well played, gg!', 'gg! good luck in your next games')),
-+    Profile('analitico', 'Analítico', 54, (13, 26, 20), (23, 40, 29), (120, 300, 210),
-+            ("I'm a LoR bot. Good luck!", "LoR bot ready. glhf!", "Hi, I'm a LoR bot. gl hf!"),
-+            ('gg, well played', 'thanks for the game, gg', 'gg wp!')),
-+    Profile('energetico', 'Energético', 90, (8, 21, 13), (17, 29, 21), (60, 210, 100),
-+            ("LoR bot here. Let's play, glhf!", "I'm a LoR bot. Have a good game!",
-+             "Ready! I'm a LoR bot. glhf!"),
-+            ('gg! wp!', 'good game, wp!', 'gg, thanks!')),
-+    Profile('tranquilo', 'Tranquilo', 120, (11, 25, 18), (21, 38, 27), (120, 300, 220),
-+            ("Hey, I'm a LoR bot. Have fun!", "LoR bot here. Have a good game!",
-+             "I'm a LoR bot. gl hf :)"),
-+            ('gg, have a good one!', 'gg, thanks for playing', 'gg wp :)')),
-+)
-+
-+
-+def profile_for(account: str, selection: str = 'auto') -> Profile | None:
-+    """The normalized account keeps its profile across restarts, PCs and Bo3 games."""
-+    if selection == 'classico':
-+        return None
-+    if selection != 'auto':
-+        for profile in PROFILES:
-+            if profile.key == selection:
-+                return profile
-+        raise ValueError('personalidade inválida: use auto, classico, ' + ', '.join(p.key for p in PROFILES))
-+    account_id = re.sub(r'[^a-z0-9]', '', account.lower())
-+    digest = hashlib.sha256(account_id.encode('utf-8')).digest()
-+    return PROFILES[int.from_bytes(digest[:8], 'big') % len(PROFILES)]
-+
-+
-+class Personality:
-+    def __init__(self, profile: Profile, rng: random.Random | None = None):
-+        self.profile = profile
-+        # A separate stream avoids changing model/search choices when cosmetics are sampled.
-+        self.rng = rng if rng is not None else random.Random()
-+        self._last: dict[str, str] = {}
-+
-+    def decision_seconds(self, *, preview: bool = False, forced: bool = False) -> float:
-+        limits = self.profile.preview if preview else (4, 10, 6) if forced else self.profile.move
-+        return self.rng.triangular(*limits)
-+
-+    def pause_seconds(self) -> float:
-+        return self.rng.triangular(*self.profile.pause)
-+
-+    def phrase(self, event: str) -> str:
-+        phrases = self.profile.greetings if event == 'start' else self.profile.endings
-+        choices = [s for s in phrases if s != self._last.get(event)]
-+        phrase = self.rng.choice(choices)
-+        self._last[event] = phrase
-+        return phrase
-diff --git a/src/ai_vgc/nn/messages.py b/src/ai_vgc/nn/messages.py
-new file mode 100644
---- /dev/null
-+++ b/src/ai_vgc/nn/messages.py
-@@ -0,0 +1,165 @@
-+"""Local conversation history. Never writes private messages to games or stdout."""
-+from collections import deque
-+from datetime import datetime, timezone
-+import json
-+import logging
-+import os
-+from pathlib import Path
-+import re
-+import sys
-+
-+MAX_BYTES = 5 * 1024 * 1024
-+READ_BYTES = 1024 * 1024
-+LIMIT = 300
-+
-+
-+def user_id(name):
-+    return re.sub(r"[^a-z0-9]", "", name.lstrip(" ~&@%+*#!").split("@", 1)[0].lower())
-+
-+
-+def is_conversation(sender, text):
-+    # Showdown embeds UI controls in chat/PM packets, including Bo3 ready buttons.
-+    return (isinstance(sender, str) and bool(user_id(sender))
-+            and isinstance(text, str) and bool(text)
-+            and not re.match(r"^/(?:uhtmlchange|uhtml|raw|html|challenge)(?:\s|$)", text, re.I))
-+
-+
-+class PrivateMessages(logging.Filter):
-+    def filter(self, record):
-+        # Keep server responses (recipient '~'), but never copy a player's PM to
-+        # journal, diagnostics or an exception log. Challenge handling is unchanged.
-+        text = record.getMessage()
-+        if "|pm|" in text:
-+            parts = text.split("|pm|", 1)[1].split("|", 2)
-+            if len(parts) == 3 and parts[1].strip() != "~":
-+                record.msg, record.args = "Private Showdown message received (local history).", ()
-+                record.exc_info, record.exc_text = None, None
-+        return True
-+
-+
-+class History:
-+    def __init__(self, root, account):
-+        self.account = user_id(account)
-+        self.path = Path(root) / ".messages" / (self.account + ".jsonl")
-+        self.players = {}
-+
-+    def append(self, kind, sender, text, room="", timestamp=None):
-+        if not self.account or not is_conversation(sender, text):
-+            return
-+        row = {"kind": kind, "sender": sender.lstrip(" ~&@%+*#!"), "text": text,
-+               "room": room, "time": timestamp or datetime.now(timezone.utc).isoformat(),
-+               "own": user_id(sender) == self.account}
-+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-+        if self.path.exists() and self.path.stat().st_size >= MAX_BYTES:
-+            os.replace(self.path, self.path.with_suffix(".jsonl.1"))
-+        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-+        with os.fdopen(fd, "a", encoding="utf-8") as stream:
-+            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
-+
-+    def receive(self, message):
-+        lines = message.split("\n")
-+        room = lines.pop(0)[1:] if lines[0].startswith(">") else ""
-+        if not room:
-+            for line in lines:
-+                p = line.split("|", 4)
-+                if len(p) == 5 and p[1] == "pm" and user_id(p[3]) == self.account and user_id(p[2]) != self.account:
-+                    self.append("pm", p[2], p[4])
-+            return
-+        if not room.startswith(("battle-", "game-")):
-+            return
-+        players = self.players.setdefault(room, {})
-+        if len(self.players) > 128:
-+            del self.players[next(iter(self.players))]
-+        # Scan players first: init packets can contain older chat before player lines.
-+        for line in lines:
-+            p = line.split("|")
-+            if len(p) >= 4 and p[1] == "player" and p[2] in ("p1", "p2"):
-+                players[p[2]] = user_id(p[3])
-+        for line in lines:
-+            p = line.split("|", 4)
-+            timestamp = None
-+            if len(p) >= 4 and p[1] == "c":
-+                sender, text = p[2], "|".join(p[3:])
-+            elif len(p) == 5 and p[1] == "c:":
-+                sender, text = p[3], p[4]
-+                try:
-+                    timestamp = datetime.fromtimestamp(int(p[2]), timezone.utc).isoformat()
-+                except (ValueError, OverflowError, OSError):
-+                    pass
-+            else:
-+                continue
-+            if self.account in players.values() and user_id(sender) in players.values():
-+                self.append("chat", sender, text, room, timestamp)
-+        if "|deinit" in lines:
-+            self.players.pop(room, None)
-+
-+
-+def install(player):
-+    client = player.ps_client
-+    history = History(player.save_dir.parent, client.account_configuration.username)
-+    original = client._handle_message
-+    client.logger.addFilter(PrivateMessages())
-+    failed = False
-+
-+    async def receive(message):
-+        nonlocal failed
-+        try:
-+            history.receive(message)
-+        except OSError:
-+            if not failed:
-+                client.logger.warning("Could not save local conversation history.")
-+                failed = True
-+        return await original(message)
-+
-+    client._handle_message = receive
-+
-+
-+def recent(root, account):
-+    if not user_id(account):
-+        return []
-+    path = Path(root) / ".messages" / (user_id(account) + ".jsonl")
-+    rows = deque(maxlen=LIMIT)
-+    for item in (path.with_suffix(".jsonl.1"), path):
-+        try:
-+            with item.open("rb") as stream:
-+                stream.seek(0, 2)
-+                start = max(0, stream.tell() - READ_BYTES)
-+                stream.seek(start)
-+                if start:
-+                    stream.readline()
-+                for line in stream:
-+                    try:
-+                        row = json.loads(line)
-+                        if (isinstance(row, dict) and row.get("kind") in ("pm", "chat")
-+                                and is_conversation(row.get("sender"), row.get("text"))):
-+                            rows.append(row)
-+                    except (ValueError, UnicodeError):
-+                        continue
-+        except OSError:
-+            continue
-+    return list(rows)
-+
-+
-+def panel(root, account, count, journal):
-+    logs = []
-+    for line in journal:
-+        try:
-+            entry = json.loads(line)
-+            text = entry.get("MESSAGE", "")
-+            if not isinstance(text, str) or "|pm|" in text:
-+                continue
-+            date = datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1e6, timezone.utc)
-+            logs.append({"kind": "log", "text": text, "time": date.isoformat()})
-+        except (ValueError, KeyError, TypeError, OverflowError, OSError):
-+            continue
-+    print("---log---")
-+    for row in logs[-count:]:
-+        print(row["text"])
-+    print("---historico---")
-+    rows = logs + recent(root, account)
-+    for row in sorted(rows, key=lambda row: row.get("time", ""))[-LIMIT:]:
-+        print(json.dumps(row, ensure_ascii=False))
-+
-+
-+if __name__ == "__main__":
-+    panel(sys.argv[1], sys.argv[2], min(300, max(1, int(sys.argv[3]))), sys.stdin)
+@@ -166,6 +209,9 @@ function play(json, sides, pairs, seeds, keep) {
+       const winner = b.ended ? (b.winner === 'us' ? 'us' : b.winner === 'them' ? 'them' : 'tie') : null;
+       const r = {lines, winner, err};
+       if (keep && !b.ended && !err) {
++        if (fill) {
++          try { fillFaints(b); } catch (e) {}
++        }
+         const mine = b.getSide(sides.us).activeRequest, theirs = b.getSide(sides.them).activeRequest;
+         if (mine && theirs && !mine.wait && !mine.forceSwitch && !theirs.wait && !theirs.forceSwitch) {
+           b.log = [];
+@@ -189,7 +235,7 @@ function run(req) {
+   if (req.dump) return {dump: dump(battle)};
+   kept = new Map();
+   keptSides = sides;
+-  return {results: play(json, sides, req.pairs, req.seeds, !!req.keep)};
++  return {results: play(json, sides, req.pairs, req.seeds, !!req.keep, !!req.fill)};
+ }
+ 
+ const rl = readline.createInterface({input: process.stdin});
