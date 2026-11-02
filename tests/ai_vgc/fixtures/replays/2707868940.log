@@ -1,0 +1,149 @@
+|t:|1793576268
+|gametype|doubles
+|player|p1|PatriotaFujao|2|1342
+|player|p2|malucodetilambuco|266|1419
+|gen|9
+|tier|[Gen 9 Champions] VGC 2026 Reg M-C (Bo3)
+|rated|
+|rule|Species Clause: Limit one of each Pokemon
+|rule|Item Clause: Limit 1 of each item
+|clearpoke
+|poke|p1|Farigiraf, L50, F|
+|poke|p1|Incineroar, L50, M|
+|poke|p1|Charizard, L50, M|
+|poke|p1|Sylveon, L50, F|
+|poke|p1|Venusaur, L50, M|
+|poke|p1|Garchomp, L50, F|
+|poke|p2|Golisopod, L50, F|
+|poke|p2|Basculegion, L50, M|
+|poke|p2|Pelipper, L50, F|
+|poke|p2|Archaludon, L50, M|
+|poke|p2|Sneasler, L50, M|
+|poke|p2|Salamence, L50, M|
+|teampreview|4
+|showteam|p1|Farigiraf||SitrusBerry|ArmorTail|Psychic,Thunderbolt,HelpingHand,TrickRoom|Quiet||F|||50|]Incineroar||ChopleBerry|Intimidate|FlareBlitz,DarkestLariat,PartingShot,FakeOut|Adamant||M|||50|]Charizard||CharizarditeY|Blaze|HeatWave,WeatherBall,AncientPower,Protect|Modest||M|||50|]Sylveon||FairyFeather|Pixilate|HyperVoice,Moonblast,Yawn,Protect|Modest||F|||50|]Venusaur||FocusSash|Chlorophyll|LeafStorm,SludgeBomb,SleepPowder,Protect|Modest||M|||50|]Garchomp||ChoiceScarf|RoughSkin|RockSlide,StompingTantrum,DragonClaw,Earthquake|Adamant||F|||50|
+|showteam|p2|Golisopod||Golisopite|EmergencyExit|LeechLife,IronHead,SuckerPunch,SwordsDance|Adamant||F|||50|]Basculegion||ChoiceScarf|Adaptability|LastRespects,WaveCrash,FlipTurn,AquaJet|Jolly||M|||50|]Pelipper||SitrusBerry|Drizzle|WeatherBall,Hurricane,Tailwind,WideGuard|Modest||F|||50|]Archaludon||Leftovers|Stamina|ElectroShot,DragonPulse,Snarl,Protect|Modest||M|||50|]Sneasler||WhiteHerb|Unburden|DireClaw,CloseCombat,FakeOut,Protect|Adamant||M|||50|]Salamence||Salamencite|Intimidate|DracoMeteor,HyperVoice,Tailwind,Protect|Timid||M|||50|
+|
+|t:|1793576298
+|teamsize|p1|4
+|teamsize|p2|4
+|start
+|switch|p1a: Sylveon|Sylveon, L50, F|100/100
+|switch|p1b: Charizard|Charizard, L50, M|100/100
+|switch|p2a: Salamence|Salamence, L50, M|100/100
+|switch|p2b: Basculegion|Basculegion, L50, M|100/100
+|-ability|p2a: Salamence|Intimidate|boost
+|-unboost|p1a: Sylveon|atk|1
+|-unboost|p1b: Charizard|atk|1
+|turn|1
+|
+|t:|1793576311
+|switch|p1b: Incineroar|Incineroar, L50, M|100/100
+|-ability|p1b: Incineroar|Intimidate|boost
+|-unboost|p2a: Salamence|atk|1
+|-unboost|p2b: Basculegion|atk|1
+|detailschange|p2a: Salamence|Salamence-Mega, L50, M
+|-mega|p2a: Salamence|Salamence|Salamencite
+|move|p1a: Sylveon|Protect|p1a: Sylveon
+|-singleturn|p1a: Sylveon|Protect
+|move|p2b: Basculegion|Wave Crash|p1a: Sylveon
+|-activate|p1a: Sylveon|move: Protect
+|move|p2a: Salamence|Hyper Voice|p1a: Sylveon|[spread] p1b
+|-activate|p1a: Sylveon|move: Protect
+|-damage|p1b: Incineroar|64/100
+|
+|upkeep
+|turn|2
+|
+|t:|1793576332
+|move|p2a: Salamence|Protect|p2a: Salamence
+|-singleturn|p2a: Salamence|Protect
+|move|p2b: Basculegion|Wave Crash|p1a: Sylveon
+|-damage|p1a: Sylveon|53/100
+|-damage|p2b: Basculegion|85/100|[from] Recoil
+|move|p1b: Incineroar|Darkest Lariat|p2b: Basculegion
+|-supereffective|p2b: Basculegion|1
+|-damage|p2b: Basculegion|0 fnt
+|faint|p2b: Basculegion
+|move|p1a: Sylveon|Hyper Voice|p2a: Salamence
+|-activate|p2a: Salamence|move: Protect
+|
+|upkeep
+|
+|t:|1793576338
+|switch|p2b: Pelipper|Pelipper, L50, F|100/100
+|-weather|RainDance|[from] ability: Drizzle|[of] p2b: Pelipper
+|turn|3
+|
+|t:|1793576356
+|move|p2a: Salamence|Hyper Voice|p1a: Sylveon|[spread] p1a,p1b
+|-damage|p1a: Sylveon|26/100
+|-damage|p1b: Incineroar|32/100
+|move|p2b: Pelipper|Weather Ball|p1b: Incineroar
+|-supereffective|p1b: Incineroar|1
+|-damage|p1b: Incineroar|0 fnt
+|faint|p1b: Incineroar
+|move|p1a: Sylveon|Hyper Voice|p2a: Salamence|[spread] p2a,p2b
+|-supereffective|p2a: Salamence|1
+|-damage|p2a: Salamence|7/100
+|-damage|p2b: Pelipper|30/100
+|-enditem|p2b: Pelipper|Sitrus Berry|[eat]
+|-heal|p2b: Pelipper|54/100|[from] item: Sitrus Berry
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1793576364
+|switch|p1b: Garchomp|Garchomp, L50, F|100/100
+|turn|4
+|
+|t:|1793576384
+|switch|p2a: Archaludon|Archaludon, L50, M|100/100
+|move|p1b: Garchomp|Dragon Claw|p2b: Pelipper
+|-damage|p2b: Pelipper|1/100
+|move|p2b: Pelipper|Weather Ball|p1a: Sylveon
+|-crit|p1a: Sylveon
+|-damage|p1a: Sylveon|0 fnt
+|faint|p1a: Sylveon
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1793576390
+|switch|p1a: Charizard|Charizard, L50, M|100/100
+|turn|5
+|
+|t:|1793576409
+|move|p2b: Pelipper|Wide Guard|p2b: Pelipper
+|-singleturn|p2b: Pelipper|Wide Guard
+|move|p1b: Garchomp|Dragon Claw|p2b: Pelipper
+|-damage|p2b: Pelipper|0 fnt
+|faint|p2b: Pelipper
+|move|p1a: Charizard|Heat Wave|p2a: Archaludon
+|-activate|p2a: Archaludon|move: Wide Guard
+|move|p2a: Archaludon|Electro Shot||[still]
+|-prepare|p2a: Archaludon|Electro Shot
+|-boost|p2a: Archaludon|spa|1
+|-anim|p2a: Archaludon|Electro Shot|p1a: Charizard
+|-supereffective|p1a: Charizard|1
+|-damage|p1a: Charizard|0 fnt
+|faint|p1a: Charizard
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1793576415
+|switch|p2b: Salamence|Salamence-Mega, L50, M|7/100
+|turn|6
+|
+|t:|1793576429
+|move|p1b: Garchomp|Dragon Claw|p2b: Salamence
+|-supereffective|p2b: Salamence|1
+|-damage|p2b: Salamence|0 fnt
+|faint|p2b: Salamence
+|move|p2a: Archaludon|Dragon Pulse|p1b: Garchomp
+|-supereffective|p1b: Garchomp|1
+|-damage|p1b: Garchomp|0 fnt
+|faint|p1b: Garchomp
+|
+|win|malucodetilambuco

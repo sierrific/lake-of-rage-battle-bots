@@ -1,0 +1,304 @@
+|t:|1793559500
+|gametype|doubles
+|player|p1|French1|102|1053
+|player|p2|PaiBrazVGC_Oficial|266|1095
+|gen|9
+|tier|[Gen 9 Champions] VGC 2026 Reg M-C (Bo3)
+|rated|
+|rule|Species Clause: Limit one of each Pokemon
+|rule|Item Clause: Limit 1 of each item
+|clearpoke
+|poke|p1|Espathra, L50, M|
+|poke|p1|Volcarona, L50, F|
+|poke|p1|Rillaboom, L50, F|
+|poke|p1|Salamence, L50, M|
+|poke|p1|Aerodactyl, L50, F|
+|poke|p1|Ninetales-Alola, L50, M|
+|poke|p2|Pelipper, L50, F|
+|poke|p2|Incineroar, L50, M|
+|poke|p2|Rillaboom, L50, M|
+|poke|p2|Archaludon, L50, F|
+|poke|p2|Annihilape, L50, M|
+|poke|p2|Golisopod, L50, F|
+|teampreview|4
+|showteam|p1|Espathra||GrassySeed|SpeedBoost|LuminaCrash,CalmMind,BatonPass,Protect|Timid||M|||50|]Volcarona||RockyHelmet|FlameBody|Overheat,StruggleBug,RagePowder,Tailwind|Bold||F|||50|]Rillaboom||MiracleSeed|GrassySurge|FakeOut,Uturn,GrassyGlide,WoodHammer|Adamant||F|||50|]Salamence||Salamencite|Intimidate|HyperVoice,Flamethrower,Roost,Protect|Modest||M|||50|]Aerodactyl||Aerodactylite|Unnerve|RockSlide,DualWingbeat,Tailwind,Protect|Jolly||F|||50|]Ninetales-Alola||BabiriBerry|SnowWarning|Moonblast,Blizzard,AuroraVeil,Protect|Serious||M|||50|
+|showteam|p2|Pelipper||SitrusBerry|Drizzle|WeatherBall,Hurricane,Tailwind,WideGuard|Modest||F|||50|]Incineroar||ChopleBerry|Intimidate|FakeOut,FlareBlitz,Snarl,PartingShot|Impish||M|||50|]Rillaboom||MiracleSeed|GrassySurge|FakeOut,GrassyGlide,WoodHammer,Uturn|Adamant||M|||50|]Archaludon||Leftovers|Stamina|ElectroShot,DragonPulse,FlashCannon,Protect|Calm||F|||50|]Annihilape||ChoiceScarf|Defiant|CloseCombat,IcePunch,ShadowClaw,Uturn|Jolly||M|||50|]Golisopod||Golisopite|EmergencyExit|LeechLife,IronHead,SuckerPunch,Protect|Adamant||F|||50|
+|
+|t:|1793559547
+|teamsize|p1|4
+|teamsize|p2|4
+|start
+|switch|p1a: Volcarona|Volcarona, L50, F|100/100
+|switch|p1b: Espathra|Espathra, L50, M|100/100
+|switch|p2a: Pelipper|Pelipper, L50, F|100/100
+|switch|p2b: Annihilape|Annihilape, L50, M|100/100
+|-weather|RainDance|[from] ability: Drizzle|[of] p2a: Pelipper
+|turn|1
+|
+|t:|1793559576
+|switch|p1a: Ninetales|Ninetales-Alola, L50, M|100/100
+|-weather|Snowscape|[from] ability: Snow Warning|[of] p1a: Ninetales
+|move|p1b: Espathra|Protect|p1b: Espathra
+|-singleturn|p1b: Espathra|Protect
+|move|p2b: Annihilape|Shadow Claw|p1b: Espathra
+|-activate|p1b: Espathra|move: Protect
+|move|p2a: Pelipper|Weather Ball|p1a: Ninetales
+|-resisted|p1a: Ninetales|1
+|-damage|p1a: Ninetales|86/100
+|
+|-weather|Snowscape|[upkeep]
+|-ability|p1b: Espathra|Speed Boost|boost
+|-boost|p1b: Espathra|spe|1
+|upkeep
+|turn|2
+|
+|t:|1793559596
+|switch|p2a: Golisopod|Golisopod, L50, F|100/100
+|move|p1b: Espathra|Calm Mind|p1b: Espathra
+|-boost|p1b: Espathra|spa|1
+|-boost|p1b: Espathra|spd|1
+|move|p2b: Annihilape|Shadow Claw|p1b: Espathra
+|-supereffective|p1b: Espathra|1
+|-damage|p1b: Espathra|13/100
+|move|p1a: Ninetales|Aurora Veil|p1a: Ninetales
+|-sidestart|p1: French1|move: Aurora Veil
+|
+|-weather|Snowscape|[upkeep]
+|-ability|p1b: Espathra|Speed Boost|boost
+|-boost|p1b: Espathra|spe|1
+|upkeep
+|turn|3
+|
+|t:|1793559623
+|switch|p2b: Pelipper|Pelipper, L50, F|100/100
+|-weather|RainDance|[from] ability: Drizzle|[of] p2b: Pelipper
+|switch|p1a: Volcarona|Volcarona, L50, F|100/100
+|detailschange|p2a: Golisopod|Golisopod-Mega, L50, F
+|-mega|p2a: Golisopod|Golisopod|Golisopite
+|move|p1b: Espathra|Baton Pass|p1b: Espathra
+|
+|t:|1793559635
+|switch|p1b: Salamence|Salamence, L50, M|100/100|[from] Baton Pass
+|-ability|p1b: Salamence|Intimidate|boost
+|-unboost|p2a: Golisopod|atk|1
+|-unboost|p2b: Pelipper|atk|1
+|move|p2a: Golisopod|Iron Head|p1a: Volcarona
+|-resisted|p1a: Volcarona|1
+|-damage|p1a: Volcarona|84/100
+|-damage|p2a: Golisopod|83/100|[from] item: Rocky Helmet|[of] p1a: Volcarona
+|-status|p2a: Golisopod|brn|[from] ability: Flame Body|[of] p1a: Volcarona
+|
+|-weather|RainDance|[upkeep]
+|-damage|p2a: Golisopod|77/100 brn|[from] brn
+|upkeep
+|turn|4
+|
+|t:|1793559676
+|switch|p1a: Ninetales|Ninetales-Alola, L50, M|86/100
+|-weather|Snowscape|[from] ability: Snow Warning|[of] p1a: Ninetales
+|switch|p2a: Archaludon|Archaludon, L50, F|100/100
+|detailschange|p1b: Salamence|Salamence-Mega, L50, M
+|-mega|p1b: Salamence|Salamence|Salamencite
+|move|p1b: Salamence|Hyper Voice|p2a: Archaludon|[spread] p2a,p2b
+|-resisted|p2a: Archaludon|1
+|-damage|p2a: Archaludon|72/100
+|-damage|p2b: Pelipper|24/100
+|-ability|p2a: Archaludon|Stamina|boost
+|-boost|p2a: Archaludon|def|1
+|-enditem|p2b: Pelipper|Sitrus Berry|[eat]
+|-heal|p2b: Pelipper|48/100|[from] item: Sitrus Berry
+|move|p2b: Pelipper|Tailwind|p2b: Pelipper
+|-sidestart|p2: PaiBrazVGC_Oficial|move: Tailwind
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p2a: Archaludon|78/100|[from] item: Leftovers
+|upkeep
+|turn|5
+|
+|t:|1793559703
+|switch|p2b: Golisopod|Golisopod-Mega, L50, F|77/100 brn
+|move|p1b: Salamence|Hyper Voice|p2a: Archaludon|[spread] p2a,p2b
+|-resisted|p2a: Archaludon|1
+|-damage|p2a: Archaludon|51/100
+|-damage|p2b: Golisopod|29/100 brn
+|-ability|p2a: Archaludon|Stamina|boost
+|-boost|p2a: Archaludon|def|1
+|move|p2a: Archaludon|Flash Cannon|p1a: Ninetales
+|-supereffective|p1a: Ninetales|2
+|-enditem|p1a: Ninetales|Babiri Berry|[eat]
+|-enditem|p1a: Ninetales|Babiri Berry|[weaken]
+|-damage|p1a: Ninetales|43/100
+|move|p1a: Ninetales|Blizzard|p2b: Golisopod|[spread] p2a,p2b
+|-resisted|p2b: Golisopod|1
+|-damage|p2a: Archaludon|30/100
+|-damage|p2b: Golisopod|19/100 brn
+|-ability|p2a: Archaludon|Stamina|boost
+|-boost|p2a: Archaludon|def|1
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p2a: Archaludon|37/100|[from] item: Leftovers
+|-damage|p2b: Golisopod|13/100 brn|[from] brn
+|upkeep
+|turn|6
+|
+|t:|1793559741
+|move|p2b: Golisopod|Protect|p2b: Golisopod
+|-singleturn|p2b: Golisopod|Protect
+|move|p1b: Salamence|Hyper Voice|p2a: Archaludon|[spread] p2a
+|-activate|p2b: Golisopod|move: Protect
+|-resisted|p2a: Archaludon|1
+|-damage|p2a: Archaludon|9/100
+|-ability|p2a: Archaludon|Stamina|boost
+|-boost|p2a: Archaludon|def|1
+|move|p2a: Archaludon|Flash Cannon|p1a: Ninetales
+|-supereffective|p1a: Ninetales|2
+|-damage|p1a: Ninetales|0 fnt
+|faint|p1a: Ninetales
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p2a: Archaludon|15/100|[from] item: Leftovers
+|-damage|p2b: Golisopod|7/100 brn|[from] brn
+|-sideend|p1: French1|move: Aurora Veil
+|upkeep
+|
+|t:|1793559755
+|switch|p1a: Espathra|Espathra, L50, M|13/100
+|turn|7
+|
+|t:|1793559766
+|switch|p2b: Annihilape|Annihilape, L50, M|100/100
+|move|p2a: Archaludon|Protect|p2a: Archaludon
+|-singleturn|p2a: Archaludon|Protect
+|move|p1a: Espathra|Protect|p1a: Espathra
+|-singleturn|p1a: Espathra|Protect
+|move|p1b: Salamence|Hyper Voice|p2a: Archaludon|[spread] p2b
+|-activate|p2a: Archaludon|move: Protect
+|-supereffective|p2b: Annihilape|1
+|-damage|p2b: Annihilape|0 fnt
+|faint|p2b: Annihilape
+|
+|-weather|Snowscape|[upkeep]
+|-heal|p2a: Archaludon|21/100|[from] item: Leftovers
+|-sideend|p2: PaiBrazVGC_Oficial|move: Tailwind
+|-ability|p1a: Espathra|Speed Boost|boost
+|-boost|p1a: Espathra|spe|1
+|upkeep
+|
+|t:|1793559780
+|switch|p2b: Pelipper|Pelipper, L50, F|48/100
+|-weather|RainDance|[from] ability: Drizzle|[of] p2b: Pelipper
+|turn|8
+|
+|t:|1793559808
+|move|p2b: Pelipper|Wide Guard|p2b: Pelipper
+|-singleturn|p2b: Pelipper|Wide Guard
+|move|p1b: Salamence|Hyper Voice|p2b: Pelipper|[spread] 
+|-activate|p2a: Archaludon|move: Wide Guard
+|-activate|p2b: Pelipper|move: Wide Guard
+|move|p1a: Espathra|Lumina Crash|p2a: Archaludon
+|-resisted|p2a: Archaludon|1
+|-crit|p2a: Archaludon
+|-damage|p2a: Archaludon|3/100
+|-unboost|p2a: Archaludon|spd|2
+|-ability|p2a: Archaludon|Stamina|boost
+|-boost|p2a: Archaludon|def|1
+|move|p2a: Archaludon|Dragon Pulse|p1b: Salamence
+|-supereffective|p1b: Salamence|1
+|-damage|p1b: Salamence|48/100
+|
+|-weather|RainDance|[upkeep]
+|-heal|p2a: Archaludon|9/100|[from] item: Leftovers
+|-ability|p1a: Espathra|Speed Boost|boost
+|-boost|p1a: Espathra|spe|1
+|upkeep
+|turn|9
+|
+|t:|1793559828
+|move|p2a: Archaludon|Protect|p2a: Archaludon
+|-singleturn|p2a: Archaludon|Protect
+|move|p1a: Espathra|Lumina Crash|p2b: Pelipper
+|-damage|p2b: Pelipper|15/100
+|-unboost|p2b: Pelipper|spd|2
+|move|p1b: Salamence|Flamethrower|p2a: Archaludon
+|-activate|p2a: Archaludon|move: Protect
+|move|p2b: Pelipper|Tailwind|p2b: Pelipper
+|-sidestart|p2: PaiBrazVGC_Oficial|move: Tailwind
+|
+|-weather|RainDance|[upkeep]
+|-heal|p2a: Archaludon|15/100|[from] item: Leftovers
+|-ability|p1a: Espathra|Speed Boost|boost
+|-boost|p1a: Espathra|spe|1
+|upkeep
+|turn|10
+|
+|t:|1793559849
+|move|p2b: Pelipper|Wide Guard|p2b: Pelipper
+|-singleturn|p2b: Pelipper|Wide Guard
+|move|p1a: Espathra|Lumina Crash|p2a: Archaludon
+|-resisted|p2a: Archaludon|1
+|-damage|p2a: Archaludon|0 fnt
+|faint|p2a: Archaludon
+|move|p1b: Salamence|Hyper Voice|p2b: Pelipper
+|-activate|p2b: Pelipper|move: Wide Guard
+|
+|-weather|RainDance|[upkeep]
+|-ability|p1a: Espathra|Speed Boost|boost
+|-boost|p1a: Espathra|spe|1
+|upkeep
+|
+|t:|1793559863
+|switch|p2a: Golisopod|Golisopod-Mega, L50, F|7/100 brn
+|turn|11
+|
+|t:|1793559886
+|move|p2a: Golisopod|Sucker Punch||[still]
+|-fail|p2a: Golisopod
+|move|p1a: Espathra|Baton Pass|p1a: Espathra
+|
+|t:|1793559890
+|switch|p1a: Volcarona|Volcarona, L50, F|84/100|[from] Baton Pass
+|move|p1b: Salamence|Roost|p1b: Salamence
+|-heal|p1b: Salamence|98/100
+|-singleturn|p1b: Salamence|move: Roost
+|move|p2b: Pelipper|Hurricane|p1b: Salamence
+|-damage|p1b: Salamence|70/100
+|-start|p1b: Salamence|confusion
+|
+|-weather|RainDance|[upkeep]
+|-damage|p2a: Golisopod|1/100 brn|[from] brn
+|upkeep
+|turn|12
+|
+|t:|1793559906
+|move|p1a: Volcarona|Rage Powder|p1a: Volcarona
+|-singleturn|p1a: Volcarona|move: Rage Powder
+|-activate|p1b: Salamence|confusion
+|-damage|p1b: Salamence|61/100|[from] confusion
+|move|p2b: Pelipper|Weather Ball|p1a: Volcarona
+|-supereffective|p1a: Volcarona|1
+|-damage|p1a: Volcarona|0 fnt
+|faint|p1a: Volcarona
+|move|p2a: Golisopod|Iron Head|p1b: Salamence
+|-damage|p1b: Salamence|35/100
+|
+|-weather|none
+|-damage|p2a: Golisopod|0 fnt|[from] brn
+|faint|p2a: Golisopod
+|-sideend|p2: PaiBrazVGC_Oficial|move: Tailwind
+|upkeep
+|
+|t:|1793559914
+|switch|p1a: Espathra|Espathra, L50, M|13/100
+|turn|13
+|
+|t:|1793559929
+|move|p2b: Pelipper|Wide Guard|p2b: Pelipper
+|-singleturn|p2b: Pelipper|Wide Guard
+|-end|p1b: Salamence|confusion
+|move|p1b: Salamence|Hyper Voice|p2b: Pelipper
+|-activate|p2b: Pelipper|move: Wide Guard
+|move|p1a: Espathra|Lumina Crash|p2b: Pelipper
+|-damage|p2b: Pelipper|0 fnt
+|faint|p2b: Pelipper
+|
+|win|French1

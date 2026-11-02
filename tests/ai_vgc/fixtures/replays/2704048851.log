@@ -1,0 +1,166 @@
+|t:|1792877881
+|gametype|doubles
+|player|p1|Porygoned|266|1327
+|player|p2|malucodetilambuco|2|1119
+|gen|9
+|tier|[Gen 9 Champions] VGC 2026 Reg M-C (Bo3)
+|rated|
+|rule|Species Clause: Limit one of each Pokemon
+|rule|Item Clause: Limit 1 of each item
+|clearpoke
+|poke|p1|Salamence, L50, M|
+|poke|p1|Rillaboom, L50, M|
+|poke|p1|Floette-Eternal, L50, F|
+|poke|p1|Basculegion, L50, M|
+|poke|p1|Sneasler, L50, M|
+|poke|p1|Kingambit, L50, F|
+|poke|p2|Swampert, L50, F, shiny|
+|poke|p2|Golisopod, L50, M, shiny|
+|poke|p2|Pelipper, L50, M, shiny|
+|poke|p2|Archaludon, L50, F|
+|poke|p2|Farigiraf, L50, F|
+|poke|p2|Sneasler, L50, F|
+|teampreview|4
+|showteam|p1|Salamence||Salamencite|Intimidate|HyperVoice,DracoMeteor,HeatWave,Protect|Timid||M|||50|]Rillaboom||MiracleSeed|GrassySurge|WoodHammer,GrassyGlide,FakeOut,HighHorsepower|Adamant||M|||50|]Floette-Eternal||Floettite|FlowerVeil|Moonblast,DazzlingGleam,LightofRuin,Protect|Modest||F|||50|]Basculegion||LifeOrb|Adaptability|WaveCrash,LastRespects,AquaJet,Protect|Adamant||M|||50|]Sneasler||FocusSash|PoisonTouch|CloseCombat,DireClaw,FakeOut,Protect|Jolly||M|||50|]Kingambit||ChopleBerry|Defiant|KowtowCleave,IronHead,SuckerPunch,LowKick|Adamant||F|||50|
+|showteam|p2|Swampert||Swampertite|Torrent|WaveCrash,Earthquake,IcePunch,Protect|Adamant||F|||50|]Golisopod||Golisopite|EmergencyExit|LeechLife,IronHead,DrillRun,Protect|Adamant||M|||50|]Pelipper||SitrusBerry|Drizzle|Hurricane,WeatherBall,Tailwind,WideGuard|Bold||M|||50|]Archaludon||Leftovers|Stamina|DragonPulse,FlashCannon,ElectroShot,Protect|Modest||F|||50|]Farigiraf||LightClay|ArmorTail|Psychic,TrickRoom,LightScreen,Protect|Bold||F|||50|]Sneasler||FocusSash|Unburden|DireClaw,CloseCombat,FakeOut,Coaching|Jolly||F|||50|
+|
+|t:|1792877883
+|teamsize|p1|4
+|teamsize|p2|4
+|start
+|switch|p1a: Salamence|Salamence, L50, M|100/100
+|switch|p1b: Sneasler|Sneasler, L50, M|100/100
+|switch|p2a: Pelipper|Pelipper, L50, M, shiny|100/100
+|switch|p2b: Sneasler|Sneasler, L50, F|100/100
+|-ability|p1a: Salamence|Intimidate|boost
+|-unboost|p2a: Pelipper|atk|1
+|-unboost|p2b: Sneasler|atk|1
+|-weather|RainDance|[from] ability: Drizzle|[of] p2a: Pelipper
+|turn|1
+|
+|t:|1792877885
+|move|p1a: Salamence|Protect|p1a: Salamence
+|-singleturn|p1a: Salamence|Protect
+|move|p1b: Sneasler|Fake Out|p2a: Pelipper
+|-damage|p2a: Pelipper|86/100
+|move|p2b: Sneasler|Fake Out|p1a: Salamence
+|-activate|p1a: Salamence|move: Protect
+|cant|p2a: Pelipper|flinch
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|turn|2
+|
+|t:|1792877886
+|switch|p2b: Archaludon|Archaludon, L50, F|100/100
+|detailschange|p1a: Salamence|Salamence-Mega, L50, M
+|-mega|p1a: Salamence|Salamence|Salamencite
+|move|p1b: Sneasler|Close Combat|p2b: Archaludon
+|-supereffective|p2b: Archaludon|1
+|-damage|p2b: Archaludon|7/100
+|-unboost|p1b: Sneasler|def|1
+|-unboost|p1b: Sneasler|spd|1
+|-ability|p2b: Archaludon|Stamina|boost
+|-boost|p2b: Archaludon|def|1
+|move|p1a: Salamence|Hyper Voice|p2b: Archaludon|[spread] p2a,p2b
+|-resisted|p2b: Archaludon|1
+|-damage|p2a: Pelipper|45/100
+|-damage|p2b: Archaludon|0 fnt
+|-enditem|p2a: Pelipper|Sitrus Berry|[eat]
+|-heal|p2a: Pelipper|69/100|[from] item: Sitrus Berry
+|faint|p2b: Archaludon
+|move|p2a: Pelipper|Tailwind|p2a: Pelipper
+|-sidestart|p2: malucodetilambuco|move: Tailwind
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1792877887
+|switch|p2b: Golisopod|Golisopod, L50, M, shiny|100/100
+|turn|3
+|
+|t:|1792877889
+|detailschange|p2b: Golisopod|Golisopod-Mega, L50, M, shiny
+|-mega|p2b: Golisopod|Golisopod|Golisopite
+|move|p1a: Salamence|Protect|p1a: Salamence
+|-singleturn|p1a: Salamence|Protect
+|move|p1b: Sneasler|Close Combat|p2b: Golisopod
+|-damage|p2b: Golisopod|61/100
+|-unboost|p1b: Sneasler|def|1
+|-unboost|p1b: Sneasler|spd|1
+|move|p2a: Pelipper|Hurricane|p1b: Sneasler
+|-supereffective|p1b: Sneasler|1
+|-enditem|p1b: Sneasler|Focus Sash
+|-damage|p1b: Sneasler|1/100
+|move|p2b: Golisopod|Drill Run|p1b: Sneasler
+|-supereffective|p1b: Sneasler|1
+|-crit|p1b: Sneasler
+|-damage|p1b: Sneasler|0 fnt
+|faint|p1b: Sneasler
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1792877889
+|switch|p1b: Basculegion|Basculegion, L50, M|100/100
+|turn|4
+|
+|t:|1792877891
+|move|p1b: Basculegion|Protect|p1b: Basculegion
+|-singleturn|p1b: Basculegion|Protect
+|move|p1a: Salamence|Hyper Voice|p2a: Pelipper|[spread] p2a,p2b
+|-damage|p2a: Pelipper|24/100
+|-damage|p2b: Golisopod|32/100
+|move|p2a: Pelipper|Hurricane|p1a: Salamence
+|-damage|p1a: Salamence|55/100
+|-start|p1a: Salamence|confusion
+|move|p2b: Golisopod|Iron Head|p1a: Salamence
+|-damage|p1a: Salamence|6/100
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|turn|5
+|
+|t:|1792877893
+|move|p1b: Basculegion|Aqua Jet|p2b: Golisopod
+|-damage|p2b: Golisopod|0 fnt
+|faint|p2b: Golisopod
+|-damage|p1b: Basculegion|90/100|[from] item: Life Orb
+|-activate|p1a: Salamence|confusion
+|move|p1a: Salamence|Hyper Voice|p2a: Pelipper
+|-damage|p2a: Pelipper|0 fnt
+|faint|p2a: Pelipper
+|
+|-weather|none
+|-sideend|p2: malucodetilambuco|move: Tailwind
+|upkeep
+|
+|t:|1792877894
+|switch|p2a: Sneasler|Sneasler, L50, F|100/100
+|turn|6
+|
+|t:|1792877894
+|move|p2a: Sneasler|Coaching|p2: Golisopod|[notarget]
+|-fail|p2a: Sneasler
+|-activate|p1a: Salamence|confusion
+|-damage|p1a: Salamence|0 fnt|[from] confusion
+|faint|p1a: Salamence
+|move|p1b: Basculegion|Wave Crash|p2a: Sneasler
+|-enditem|p2a: Sneasler|Focus Sash
+|-damage|p2a: Sneasler|1/100
+|-damage|p1b: Basculegion|64/100|[from] Recoil
+|-damage|p1b: Basculegion|55/100|[from] item: Life Orb
+|
+|upkeep
+|
+|t:|1792877894
+|switch|p1a: Floette|Floette-Eternal, L50, F|100/100
+|turn|7
+|
+|t:|1792877895
+|move|p1b: Basculegion|Aqua Jet|p2a: Sneasler
+|-damage|p2a: Sneasler|0 fnt
+|faint|p2a: Sneasler
+|-damage|p1b: Basculegion|45/100|[from] item: Life Orb
+|
+|win|Porygoned

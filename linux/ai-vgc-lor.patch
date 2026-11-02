@@ -1236,8 +1236,98 @@ index eb60a97..b64a5ef 100644
          print(f"{Path(args.model).name}{'+search' if args.search else ''} vs {args.opponent}: "
                f"{wins}/{n} = {wins / max(n, 1):.1%}  95% CI [{lo:.1%}, {hi:.1%}]  {time.time() - t:.0f}s{extra}")
          if me.games:
+diff --git a/src/ai_vgc/nn/rules.py b/src/ai_vgc/nn/rules.py
+index cf62665..da5bff1 100644
+--- a/src/ai_vgc/nn/rules.py
++++ b/src/ai_vgc/nn/rules.py
+@@ -39,6 +39,7 @@ from poke_env.battle import (
+     Weather,
+ )
+ from poke_env.battle.effect import Effect
++from poke_env.battle.target import Target
+ from poke_env.data import GenData, to_id_str
+ 
+ # Types that can't get a status condition.
+@@ -342,9 +343,77 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
+         return "Life Dew at full HP"
+     if move.id in ("healpulse", "floralhealing") and tgt is not None and tgt.current_hp_fraction == 1:
+         return "heal at full HP"
++
++    # Support that only acts on the partner, with no partner left (Coaching from a lone Sneasler,
++    # malucodetilambuco 2704048851 T6 / 2704023418 T5, 2026-11-02 replay review).
++    if ally is None and (move.id in ALLY_ONLY or move.target == Target.ADJACENT_ALLY):
++        return "ally-only move with no ally"
++    # Guards that block nothing this turn: with open team sheets the foes' four moves are known,
++    # and a Pokemon switching in doesn't attack (Wide Guard into Zap Cannon + Power Gem, fc5809
++    # G2 T6, PaiBrazVGC_Oficial).
++    if move.id == "wideguard" and not _spread_threat(battle, ally, foes):
++        return "Wide Guard with no spread move to block"
++    if move.id == "quickguard" and not _priority_threat(battle, foes):
++        return "Quick Guard with no priority move to block"
+     return None
+ 
+ 
++# Moves that do nothing without a partner on the field (Helping Hand and the other adjacentAlly
++# moves are caught by their target).
++ALLY_ONLY = {"coaching", "aromaticmist", "holdhands", "decorate", "helpinghand"}
++SPREAD_TARGETS = {Target.ALL_ADJACENT, Target.ALL_ADJACENT_FOES}
++# A foe's move with one of these targets can land on our side.
++AT_US = SPREAD_TARGETS | {Target.NORMAL, Target.ADJACENT_FOE, Target.ANY, Target.RANDOM_NORMAL, Target.FOE_SIDE}
++# Single-target moves that hit both foes in some conditions (Psychic Terrain, a Terapagos).
++SOMETIMES_SPREAD = {"expandingforce", "terastarstorm"}
++
++
++def _full_moveset(mon: Pokemon) -> bool:
++    """All the moves this Pokemon can use are known (open team sheet, or four seen)."""
++    return len(mon.moves) >= 4
++
++
++def _spread_threat(battle: DoubleBattle, ally: Pokemon | None, foes: list[Pokemon]) -> bool:
++    """A foe (or our partner, e.g. Earthquake) may use a move Wide Guard blocks; True when a
++    foe's moves aren't all known."""
++    if any(not _full_moveset(m) for m in foes):
++        return True
++    for mon in [*foes, ally]:
++        if mon is None:
++            continue
++        for mv in mon.moves.values():
++            try:
++                if mv.target in SPREAD_TARGETS or mv.id in SOMETIMES_SPREAD:
++                    return True
++            except KeyError:  # a move poke-env has no data for: assume it could
++                return True
++    return False
++
++
++def _priority_threat(battle: DoubleBattle, foes: list[Pokemon]) -> bool:
++    """A foe may use a move with raised priority (what Quick Guard blocks); True when a foe's
++    moves aren't all known. Prankster/Gale Wings/Triage and Grassy Glide count whatever the HP or
++    terrain; Fake Out only on the foe's first turn out."""
++    for mon in foes:
++        if not _full_moveset(mon):
++            return True
++        abilities = {ability(mon, battle), *(to_id_str(a) for a in (mon.possible_abilities or []) if a)}
++        for mv in mon.moves.values():
++            if mv.id in FIRST_TURN_ONLY and not mon.first_turn:
++                continue  # Fake Out after its first turn out fails anyway
++            try:
++                if mv.target not in AT_US:
++                    continue  # Protect, Tailwind: nothing for Quick Guard to block
++                if mv.priority > 0 or mv.id == "grassyglide" or \
++                        ("prankster" in abilities and mv.category == MoveCategory.STATUS) or \
++                        ("galewings" in abilities and mv.type == PokemonType.FLYING) or \
++                        ("triage" in abilities and "heal" in mv.flags):
++                    return True
++            except KeyError:
++                return True
++    return False
++
++
+ def slot_moves(battle: DoubleBattle, pos: int) -> list[Move]:
+     """The move list that DoublesEnv's action ids index into."""
+     mon = battle.active_pokemon[pos]
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
-index 9d7a515..cad6c9a 100644
+index 9d7a515..b09891b 100644
 --- a/src/ai_vgc/nn/search.py
 +++ b/src/ai_vgc/nn/search.py
 @@ -30,6 +30,7 @@ Search only runs on ordinary move turns; forced switches and team preview use th
@@ -1827,7 +1917,19 @@ index 9d7a515..cad6c9a 100644
          self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
          self.fmt, self.teams_dir = fmt, str(teams_dir)
          self.bridge = Bridge(showdown)
-@@ -889,7 +1221,10 @@ class SearchPlayer(NNPlayer):
+@@ -877,7 +1209,10 @@ class SearchPlayer(NNPlayer):
+             self.leads[battle.battle_tag] = (
+                 tuple(m.species for m in battle.active_pokemon if m),
+                 tuple(m.species for m in battle.opponent_active_pokemon if m))
+-        if any(battle.force_switch) or any(m is None or m.fainted for m in battle.active_pokemon):
++        # With one Pokemon left on our side the other slot passes, and search still compares its
++        # moves: the policy alone used Coaching with no partner and Last Respects into a fresh
++        # switch-in there (malucodetilambuco 2704048851 T6, 2707909745 T6, 2026-11-02 review).
++        if any(battle.force_switch) or all(m is None or m.fainted for m in battle.active_pokemon):
+             return await super().choose_move(battle)
+         mask = action_mask(battle)
+         if self.rules:
+@@ -889,7 +1224,10 @@ class SearchPlayer(NNPlayer):
              out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
                                            self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
                                            self.seeds, self.prior, self.worlds, self.depth, self.k2,
@@ -1839,7 +1941,7 @@ index 9d7a515..cad6c9a 100644
          except Exception as e:  # a position the bridge can't handle: play the policy
              self.logger.warning("search failed on turn %s: %r", battle.turn, e)
              out = None
-@@ -902,6 +1237,8 @@ class SearchPlayer(NNPlayer):
+@@ -902,6 +1240,8 @@ class SearchPlayer(NNPlayer):
          else:
              self.failed_in_a_row = 0
          self.search_time += time.time() - t

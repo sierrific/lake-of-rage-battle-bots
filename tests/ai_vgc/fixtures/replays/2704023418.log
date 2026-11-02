@@ -1,0 +1,146 @@
+|t:|1792873923
+|gametype|doubles
+|player|p1|DuDeReedSSSSSSS|benga|1088
+|player|p2|malucodetilambuco|2|1043
+|gen|9
+|tier|[Gen 9 Champions] VGC 2026 Reg M-C (Bo3)
+|rated|
+|rule|Species Clause: Limit one of each Pokemon
+|rule|Item Clause: Limit 1 of each item
+|clearpoke
+|poke|p1|Golisopod, L50, F|
+|poke|p1|Indeedee-F, L50, F|
+|poke|p1|Hatterene, L50, F|
+|poke|p1|Pelipper, L50, F|
+|poke|p1|Archaludon, L50, M|
+|poke|p1|Sneasler, L50, F|
+|poke|p2|Swampert, L50, F, shiny|
+|poke|p2|Golisopod, L50, M, shiny|
+|poke|p2|Pelipper, L50, F, shiny|
+|poke|p2|Archaludon, L50, M|
+|poke|p2|Farigiraf, L50, F|
+|poke|p2|Sneasler, L50, M|
+|teampreview|4
+|showteam|p1|Golisopod||Golisopite|EmergencyExit|LeechLife,IronHead,DrillRun,Protect|Brave||F|||50|]Indeedee-F||RockyHelmet|PsychicSurge|Psychic,HelpingHand,FollowMe,TrickRoom|Relaxed||F|||50|]Hatterene||LifeOrb|MagicBounce|MagicPowder,TrickRoom,DazzlingGleam,ExpandingForce|Quiet||F|||50|]Pelipper||FocusSash|Drizzle|WeatherBall,Hurricane,Tailwind,WideGuard|Modest||F|||50|]Archaludon||Leftovers|Stamina|ElectroShot,FlashCannon,DragonPulse,Protect|Modest||M|||50|]Sneasler||PsychicSeed|Unburden|RockSlide,DireClaw,CloseCombat,Protect|Jolly||F|||50|
+|showteam|p2|Swampert||Swampertite|Torrent|WaveCrash,Earthquake,IcePunch,Protect|Adamant||F|||50|]Golisopod||Golisopite|EmergencyExit|LeechLife,IronHead,DrillRun,Protect|Adamant||M|||50|]Pelipper||SitrusBerry|Drizzle|Hurricane,WeatherBall,Tailwind,WideGuard|Bold||F|||50|]Archaludon||Leftovers|Stamina|DragonPulse,FlashCannon,ElectroShot,Protect|Modest||M|||50|]Farigiraf||LightClay|ArmorTail|Psychic,TrickRoom,LightScreen,Protect|Bold||F|||50|]Sneasler||FocusSash|Unburden|DireClaw,CloseCombat,FakeOut,Coaching|Jolly||M|||50|
+|
+|t:|1792873950
+|teamsize|p1|4
+|teamsize|p2|4
+|start
+|switch|p1a: Indeedee|Indeedee-F, L50, F|100/100
+|switch|p1b: Hatterene|Hatterene, L50, F|100/100
+|switch|p2a: Sneasler|Sneasler, L50, M|100/100
+|switch|p2b: Golisopod|Golisopod, L50, M, shiny|100/100
+|-fieldstart|move: Psychic Terrain|[from] ability: Psychic Surge|[of] p1a: Indeedee
+|turn|1
+|
+|t:|1792873955
+|switch|p2a: Pelipper|Pelipper, L50, F, shiny|100/100
+|-weather|RainDance|[from] ability: Drizzle|[of] p2a: Pelipper
+|detailschange|p2b: Golisopod|Golisopod-Mega, L50, M, shiny
+|-mega|p2b: Golisopod|Golisopod|Golisopite
+|move|p1a: Indeedee|Follow Me|p1a: Indeedee
+|-singleturn|p1a: Indeedee|move: Follow Me
+|move|p2b: Golisopod|Leech Life|p1a: Indeedee
+|-supereffective|p1a: Indeedee|1
+|-damage|p1a: Indeedee|0 fnt
+|-damage|p2b: Golisopod|83/100|[from] item: Rocky Helmet|[of] p1a: Indeedee
+|faint|p1a: Indeedee
+|move|p1b: Hatterene|Trick Room|p1b: Hatterene
+|-fieldstart|move: Trick Room|[of] p1b: Hatterene
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1792873961
+|switch|p1a: Golisopod|Golisopod, L50, F|100/100
+|turn|2
+|
+|t:|1792873969
+|detailschange|p1a: Golisopod|Golisopod-Mega, L50, F
+|-mega|p1a: Golisopod|Golisopod|Golisopite
+|move|p2a: Pelipper|Wide Guard|p2a: Pelipper
+|-singleturn|p2a: Pelipper|Wide Guard
+|move|p1b: Hatterene|Magic Powder|p2b: Golisopod
+|-start|p2b: Golisopod|typechange|Psychic
+|move|p1a: Golisopod|Leech Life|p2b: Golisopod
+|-supereffective|p2b: Golisopod|1
+|-damage|p2b: Golisopod|1/100
+|move|p2b: Golisopod|Iron Head|p1b: Hatterene
+|-supereffective|p1b: Hatterene|1
+|-damage|p1b: Hatterene|6/100
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|turn|3
+|
+|t:|1792873993
+|switch|p2a: Archaludon|Archaludon, L50, M|100/100
+|move|p2b: Golisopod|Protect|p2b: Golisopod
+|-singleturn|p2b: Golisopod|Protect
+|move|p1b: Hatterene|Magic Powder|p2a: Archaludon
+|-start|p2a: Archaludon|typechange|Psychic
+|move|p1a: Golisopod|Leech Life|p2a: Archaludon
+|-supereffective|p2a: Archaludon|1
+|-crit|p2a: Archaludon
+|-damage|p2a: Archaludon|0 fnt
+|faint|p2a: Archaludon
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1792873993
+|switch|p2a: Sneasler|Sneasler, L50, M|100/100
+|turn|4
+|
+|t:|1792874015
+|switch|p2a: Pelipper|Pelipper, L50, F, shiny|100/100
+|move|p2b: Golisopod|Protect||[still]
+|-fail|p2b: Golisopod
+|move|p1b: Hatterene|Expanding Force|p2a: Pelipper|[spread] p2a,p2b
+|-resisted|p2b: Golisopod|1
+|-damage|p2a: Pelipper|0 fnt
+|-damage|p2b: Golisopod|0 fnt
+|faint|p2a: Pelipper
+|faint|p2b: Golisopod
+|-damage|p1b: Hatterene|0 fnt|[from] item: Life Orb
+|faint|p1b: Hatterene
+|move|p1a: Golisopod|Drill Run|p2: Pelipper|[notarget]
+|-fail|p1a: Golisopod
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1792874024
+|switch|p1b: Sneasler|Sneasler, L50, F|100/100
+|switch|p2a: Sneasler|Sneasler, L50, M|100/100
+|-enditem|p1b: Sneasler|Psychic Seed
+|-boost|p1b: Sneasler|spd|1|[from] item: Psychic Seed
+|turn|5
+|
+|t:|1792874034
+|move|p1b: Sneasler|Protect|p1b: Sneasler
+|-singleturn|p1b: Sneasler|Protect
+|move|p1a: Golisopod|Drill Run|p2a: Sneasler
+|-supereffective|p2a: Sneasler|1
+|-enditem|p2a: Sneasler|Focus Sash
+|-damage|p2a: Sneasler|1/100
+|move|p2a: Sneasler|Coaching|p2: Golisopod|[notarget]
+|-fail|p2a: Sneasler
+|
+|-weather|none
+|-fieldend|move: Trick Room
+|-fieldend|move: Psychic Terrain
+|upkeep
+|turn|6
+|
+|t:|1792874049
+|move|p1b: Sneasler|Close Combat|p2a: Sneasler
+|-resisted|p2a: Sneasler|1
+|-damage|p2a: Sneasler|0 fnt
+|-unboost|p1b: Sneasler|def|1
+|-unboost|p1b: Sneasler|spd|1
+|faint|p2a: Sneasler
+|
+|win|DuDeReedSSSSSSS
