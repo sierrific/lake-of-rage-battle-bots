@@ -45,7 +45,34 @@ class TestHistory(unittest.TestCase):
         self.history.receive('|pm|Amigo|Outro|outra conta')
         self.history.receive('|pm|Amigo|Meu_Bot|/challenge format')
         self.history.receive('|pm|Meu_Bot|~|/error server reply')
-        self.assertEqual([r['text'] for r in self.rows()], ['Oi | 😊'])
+        self.assertEqual([r['text'] for r in self.rows() if r['kind'] == 'pm'], ['Oi | 😊'])
+
+    def test_challenges_saved_both_directions_without_end_markers(self):
+        self.history.receive('|pm|+Rival|Meu_Bot|/challenge gen9vgc|gen9vgc|||')
+        self.history.receive('|pm| Meu_Bot|Amigo|/challenge gen9ou|gen9ou|||')
+        self.history.receive('|pm|Rival|Meu_Bot|/challenge')
+        self.history.receive('|pm|Meu_Bot|Amigo|/challenge')
+        self.history.receive('|pm|Rival|Outro|/challenge gen9x|gen9x')
+        rows = self.rows()
+        self.assertEqual([(r['kind'], r['sender'], r['to'], r['text'], r['own']) for r in rows],
+                         [('desafio', 'Rival', 'Meu_Bot', 'gen9vgc', False),
+                          ('desafio', 'Meu_Bot', 'Amigo', 'gen9ou', True)])
+
+    def test_showdown_notices_saved_as_plain_text(self):
+        self.history.receive('|popup||html|<b>Aviso</b> da moderação||segunda &amp; linha')
+        self.history.receive('|pm|Rival|Meu_Bot|/text Rival rejected the challenge.')
+        self.history.receive('|pm|~|Meu_Bot|/error Você está digitando rápido demais.')
+        self.history.receive('|pm|~|Meu_Bot|Mensagem do servidor')
+        self.history.receive('|pm|Meu_Bot|Rival|/text própria')
+        self.history.receive('|pm|~|Meu_Bot|/raw <div>controle</div>')
+        self.history.receive('|popup|')
+        rows = self.rows()
+        self.assertEqual({r['kind'] for r in rows}, {'aviso'})
+        self.assertEqual([(r['sender'], r['text']) for r in rows],
+                         [('Showdown', 'Aviso da moderação\nsegunda & linha'),
+                          ('Rival', 'Rival rejected the challenge.'),
+                          ('Showdown', 'Você está digitando rápido demais.'),
+                          ('Showdown', 'Mensagem do servidor')])
 
     def test_showdown_controls_are_not_conversation(self):
         self.room('|player|p1|Meu_Bot|1\n|player|p2||')
@@ -60,7 +87,7 @@ class TestHistory(unittest.TestCase):
                 self.room('|c|Rival|' + text)
                 self.room('|c:|1793556000|Rival|' + text)
                 self.history.receive('|pm|Rival|Meu_Bot|' + text)
-        self.assertEqual(self.rows(), [])
+        self.assertEqual([r for r in self.rows() if r['kind'] != 'desafio'], [])
 
     def test_literal_text_and_chat_actions_are_preserved(self):
         self.room('|player|p1|Meu_Bot|1\n|player|p2|Rival|2')
@@ -131,6 +158,12 @@ class TestHistory(unittest.TestCase):
         record = logging.LogRecord('test', 30, '', 1, 'Received pm: %s', ('|pm|Amigo|Meu_Bot|segredo',), None)
         m.PrivateMessages().filter(record)
         self.assertNotIn('segredo', record.getMessage())
+        for text, expected in (('/challenge gen9x|gen9x', 'challenge'), ('/uhtml a,<b>x</b>', 'control'),
+                               ('/text Rival rejected', 'notice'), ('oi', 'Private')):
+            r = logging.LogRecord('test', 30, '', 1, 'Received pm: %s', ('|pm|Rival|Meu_Bot|' + text,), None)
+            m.PrivateMessages().filter(r)
+            self.assertIn(expected, r.getMessage())
+            self.assertNotIn('Rival', r.getMessage())
         server = logging.LogRecord('test', 30, '', 1, 'Received pm: %s', ('|pm|Meu_Bot|~|reply',), None)
         m.PrivateMessages().filter(server)
         self.assertIn('reply', server.getMessage())

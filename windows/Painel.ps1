@@ -1856,6 +1856,10 @@ function Traduzir-Log([string[]]$linhas, [string]$filtro) {
         elseif ($l -match '^Stopping lor-bot@') { $txt = 'Desligando…' }
         elseif ($l -match '^Stopped lor-bot@') { $txt = 'Bot parado' }
         elseif ($l -match '^\s+search:|Deactivated successfully|Killing process|remains running|^lor-bot@.*Consumed|SyntaxWarning|^\s+function showErr') { continue }
+        elseif ($l -match 'Showdown control message received') { continue }
+        elseif ($l -match 'Private Showdown message received') { $txt = 'Mensagem privada recebida · texto em Histórico › Mensagens' }
+        elseif ($l -match 'Showdown challenge received') { $txt = 'Desafio no Showdown · detalhes em Histórico › Mensagens' }
+        elseif ($l -match 'Showdown notice received') { $txt = 'Aviso do Showdown · texto em Histórico › Mensagens'; $tipo = 'aviso' }
         elseif ($l -match 'Received pm: \|pm\|\s*([^|]+)\|') {
             # Mensagens privadas no Showdown: só uma linha por pedido de amizade, o resto do HTML some.
             $de = $Matches[1].Trim()
@@ -1946,6 +1950,9 @@ function Ler-Atividade([string[]]$linhas, [string]$filtro) {
         elseif ($l -match '^challenge ') { $evento.Titulo = 'Desafio'; $evento.CorNome = 'ambar'; $evento.Tipo = 'partida' }
         elseif ($l -match '^connection to Showdown lost|^could not connect to Showdown') { $evento.Titulo = 'Conexão perdida'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^reconnecting in') { $evento.Titulo = 'Reconectando'; $evento.CorNome = 'ambar' }
+        elseif ($l -match 'Private Showdown message received') { $evento.Titulo = 'Mensagem privada'; $evento.Detalhe = 'Texto salvo em Histórico › Mensagens' }
+        elseif ($l -match 'Showdown challenge received') { $evento.Titulo = 'Desafio no Showdown'; $evento.Detalhe = 'Quem e o formato em Histórico › Mensagens'; $evento.CorNome = 'ouro' }
+        elseif ($l -match 'Showdown notice received') { $evento.Titulo = 'Aviso do Showdown'; $evento.Detalhe = 'Texto salvo em Histórico › Mensagens'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match 'Traceback|Error|ERROR|WARNING|Unhandled|failed|Failed') { $evento.Titulo = 'Aviso do bot'; $evento.CorNome = 'ambar'; $evento.Tipo = 'aviso' }
         elseif ($l -match '^Ctrl-C: finishing|^Stopping lor-bot@') { $evento.Titulo = 'Parada solicitada'; $evento.CorNome = 'ambar' }
         elseif ($l -match '^Stopped lor-bot@') { $evento.Titulo = 'Bot parado' }
@@ -1975,6 +1982,20 @@ function Ler-Historico([string[]]$linhas, [string]$filtro) {
             $evento.Titulo = "$origem · $($r.sender)"
             $evento.Detalhe = [string]$r.text
             if ($r.room) { $evento.Detalhe += "`r`nSala: $($r.room)" }
+            $evento.Tipo = 'mensagem'
+        } elseif ($r.kind -in @('desafio', 'aviso')) {
+            if ($filtro -eq 'Partidas') { continue }
+            if ($r.sender -isnot [string] -or $r.text -isnot [string] -or -not $r.text) { continue }
+            $evento = New-Object LoR.EventoAtividade
+            if ($r.kind -eq 'desafio') {
+                $evento.Titulo = if ($r.own) { "Desafio enviado · para $($r.to)" } else { "Desafio recebido · $($r.sender)" }
+                $evento.Detalhe = "Formato: $($r.text)"
+                $evento.CorNome = 'ouro'
+            } else {
+                $evento.Titulo = "Aviso do Showdown · $($r.sender)"
+                $evento.Detalhe = [string]$r.text
+                $evento.CorNome = 'ambar'
+            }
             $evento.Tipo = 'mensagem'
         }
         if ($evento) {

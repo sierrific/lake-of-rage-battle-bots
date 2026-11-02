@@ -291,6 +291,20 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         for ($i = 0; $i -lt $literais.Count; $i++) {
             Assert ($literais[$i].Detalhe -ceq $textosLiterais[$textosLiterais.Count - 1 - $i]) 'corpo literal permanece intacto'
         }
+        $script:historicoLinhas = @(
+            (@{ kind = 'desafio'; sender = 'Rival'; to = 'Meu_Bot'; text = 'gen9vgc'; own = $false } | ConvertTo-Json -Compress),
+            (@{ kind = 'desafio'; sender = 'Meu_Bot'; to = 'Amigo'; text = 'gen9ou'; own = $true } | ConvertTo-Json -Compress),
+            (@{ kind = 'aviso'; sender = 'Showdown'; text = 'Aviso da moderacao' } | ConvertTo-Json -Compress))
+        $novos = @(Ler-Historico @() 'Mensagens')
+        Assert ($novos.Count -eq 3 -and @($novos | Where-Object { $_.Tipo -ne 'mensagem' }).Count -eq 0) 'desafios e avisos aparecem em Mensagens'
+        Assert ($novos[0].Titulo -match 'Aviso do Showdown' -and $novos[0].Detalhe -eq 'Aviso da moderacao') 'aviso do Showdown com texto'
+        Assert ($novos[1].Titulo -match 'Desafio enviado.*Amigo' -and $novos[2].Titulo -match 'Desafio recebido.*Rival' -and $novos[2].Detalhe -match 'gen9vgc') 'desafios com direcao e formato'
+        Assert (@(Ler-Historico @() 'Partidas').Count -eq 0) 'filtro partidas exclui desafios e avisos'
+        $pm = @(Ler-Atividade @('2026-11-02 11:25:36,711 - PaiBraz - WARNING - Private Showdown message received (local history).') 'Todos')
+        Assert ($pm.Count -eq 1 -and $pm[0].Titulo -eq 'Mensagem privada') 'PM no log vira Mensagem privada, nao Aviso do bot'
+        $desafio = @(Ler-Atividade @('2026-11-02 11:25:36,711 - PaiBraz - WARNING - Showdown challenge received (local history).') 'Todos')
+        Assert ($desafio.Count -eq 1 -and $desafio[0].Titulo -eq 'Desafio no Showdown') 'desafio no log tem titulo proprio'
+        Assert (@(Ler-Atividade @('2026-11-02 11:25:36,711 - PaiBraz - WARNING - Showdown control message received.') 'Todos').Count -eq 0) 'controles do Showdown nao poluem a atividade'
         $script:historicoLinhas = $historicoAnterior
         $cFiltroHistorico.Indice = 1; Atualizar-Atividade
         Assert ($atividadeHistorico.Itens.Count -eq 1 -and $atividadeHistorico.Itens[0].Tipo -eq 'partida') 'filtro partidas exclui todas as conversas'

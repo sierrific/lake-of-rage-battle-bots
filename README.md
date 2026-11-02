@@ -59,6 +59,9 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
   300 eventos recentes. Ficam em `data/live_games/.messages/<conta>.jsonl`, com rotação de dois
   arquivos de até aproximadamente 5 MB por conta. PMs não entram na coleta, no log técnico nem no
   diagnóstico copiado para suporte.
+  Desafios (recebidos e enviados, com formato) e avisos do Showdown (popups, recusas, erros do
+  servidor) também ficam salvos e aparecem em **Mensagens**. Os botões internos do Showdown
+  (`/uhtml`, prontos do Bo3) continuam fora do histórico e da atividade.
 - **Ligar / Desligar (após a partida) / Desligar agora**. "Desligar" espera terminar a partida ou
   a série Bo3 atual, para o bot não perder por W.O.
   Uma série antiga incompleta não renova sua espera quando outra partida termina: após um 2:0
