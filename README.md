@@ -172,6 +172,11 @@ Requer Microsoft Edge ou Google Chrome instalado no Windows. Cada conta usa um p
 nesse perfil: nas próximas conexões, o navegador pode autorizar sem pedir a senha novamente.
 Se entrar em outra conta, o bot aguarda a conta configurada; não assume a conta que estiver aberta.
 
+A confirmação compara o identificador da conta: diferenças de maiúsculas, espaços e pontuação
+no nome retornado pelo Showdown não impedem o login. A grafia confirmada também é usada durante
+as batalhas para reconhecer o lado do bot e registrar vitórias corretamente. O painel mostra
+**Aguardando login** até a confirmação, sem anunciar a conta como conectada antes da hora.
+
 A janela abre a cada conexão, inclusive ao reconectar. O bot recebe uma autorização assinada
 para a sua conexão, sem receber a senha nem copiar cookies para o Linux. Essa autorização expira
 e é apagada depois de consumida. Se o login falhar ou passar de 5 minutos, o bot para; abra o painel

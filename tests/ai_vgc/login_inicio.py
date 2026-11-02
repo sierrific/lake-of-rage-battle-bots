@@ -58,6 +58,8 @@ class TestLoginStartup(unittest.TestCase):
                 self.server_configuration = types.SimpleNamespace(authentication_url="https://example.invalid")
                 self.loop = object()
                 self._avatar = None
+                self._handle_message = AsyncMock()
+                self.logged_in = asyncio.Event()
                 self.wait_for_login = AsyncMock()
                 self.change_avatar = AsyncMock()
                 self.search_ladder_game = AsyncMock(side_effect=lambda *args: events.append("search"))

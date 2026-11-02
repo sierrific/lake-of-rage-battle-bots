@@ -382,6 +382,29 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         }
         $partidas = @(Ler-Atividade @('team: SolUgarte', 'win vs Rival in 7 turns') 'Partidas')
         Assert ($partidas.Count -eq 1 -and $partidas[0].Titulo -eq 'Vitória') 'filtro partidas'
+        $inicioLogin = "'PaiBrazVGC_Oficial' laddering gen9championsvgc2026regmcbo3 at play.pokemonshowdown.com: 1000000 games"
+        $eventoInicio = @(Ler-Atividade @($inicioLogin) 'Todos')
+        Assert ($eventoInicio[0].Titulo -eq 'Preparando conexão' -and $eventoInicio[0].Detalhe -notmatch 'conectada|procurando') 'iniciar processo nao confirma login'
+        $eventoLogin = @(Ler-Atividade @('login confirmed: PaiBrazVGC_Oficial') 'Todos')
+        Assert ($eventoLogin[0].Titulo -eq 'Conta conectada') 'conexao somente apos confirmacao'
+        $savedLog = $script:logLinhas
+        $script:logLinhas = @('login confirmed: PaiBrazVGC_Oficial', $inicioLogin, 'login navegador: entre como PaiBrazVGC_Oficial na janela do Showdown (até 5 minutos)')
+        Assert ((Estado-Login) -eq 'pendente') 'nova sessao invalida confirmacao antiga'
+        $script:logLinhas += 'login confirmation failed (TimeoutError); ligue novamente no painel'
+        Assert ((Estado-Login) -eq 'falhou') 'timeout nao vira busca de partida'
+        $script:logLinhas += @($inicioLogin, 'login confirmed: PaiBrazVGC_Oficial')
+        Assert ((Estado-Login) -eq 'confirmado') 'nova confirmacao libera estado de espera'
+        $script:logLinhas = $savedLog
+        if ($scale -eq 1) {
+            $savedFake = $script:fake.Clone(); $savedFakeLog = $script:logFalso
+            $script:fake.conta = 'PaiBrazVGC_Oficial'; $script:fake.partida = ''; $script:fake.placar_oponente = ''
+            $script:logFalso = $inicioLogin + "`nlogin navegador: entre como PaiBrazVGC_Oficial na janela do Showdown (até 5 minutos)"
+            Atualizar-Tela
+            Assert ($selo.Text -eq 'Aguardando login' -and $lInfo.Text -match 'Conclua o login') 'cartao aguarda autenticacao'
+            Capture 'login-pendente'
+            $script:fake = $savedFake; $script:logFalso = $savedFakeLog
+            Atualizar-Tela
+        }
         $conexao = @(Ler-Atividade @('could not connect to Showdown: exiting to reconnect', 'reconnecting in 10 s (Ctrl-C to stop)') 'Todos')
         Assert ($conexao.Count -eq 2 -and $conexao[0].Titulo -eq 'Reconectando' -and $conexao[1].Titulo -eq 'Conexão perdida' -and $conexao[1].Tipo -eq 'aviso') 'queda de conexao'
 
