@@ -1,0 +1,170 @@
+|t:|1793588619
+|gametype|doubles
+|player|p1|PaiBrazVGC_Oficial|266|1228
+|player|p2|fc5809|dawn-gen4pt|1141
+|gen|9
+|tier|[Gen 9 Champions] VGC 2026 Reg M-C (Bo3)
+|rated|
+|rule|Species Clause: Limit one of each Pokemon
+|rule|Item Clause: Limit 1 of each item
+|clearpoke
+|poke|p1|Golisopod, L50, F|
+|poke|p1|Basculegion, L50, M|
+|poke|p1|Pelipper, L50, F|
+|poke|p1|Archaludon, L50, F|
+|poke|p1|Sneasler, L50, F|
+|poke|p1|Salamence, L50, M|
+|poke|p2|Garchomp, L50, F|
+|poke|p2|Raichu, L50, M|
+|poke|p2|Incineroar, L50, M|
+|poke|p2|Volcarona, L50, F|
+|poke|p2|Primarina, L50, F|
+|poke|p2|Rillaboom, L50, M|
+|teampreview|4
+|showteam|p1|Golisopod||Golisopite|EmergencyExit|LeechLife,IronHead,SuckerPunch,SwordsDance|Adamant||F|||50|]Basculegion||ChoiceScarf|Adaptability|LastRespects,WaveCrash,FlipTurn,AquaJet|Jolly||M|||50|]Pelipper||SitrusBerry|Drizzle|WeatherBall,Hurricane,Tailwind,WideGuard|Modest||F|||50|]Archaludon||Leftovers|Stamina|ElectroShot,DragonPulse,Snarl,Protect|Modest||F|||50|]Sneasler||WhiteHerb|Unburden|DireClaw,CloseCombat,FakeOut,Protect|Adamant||F|||50|]Salamence||Salamencite|Intimidate|DracoMeteor,HyperVoice,Tailwind,Protect|Timid||M|||50|
+|showteam|p2|Garchomp||GarchompiteZ|RoughSkin|DracoMeteor,EarthPower,PowerGem,Protect|Modest||F|||50|]Raichu||RaichuniteY|LightningRod|FakeOut,ZapCannon,FocusBlast,Protect|Timid||M|||50|]Incineroar||ChopleBerry|Intimidate|FakeOut,FlareBlitz,PartingShot,Taunt|Careful||M|||50|]Volcarona||GrassySeed|FlameBody|HeatWave,GigaDrain,QuiverDance,Protect|Modest||F|||50|]Primarina||Leftovers|LiquidVoice|HyperVoice,DrainingKiss,CalmMind,Protect|Modest||F|||50|]Rillaboom||MiracleSeed|GrassySurge|FakeOut,WoodHammer,GrassyGlide,Uturn|Adamant||M|||50|
+|
+|t:|1793588641
+|teamsize|p1|4
+|teamsize|p2|4
+|start
+|switch|p1a: Pelipper|Pelipper, L50, F|100/100
+|switch|p1b: Golisopod|Golisopod, L50, F|100/100
+|switch|p2a: Incineroar|Incineroar, L50, M|100/100
+|switch|p2b: Raichu|Raichu, L50, M|100/100
+|-weather|RainDance|[from] ability: Drizzle|[of] p1a: Pelipper
+|-ability|p2a: Incineroar|Intimidate|boost
+|-unboost|p1a: Pelipper|atk|1
+|-unboost|p1b: Golisopod|atk|1
+|turn|1
+|
+|t:|1793588660
+|switch|p1a: Archaludon|Archaludon, L50, F|100/100
+|detailschange|p2b: Raichu|Raichu-Mega-Y, L50, M
+|-mega|p2b: Raichu|Raichu|Raichunite Y
+|detailschange|p1b: Golisopod|Golisopod-Mega, L50, F
+|-mega|p1b: Golisopod|Golisopod|Golisopite
+|move|p2b: Raichu|Fake Out|p1b: Golisopod
+|-resisted|p1b: Golisopod|1
+|-damage|p1b: Golisopod|97/100
+|cant|p1b: Golisopod|flinch
+|move|p2a: Incineroar|Parting Shot|p1b: Golisopod
+|-unboost|p1b: Golisopod|atk|1
+|-unboost|p1b: Golisopod|spa|1
+|
+|t:|1793588675
+|switch|p2a: Primarina|Primarina, L50, F|100/100|[from] Parting Shot
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|turn|2
+|
+|t:|1793588690
+|move|p2b: Raichu|Zap Cannon|p1a: Archaludon
+|-resisted|p1a: Archaludon|1
+|-damage|p1a: Archaludon|66/100
+|-status|p1a: Archaludon|par
+|-ability|p1a: Archaludon|Stamina|boost
+|-boost|p1a: Archaludon|def|1
+|move|p1b: Golisopod|Swords Dance|p1b: Golisopod
+|-boost|p1b: Golisopod|atk|2
+|move|p2a: Primarina|Calm Mind|p2a: Primarina
+|-boost|p2a: Primarina|spa|1
+|-boost|p2a: Primarina|spd|1
+|move|p1a: Archaludon|Electro Shot||[still]
+|-prepare|p1a: Archaludon|Electro Shot
+|-boost|p1a: Archaludon|spa|1
+|-anim|p1a: Archaludon|Electro Shot|p2a: Primarina
+|-supereffective|p2a: Primarina|1
+|-damage|p2a: Primarina|32/100
+|
+|-weather|RainDance|[upkeep]
+|-heal|p2a: Primarina|38/100|[from] item: Leftovers
+|-heal|p1a: Archaludon|72/100 par|[from] item: Leftovers
+|upkeep
+|turn|3
+|
+|t:|1793588709
+|move|p2b: Raichu|Zap Cannon|p1b: Golisopod
+|-damage|p1b: Golisopod|47/100
+|-status|p1b: Golisopod|par
+|move|p2a: Primarina|Hyper Voice|p1b: Golisopod|[spread] p1a,p1b
+|-resisted|p1a: Archaludon|1
+|-damage|p1a: Archaludon|36/100 par
+|-damage|p1b: Golisopod|0 fnt
+|-ability|p1a: Archaludon|Stamina|boost
+|-boost|p1a: Archaludon|def|1
+|faint|p1b: Golisopod
+|move|p1a: Archaludon|Electro Shot||[still]
+|-prepare|p1a: Archaludon|Electro Shot
+|-boost|p1a: Archaludon|spa|1
+|-anim|p1a: Archaludon|Electro Shot|p2a: Primarina
+|-supereffective|p2a: Primarina|1
+|-damage|p2a: Primarina|0 fnt
+|faint|p2a: Primarina
+|
+|-weather|RainDance|[upkeep]
+|-heal|p1a: Archaludon|43/100 par|[from] item: Leftovers
+|upkeep
+|
+|t:|1793588717
+|switch|p1b: Basculegion|Basculegion, L50, M|100/100
+|switch|p2a: Garchomp|Garchomp, L50, F|100/100
+|turn|4
+|
+|t:|1793588727
+|switch|p2b: Incineroar|Incineroar, L50, M|100/100
+|-ability|p2b: Incineroar|Intimidate|boost
+|-unboost|p1a: Archaludon|atk|1
+|-unboost|p1b: Basculegion|atk|1
+|move|p1b: Basculegion|Wave Crash|p2b: Incineroar
+|-supereffective|p2b: Incineroar|1
+|-damage|p2b: Incineroar|0 fnt
+|faint|p2b: Incineroar
+|-damage|p1b: Basculegion|66/100|[from] Recoil
+|move|p2a: Garchomp|Earth Power|p1a: Archaludon
+|-supereffective|p1a: Archaludon|1
+|-damage|p1a: Archaludon|0 fnt
+|faint|p1a: Archaludon
+|
+|-weather|RainDance|[upkeep]
+|upkeep
+|
+|t:|1793588737
+|switch|p1a: Pelipper|Pelipper, L50, F|100/100
+|switch|p2b: Raichu|Raichu-Mega-Y, L50, M|100/100
+|turn|5
+|
+|t:|1793588755
+|move|p2b: Raichu|Protect|p2b: Raichu
+|-singleturn|p2b: Raichu|Protect
+|move|p1b: Basculegion|Wave Crash|p2b: Raichu
+|-activate|p2b: Raichu|move: Protect
+|move|p2a: Garchomp|Power Gem|p1a: Pelipper
+|-supereffective|p1a: Pelipper|1
+|-damage|p1a: Pelipper|33/100
+|-enditem|p1a: Pelipper|Sitrus Berry|[eat]
+|-heal|p1a: Pelipper|58/100|[from] item: Sitrus Berry
+|move|p1a: Pelipper|Weather Ball|p2a: Garchomp
+|-damage|p2a: Garchomp|27/100
+|
+|-weather|none
+|upkeep
+|turn|6
+|
+|t:|1793588768
+|move|p1a: Pelipper|Wide Guard|p1a: Pelipper
+|-singleturn|p1a: Pelipper|Wide Guard
+|move|p1b: Basculegion|Wave Crash|p2b: Raichu
+|-damage|p2b: Raichu|24/100
+|-damage|p1b: Basculegion|45/100|[from] Recoil
+|move|p2b: Raichu|Zap Cannon|p1b: Basculegion
+|-supereffective|p1b: Basculegion|1
+|-damage|p1b: Basculegion|0 fnt
+|faint|p1b: Basculegion
+|move|p2a: Garchomp|Power Gem|p1a: Pelipper
+|-supereffective|p1a: Pelipper|1
+|-damage|p1a: Pelipper|0 fnt
+|faint|p1a: Pelipper
+|
+|win|fc5809
