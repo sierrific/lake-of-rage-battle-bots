@@ -181,8 +181,8 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         Assert ($form.ClientSize -eq $requiredSize) ('janela sintetica deve conservar tamanho solicitado: ' + $form.ClientSize + ' / esperado=' + $requiredSize)
         # Ícone embutido (Gyarados), desenhado pelo próprio Windows (DrawIcon, como na barra e na
         # bandeja): cada tamanho abre, o canto deixa ver o fundo e o meio é vermelho. O quadro de
-        # 256 px (só o Explorer usa) fica de fora: o System.Drawing do PowerShell 5.1 não o escolhe.
-        foreach ($lado in @(16, 24, 32, 48, 128)) {
+        # 256 px (PNG, só o Explorer usa) fica de fora: o System.Drawing do PowerShell 5.1 não lê PNG.
+        foreach ($lado in @(16, 20, 24, 32, 40, 48, 64)) {
             $quadro = New-Object System.Drawing.Icon($form.Icon, $lado, $lado)
             $bmp = New-Object System.Drawing.Bitmap($lado, $lado, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
             try {
