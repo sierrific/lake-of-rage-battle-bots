@@ -179,17 +179,25 @@ foreach ($scale in @(1, 1.25, 1.5)) {
     $form.Show()
     try {
         Assert ($form.ClientSize -eq $requiredSize) ('janela sintetica deve conservar tamanho solicitado: ' + $form.ClientSize + ' / esperado=' + $requiredSize)
-        # Ícone embutido (Gyarados): cada tamanho abre, o canto é transparente e o meio é vermelho.
-        foreach ($lado in @(16, 24, 32, 48, 256)) {
+        # Ícone embutido (Gyarados), desenhado pelo próprio Windows (DrawIcon, como na barra e na
+        # bandeja): cada tamanho abre, o canto deixa ver o fundo e o meio é vermelho. O quadro de
+        # 256 px (PNG, só o Explorer usa) fica de fora: o System.Drawing do PowerShell 5.1 não lê PNG.
+        foreach ($lado in @(16, 20, 24, 32, 40, 48, 64)) {
             $quadro = New-Object System.Drawing.Icon($form.Icon, $lado, $lado)
-            $bmp = $quadro.ToBitmap()
+            $bmp = New-Object System.Drawing.Bitmap($lado, $lado, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
             try {
-                Assert ($bmp.Width -eq $lado -and $bmp.Height -eq $lado) "icone $lado px no tamanho certo ($($bmp.Width))"
-                Assert ($bmp.GetPixel(0, 0).A -eq 0) "icone $lado px com fundo transparente ($($bmp.GetPixel(0, 0)))"
+                Assert ($quadro.Width -eq $lado -and $quadro.Height -eq $lado) "icone $lado px no tamanho certo ($($quadro.Width))"
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                try {
+                    $g.Clear([System.Drawing.Color]::FromArgb(255, 0, 255, 0))
+                    $g.DrawIcon($quadro, (New-Object System.Drawing.Rectangle(0, 0, $lado, $lado)))
+                } finally { $g.Dispose() }
+                $canto = $bmp.GetPixel(0, 0)
+                Assert ($canto.R -eq 0 -and $canto.G -eq 255 -and $canto.B -eq 0) "icone $lado px com fundo transparente ($canto)"
                 $vermelhos = 0
                 for ($y = 0; $y -lt $lado; $y++) { for ($x = 0; $x -lt $lado; $x++) {
                     $c = $bmp.GetPixel($x, $y)
-                    if ($c.A -gt 200 -and $c.R -gt 170 -and $c.G -lt 130 -and $c.B -lt 100) { $vermelhos++ }
+                    if ($c.R -gt 170 -and $c.G -lt 130 -and $c.B -lt 100) { $vermelhos++ }
                 } }
                 Assert ($vermelhos -ge ($lado * $lado / 20)) "icone $lado px e o Gyarados vermelho ($vermelhos px)"
             } finally { $bmp.Dispose(); $quadro.Dispose() }

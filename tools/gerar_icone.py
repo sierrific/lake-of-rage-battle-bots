@@ -22,7 +22,7 @@ ORIGEM = RAIZ / 'windows' / 'icone' / 'gyarados.png'
 SEM_FUNDO = RAIZ / 'windows' / 'icone' / 'gyarados-sem-fundo.png'
 DESTINO = RAIZ / 'windows' / 'painel.ico'
 PAINEL = RAIZ / 'windows' / 'Painel.ps1'
-TAMANHOS = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
+TAMANHOS = (16, 20, 24, 32, 40, 48, 64, 256)
 
 
 def tirar_fundo(im):
@@ -88,9 +88,10 @@ def quadro_png(img):
 
 
 def montar_ico(quadros):
-    # Até 48 px em BMP (é o que a janela, a barra de tarefas e a bandeja usam); maiores em PNG,
-    # como o Windows faz com os próprios ícones, para o arquivo embutido não crescer demais.
-    dados = [quadro_bmp(q) if q.width <= 48 else quadro_png(q) for q in quadros]
+    # Até 64 px em BMP: é o que a janela, a barra de tarefas e a bandeja usam, e o System.Drawing
+    # do PowerShell 5.1 não lê quadros PNG. Só o de 256 px (Explorer) fica em PNG, como nos ícones
+    # do próprio Windows.
+    dados = [quadro_bmp(q) if q.width < 256 else quadro_png(q) for q in quadros]
     saida = bytearray(struct.pack('<HHH', 0, 1, len(quadros)))
     deslocamento = 6 + 16 * len(quadros)
     for q, d in zip(quadros, dados):
