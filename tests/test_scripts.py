@@ -238,6 +238,48 @@ class TestPainelReinicio(unittest.TestCase):
         self.assertIn("ok=parado", saida)
 
 
+SYSTEMCTL_MEMORIA = r'''#!/usr/bin/env bash
+case "$*" in
+  *MemoryCurrent*) echo 1512701952 ;;
+  *ControlGroup*) echo '/system.slice/system-lor\x2dbot.slice/lor-bot@bot.service' ;;
+  show*) echo active ;;
+esac
+exit 0
+'''
+
+
+class TestPainelMemoria(unittest.TestCase):
+    """O medidor do painel desconta o cache de arquivos, que o Linux libera quando falta memória."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        for nome, corpo in (("systemctl", SYSTEMCTL_MEMORIA), ("id", "#!/bin/sh\necho 0\n"),
+                            ("curl", "#!/bin/sh\nexit 1\n")):
+            (d / nome).write_text(corpo)
+            (d / nome).chmod(0o755)
+        self.d = d
+        self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "LOR_ETC": str(d), "LOR_RUN": str(d),
+                    "LOR_AIVGC": str(d), "LOR_CGROUP": str(d / "cgroup")}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def memoria(self) -> str:
+        r = subprocess.run(["bash", str(RAIZ_REPO / "linux" / "painel.sh"), "estado"],
+                           env=self.env, capture_output=True, text=True)
+        return next(x for x in r.stdout.splitlines() if x.startswith("memoria_mb="))
+
+    def test_desconta_o_cache(self):
+        pasta = self.d / "cgroup/system.slice/system-lor\\x2dbot.slice/lor-bot@bot.service"
+        pasta.mkdir(parents=True)
+        (pasta / "memory.stat").write_text("anon 777601024\nfile 717209600\nfile_mapped 1\n")
+        self.assertEqual(self.memoria(), "memoria_mb=758")
+
+    def test_sem_memory_stat_mostra_o_total(self):
+        self.assertEqual(self.memoria(), "memoria_mb=1442")
+
+
 # O bot "joga" enquanto $D/jogos > 0: cada "show" do lor-bot@bot gasta um; stop/start mudam o estado.
 SYSTEMCTL_DESAFIO = r'''#!/usr/bin/env bash
 echo "systemctl $*" >>"$D/log"

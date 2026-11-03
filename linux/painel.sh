@@ -386,6 +386,10 @@ estado)
 	echo "esperar_colmeia=$([ -e "$SEM_ESPERA_COLMEIA" ] && echo nao || echo sim)"
 	echo "decisoes_instantaneas=$([ -e "$DECISOES_RAPIDAS" ] && echo sim || echo nao)"
 	mem=$(systemctl show -p MemoryCurrent --value "$UNIT" 2>/dev/null || true)
+	# MemoryCurrent soma o cache de arquivos do Linux, que é descartável: o painel mostra só o que é do bot.
+	cg=$(systemctl show -p ControlGroup --value "$UNIT" 2>/dev/null || true)
+	cache=$(awk '$1 == "file" {print $2}' "${LOR_CGROUP:-/sys/fs/cgroup}$cg/memory.stat" 2>/dev/null || true)
+	[[ "$mem" =~ ^[0-9]+$ && "$cache" =~ ^[0-9]+$ ]] && ((cache < mem)) && mem=$((mem - cache))
 	[[ "$mem" =~ ^[0-9]+$ ]] && echo "memoria_mb=$((mem / 1024 / 1024))" || echo "memoria_mb="
 	# A batalha em andamento: a última anunciada no log ("watch: https://play.pokemonshowdown.com/battle-..."),
 	# se depois dela não veio o resultado ("win vs ...") e o bot está ligado (ou desligando após ela).
