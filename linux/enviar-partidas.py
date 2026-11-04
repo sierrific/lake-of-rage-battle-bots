@@ -11,8 +11,9 @@ Grava em <pasta>/.coleta-status como foi o último contato com a coleta ("ok", "
 recusado, "fora" = sem resposta), para o painel mostrar se o envio funciona de verdade.
 
 A cada minuto manda também um sinal de vida para /coleta/sinal: as contas de bot deste PC, se
-cada uma está ligada e a partida em andamento (do journal do lor-bot@<bot>). É o que a página de
-admin da coleta usa para mostrar quem está online agora.
+cada uma está ligada e a partida em andamento (do journal do lor-bot@<bot>), com o placar dela
+(placar-<conta>.json, o mesmo do painel). É o que a página de admin da coleta usa para mostrar quem
+está online agora e as partidas ao vivo (/coleta/admin/ao-vivo); com partida, o sinal vai a cada 30 s.
 
 Manda também as partidas de antes da primeira execução (servem para o treino), marcadas com
 "antigo" para o Discord não postar tudo de uma vez. Com o Discord desligado no painel (existe
@@ -39,6 +40,8 @@ SEM_DISCORD = Path(os.environ.get("LOR_SEM_DISCORD", "/etc/lor-bots/sem-discord"
 ETC = Path(os.environ.get("LOR_ETC", "/etc/lor-bots"))  # um <bot>.env por bot (BOT=conta, SERVIDOR=...)
 VERSAO = Path(os.environ.get("LOR_VERSAO", "/opt/lor-bots/VERSION"))
 SINAL_A_CADA = 60  # segundos entre sinais de vida; a página considera offline depois de 3 min sem
+SINAL_EM_PARTIDA = 30  # com uma partida em andamento: o placar da página ao vivo fica mais em dia
+PLACAR_VALIDO = 15 * 60  # um placar-<conta>.json mais velho que isto não é da partida de agora
 STATUS: Path | None = None  # <pasta>/.coleta-status (definido no main)
 _membro: str | None = None  # o nome que a coleta deu a este código (resposta do ping)
 
@@ -93,11 +96,11 @@ def main() -> None:
         print("primeira execução: enviando também as partidas que já existiam", flush=True)
         estado = {"desde": time.strftime("%Y-%m-%d %H:%M:%S"), "enviados": {}}
         _gravar(estado_arq, estado)
-    ultimo_sinal = 0.0
+    ultimo_sinal, em_partida = 0.0, False
     while True:
         ciclo(codigo, raiz, estado_arq, estado)
-        if time.monotonic() - ultimo_sinal >= SINAL_A_CADA:
-            sinal(codigo)
+        if time.monotonic() - ultimo_sinal >= (SINAL_EM_PARTIDA if em_partida else SINAL_A_CADA):
+            em_partida = sinal(codigo, raiz)
             ultimo_sinal = time.monotonic()
         time.sleep(POLL)
 
@@ -134,7 +137,26 @@ def partida_atual(log: str) -> str:
     return p
 
 
-def bots_deste_pc(rodar=_rodar) -> list[dict]:
+def placar(raiz: Path | None, conta: str, partida: str, agora: float | None = None) -> dict | None:
+    """O placar da partida em andamento (data/live_games/placar-<conta>.json, gravado pelo bot a
+    cada decisão), só se for desta partida e recente; None se não houver."""
+    if raiz is None or not partida:
+        return None
+    try:
+        d = json.loads((raiz / f"placar-{re.sub(r'[^a-z0-9]', '', conta.lower())}.json").read_text())
+        idade = (time.time() if agora is None else agora) - float(d["time"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(d.get("tag"), str) or not partida.endswith("/" + d["tag"]) or not 0 <= idade < PLACAR_VALIDO:
+        return None
+    serie = d.get("serie") if isinstance(d.get("serie"), list) else []
+    return {"oponente": str(d.get("opponent") or "")[:32], "formato": str(d.get("format") or "")[:60],
+            "bo3": d.get("bo3") is True, "jogo": d.get("jogo") or 1, "vitorias": serie.count("win"),
+            "derrotas": serie.count("loss"), "turno": d.get("turn") or 0, "nossos": d.get("nossos"),
+            "deles": d.get("deles"), "idade": int(idade)}
+
+
+def bots_deste_pc(rodar=_rodar, raiz: Path | None = None) -> list[dict]:
     """As contas configuradas neste PC e o estado de cada uma (ActiveState do lor-bot@<bot>)."""
     bots = []
     for env in sorted(ETC.glob("*.env")):
@@ -152,22 +174,24 @@ def bots_deste_pc(rodar=_rodar) -> list[dict]:
         desafio = rodar(["systemctl", "show", "-p", "ActiveState", "--value", f"lor-desafio-{bot_id}"]).strip()
         bots.append({"conta": conf["BOT"], "estado": estado, "partida": partida,
                      "servidor": conf.get("SERVIDOR") or "oficial",
-                     "desafio": desafio in ("active", "activating", "deactivating")})
+                     "desafio": desafio in ("active", "activating", "deactivating"),
+                     "placar": placar(raiz, conf["BOT"], partida)})
     return bots
 
 
 _sinal_anterior: str | None = None
 
 
-def sinal(codigo: str) -> None:
+def sinal(codigo: str, raiz: Path | None = None) -> bool:
     """Sinal de vida para a página de admin. Nunca atrapalha o envio; só avisa no log quando muda
-    (uma coleta antiga, sem /coleta/sinal, responde 404: fica quieto)."""
+    (uma coleta antiga, sem /coleta/sinal, responde 404: fica quieto). Diz se algum bot está jogando."""
     global _sinal_anterior
     try:
         versao = VERSAO.read_text().strip()
     except OSError:
         versao = ""
-    corpo = json.dumps({"versao": versao, "bots": bots_deste_pc()}).encode()
+    bots = bots_deste_pc(raiz=raiz)
+    corpo = json.dumps({"versao": versao, "bots": bots}).encode()
     req = urllib.request.Request(URL.rsplit("/", 1)[0] + "/sinal", data=corpo, headers={
         "Authorization": f"Bearer {codigo}", "Content-Type": "application/json", "User-Agent": "lor-bots-envio"})
     try:
@@ -180,6 +204,7 @@ def sinal(codigo: str) -> None:
     if agora != _sinal_anterior and not agora.startswith("recusado (404"):
         print(f"sinal de vida para a coleta: {agora}", flush=True)
     _sinal_anterior = agora
+    return any(b["partida"] for b in bots)
 
 
 def ciclo(codigo: str, raiz: Path, estado_arq: Path, estado: dict) -> None:
