@@ -1344,7 +1344,7 @@ index eb60a97..9030bb2 100644
                f"{wins}/{n} = {wins / max(n, 1):.1%}  95% CI [{lo:.1%}, {hi:.1%}]  {time.time() - t:.0f}s{extra}")
          if me.games:
 diff --git a/src/ai_vgc/nn/rules.py b/src/ai_vgc/nn/rules.py
-index cf62665..da5bff1 100644
+index cf62665..56f71bb 100644
 --- a/src/ai_vgc/nn/rules.py
 +++ b/src/ai_vgc/nn/rules.py
 @@ -39,6 +39,7 @@ from poke_env.battle import (
@@ -1355,7 +1355,34 @@ index cf62665..da5bff1 100644
  from poke_env.data import GenData, to_id_str
  
  # Types that can't get a status condition.
-@@ -342,9 +343,77 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
+@@ -144,6 +145,17 @@ def ability(mon: Pokemon | None, battle: DoubleBattle | None = None) -> str:
+     return current or ""
+ 
+ 
++def _terrain_blocks(battle: DoubleBattle | None, target: Pokemon, move: Move) -> bool:
++    """Electric Terrain stops sleep and Misty Terrain any status on a grounded target, which the rest
++    of these checks don't look at (Sleep Powder three turns in a row, S0053 G2 T2-T4)."""
++    if battle is None or PokemonType.FLYING in target.types or ability(target, battle) == "levitate"             or target.item == "airballoon":
++        return False
++    vol = getattr(move.volatile_status, "name", "").lower()
++    if Field.ELECTRIC_TERRAIN in battle.fields and (move.status == Status.SLP or vol == "yawn"):
++        return True
++    return Field.MISTY_TERRAIN in battle.fields and (move.status is not None or vol in ("yawn", "confusion"))
++
++
+ def _status_fails(attacker: Pokemon | None, target: Pokemon, move: Move,
+                   battle: DoubleBattle | None = None, partner: Pokemon | None = None) -> bool:
+     """Whether a status move is known to fail on this foe."""
+@@ -159,6 +171,8 @@ def _status_fails(attacker: Pokemon | None, target: Pokemon, move: Move,
+         return True
+     if move.id == "thunderwave" and PokemonType.GROUND in target.types:
+         return True
++    if _terrain_blocks(battle, target, move):
++        return True
+     if move.status is not None:
+         if target.status is not None:
+             return True
+@@ -342,9 +356,77 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
          return "Life Dew at full HP"
      if move.id in ("healpulse", "floralhealing") and tgt is not None and tgt.current_hp_fraction == 1:
          return "heal at full HP"
