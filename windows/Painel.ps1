@@ -1148,6 +1148,59 @@ function Confirmar([string]$texto) {
     [System.Windows.Forms.MessageBox]::Show($texto, 'Painel LoR Bots', 'YesNo', 'Warning', 'Button2') -eq 'Yes'
 }
 
+# Modo ao vivo: a batalha dentro do painel, num navegador embutido (WebView2, o motor do Edge que
+# já vem no Windows 10/11). As DLLs que o PowerShell precisa para usar o WebView2 vêm do pacote
+# oficial da Microsoft no NuGet, baixado uma vez (~10 MB) na primeira vez e conferido pelo SHA-256.
+$WebView2Versao = '1.0.4258.31'
+$WebView2Sha256 = '56f7f4b8bf9aee4b8efefbbdd4f67d5f74ebd1b100ed0806da71bf76af481aa9'
+$script:webView2 = $null  # $true carregado; $false não deu (o painel abre a partida no navegador)
+$script:erroWebView2 = ''
+
+function Carregar-WebView2 {
+    if ($null -ne $script:webView2) { return $script:webView2 }
+    $script:webView2 = $false
+    try {
+        $arq = if (-not [Environment]::Is64BitProcess) { 'win-x86' }
+            elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
+        $dir = Join-Path $env:LOCALAPPDATA ('LoRBots\webview2\' + $WebView2Versao)
+        $precisa = @('Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', "$arq\WebView2Loader.dll")
+        if (@($precisa | Where-Object { -not (Test-Path -LiteralPath (Join-Path $dir $_)) }).Count) {
+            [void][IO.Directory]::CreateDirectory($dir)
+            $pacote = Join-Path $dir 'pacote.nupkg'
+            Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -OutFile $pacote `
+                -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/$WebView2Versao/microsoft.web.webview2.$WebView2Versao.nupkg"
+            if ((Get-FileHash -LiteralPath $pacote -Algorithm SHA256).Hash -ne $WebView2Sha256) {
+                Remove-Item -LiteralPath $pacote -Force
+                throw 'o pacote do WebView2 baixado não confere (SHA-256)'
+            }
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [IO.Compression.ZipFile]::OpenRead($pacote)
+            try {
+                foreach ($e in $zip.Entries) {
+                    $destino = $null
+                    if ($e.FullName -in @('lib/net462/Microsoft.Web.WebView2.Core.dll', 'lib/net462/Microsoft.Web.WebView2.WinForms.dll')) {
+                        $destino = Join-Path $dir $e.Name
+                    } elseif ($e.FullName -match '^runtimes/(win-(?:x64|x86|arm64))/native/WebView2Loader\.dll$') {
+                        [void][IO.Directory]::CreateDirectory((Join-Path $dir $Matches[1]))
+                        $destino = Join-Path $dir ($Matches[1] + '\WebView2Loader.dll')
+                    }
+                    if ($destino) { [IO.Compression.ZipFileExtensions]::ExtractToFile($e, $destino, $true) }
+                }
+            } finally { $zip.Dispose() }
+            Remove-Item -LiteralPath $pacote -Force
+        }
+        Add-Type -Path (Join-Path $dir 'Microsoft.Web.WebView2.Core.dll')
+        Add-Type -Path (Join-Path $dir 'Microsoft.Web.WebView2.WinForms.dll')
+        [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::SetLoaderDllFolderPath((Join-Path $dir $arq))
+        # Sem o runtime do WebView2 instalado (Windows 10 muito desatualizado), isto falha.
+        [void][Microsoft.Web.WebView2.Core.CoreWebView2Environment]::GetAvailableBrowserVersionString()
+        $script:webView2 = $true
+    } catch {
+        $script:erroWebView2 = $_.Exception.Message
+    }
+    $script:webView2
+}
+
 if ($Ligar) {
     $r = Invoke-Painel @('ligar')
     if ($r.Codigo -eq 0) { Manter-Vivo }
@@ -1339,7 +1392,7 @@ $lPlacarLegenda.Alinhar = [System.Windows.Forms.TextFormatFlags]'HorizontalCente
 $lTimeAtivo = Novo-Rotulo '' 18 151 170 22 $cStatus 'suave' 9
 $lPokemon = Novo-Rotulo '' 325 151 177 22 $cStatus 'suave' 9
 $lPokemon.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
-$bVer = Novo-Botao 'Acompanhar partida' 'Primario' ([string][char]0xE8A7) 18 183 226 36 $cStatus
+$bVer = Novo-Botao 'Assistir ao vivo' 'Primario' ([string][char]0xE8A7) 18 183 226 36 $cStatus
 $bLigar = Novo-Botao 'Iniciar bot' 'Primario' ([string][char]0x25B6) 18 183 226 36 $cStatus
 $bDesligar = Novo-Botao 'Parar ao fim da série' 'Neutro' ([string][char]0x25A0) 256 183 246 36 $cStatus
 $sepStatus = New-Object LoR.Divisor
@@ -2527,10 +2580,114 @@ $bAgora.Add_Click({
     [void](Resultado (Invoke-Painel @('agora')) '')
     Atualizar-Tela
 })
+$script:aoVivo = $null  # a janela ao vivo aberta: @{ Janela; Web; Info; Botao; Url; Timer }
+
+function Texto-AoVivo($e) {
+    # A linha de cima da janela ao vivo: contra quem, que jogo, que turno.
+    if (-not $e['partida']) { return 'Sem partida agora · a próxima abre aqui sozinha' }
+    if (-not $e['placar_oponente']) { return 'Partida em andamento' }
+    $t = "vs $($e['placar_oponente'])"
+    if ($e['placar_bo3'] -eq 'sim') { $t += " · BO3 jogo $($e['placar_jogo']) · série $($e['placar_vitorias']):$($e['placar_derrotas'])" }
+    if ($e['placar_turno'] -and $e['placar_turno'] -ne '0') { $t += " · turno $($e['placar_turno'])" }
+    $t
+}
+
+function Ajustar-AoVivo {
+    $v = $script:aoVivo
+    if (-not $v) { return }
+    $v.Botao.Left = $v.Botao.Parent.ClientSize.Width - $v.Botao.Width - (S 14)
+    $v.Info.Width = [Math]::Max((S 100), $v.Botao.Left - (S 28))
+}
+
+function Seguir-AoVivo {
+    # O painel renova o estado a cada ~5 s; a janela só lê. Quando a partida muda (o próximo jogo
+    # da Bo3 ou uma partida nova), abre a nova sozinha.
+    $v = $script:aoVivo
+    if (-not $v -or $v.Janela.IsDisposed) { return }
+    $v.Info.Text = Texto-AoVivo $script:estado
+    $nova = [string]$script:estado['partida']
+    if ($nova -and $nova -ne $v.Url) {
+        $v.Url = $nova
+        $v.Web.Source = [Uri]$nova
+    }
+}
+
+function Abrir-AoVivo([string]$url) {
+    # A batalha dentro do painel, numa janela própria que segue o bot.
+    $v = $script:aoVivo
+    if ($v -and -not $v.Janela.IsDisposed) {
+        if ($v.Janela.WindowState -eq 'Minimized') { $v.Janela.WindowState = 'Normal' }
+        $v.Janela.Activate()
+        return
+    }
+    $form.Cursor = 'WaitCursor'
+    try { $ok = Carregar-WebView2 } finally { $form.Cursor = 'Default' }
+    if (-not $ok) {
+        # Sem o navegador embutido: abre no navegador do Windows, como antes.
+        Start-Process $url
+        return
+    }
+    $j = New-Object System.Windows.Forms.Form
+    $j.Text = 'Ao vivo · ' + [string]$script:estado['conta']
+    $j.AutoScaleMode = 'None'
+    $j.StartPosition = 'CenterScreen'
+    $area = [System.Windows.Forms.Screen]::FromControl($form).WorkingArea
+    $j.Size = New-Object System.Drawing.Size([Math]::Min((S 1280), [int]($area.Width * 0.92)), [Math]::Min((S 860), [int]($area.Height * 0.92)))
+    $j.MinimumSize = New-Object System.Drawing.Size((S 640), (S 420))
+    $j.BackColor = [LoR.Tema]::Atual.Fundo
+    $j.Font = $form.Font
+    if ($form.Icon) { $j.Icon = $form.Icon }
+    [LoR.Janela]::TituloEscuro($j)
+    $barra = New-Object System.Windows.Forms.Panel
+    $barra.Dock = 'Top'
+    $barra.Height = S 52
+    $barra.BackColor = [LoR.Tema]::Atual.Fundo
+    $lInfo = Novo-Rotulo (Texto-AoVivo $script:estado) 14 0 600 52 $barra 'texto' 10.5 $true
+    $lInfo.FundoNome = 'fundo'
+    $lInfo.Alinhar = [System.Windows.Forms.TextFormatFlags]'VerticalCenter, EndEllipsis'
+    $bNavegador = Novo-Botao 'Abrir no navegador' 'Neutro' '' 0 8 190 36 $barra
+    $bNavegador.FundoNome = 'fundo'
+    $wv = New-Object Microsoft.Web.WebView2.WinForms.WebView2
+    $props = New-Object Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties
+    $props.UserDataFolder = Join-Path $env:LOCALAPPDATA 'LoRBots\webview2-dados'
+    $wv.CreationProperties = $props
+    $wv.Dock = 'Fill'
+    $wv.DefaultBackgroundColor = [LoR.Tema]::Atual.Fundo
+    $j.Controls.Add($wv)
+    $j.Controls.Add($barra)
+    $wv.BringToFront()
+    $seguir = New-Object System.Windows.Forms.Timer
+    $seguir.Interval = 3000
+    $script:aoVivo = @{ Janela = $j; Web = $wv; Info = $lInfo; Botao = $bNavegador; Url = $url; Timer = $seguir }
+    $barra.Add_Resize({ Ajustar-AoVivo })
+    Ajustar-AoVivo
+    $bNavegador.Add_Click({ if ($script:aoVivo) { Start-Process $script:aoVivo.Url } })
+    $wv.add_CoreWebView2InitializationCompleted({
+        param($s, $a)
+        if (-not $a.IsSuccess) {
+            $url = $script:aoVivo.Url
+            $script:aoVivo.Janela.Close()
+            Start-Process $url
+            return
+        }
+        # Links da batalha que abririam outra janela (perfil, replay) vão para o navegador do Windows.
+        $s.CoreWebView2.add_NewWindowRequested({ param($w, $n) $n.Handled = $true; Start-Process $n.Uri })
+    })
+    $seguir.Add_Tick({ Seguir-AoVivo })
+    $j.Add_FormClosed({
+        $v = $script:aoVivo
+        $script:aoVivo = $null
+        if ($v) { $v.Timer.Stop(); $v.Timer.Dispose(); $v.Web.Dispose() }
+    })
+    $wv.Source = [Uri]$url
+    $seguir.Start()
+    $j.Show()
+}
+
 $bVer.Add_Click({
-    # Abre no navegador a batalha em andamento.
+    # Abre a batalha em andamento dentro do painel (ou no navegador, se o WebView2 não der).
     Atualizar-Tela
-    if ($script:estado['partida']) { Start-Process $script:estado['partida'] }
+    if ($script:estado['partida']) { Abrir-AoVivo $script:estado['partida'] }
     elseif ($script:estado['bot'] -in @('active', 'activating')) { Mensagem 'Nenhuma partida agora: o bot está procurando adversário. Tente de novo em instantes.' }
     else { Mensagem 'O bot está desligado.' }
 })

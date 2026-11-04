@@ -9,6 +9,7 @@ import json
 import re
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -262,19 +263,39 @@ class TestSinal(unittest.TestCase):
                 return "watch: https://play.pokemonshowdown.com/battle-x-9\n" if "lor-bot@bot" in cmd else ""
             return {"lor-bot@bot": "active\n", "lor-bot@treino": "inactive\n",
                     "lor-desafio-bot": "inactive\n", "lor-desafio-treino": "inactive\n"}[cmd[-1]]
-        bots = enviar.bots_deste_pc(rodar)
+        raiz = self.etc / "live_games"
+        raiz.mkdir()
+        (raiz / "placar-madmage.json").write_text(json.dumps({
+            "time": time.time() - 5, "tag": "battle-x-9", "format": "gen9x", "opponent": "Rival", "turn": 4,
+            "nossos": 3, "deles": 4, "bo3": True, "jogo": 2, "serie": ["loss"], "resultado": None}))
+        (raiz / "placar-lorsierra.json").write_text(json.dumps({"time": time.time(), "tag": "battle-y-1"}))
+        bots = enviar.bots_deste_pc(rodar, raiz)
         self.assertEqual(bots, [
             {"conta": "MadMage", "estado": "active", "partida": "https://play.pokemonshowdown.com/battle-x-9",
-             "servidor": "oficial", "desafio": False},
-            {"conta": "LoR Sierra", "estado": "inactive", "partida": "", "servidor": "lor", "desafio": False},
+             "servidor": "oficial", "desafio": False,
+             "placar": {"oponente": "Rival", "formato": "gen9x", "bo3": True, "jogo": 2, "vitorias": 0,
+                        "derrotas": 1, "turno": 4, "nossos": 3, "deles": 4, "idade": 5}},
+            {"conta": "LoR Sierra", "estado": "inactive", "partida": "", "servidor": "lor", "desafio": False,
+             "placar": None},
         ])  # sem coleta.env (o código nunca vai no sinal), exemplo.env nem .env sem conta
+
+    def test_placar_de_outra_partida_ou_velho(self):
+        raiz = self.etc
+        url = "https://play.pokemonshowdown.com/battle-x-9"
+        (raiz / "placar-madmage.json").write_text(json.dumps({"time": 1000.0, "tag": "battle-x-9"}))
+        self.assertIsNotNone(enviar.placar(raiz, "MadMage", url, agora=1010.0))
+        self.assertIsNone(enviar.placar(raiz, "MadMage", url, agora=1000.0 + enviar.PLACAR_VALIDO))
+        self.assertIsNone(enviar.placar(raiz, "MadMage", url.replace("x-9", "x-10"), agora=1010.0))
+        self.assertIsNone(enviar.placar(raiz, "MadMage", "", agora=1010.0))
+        (raiz / "placar-madmage.json").write_text("{quebrado")
+        self.assertIsNone(enviar.placar(raiz, "MadMage", url, agora=1010.0))
 
     def test_sinal_nunca_derruba_o_envio(self):
         url, bots = enviar.URL, enviar.bots_deste_pc
         enviar.URL = "http://127.0.0.1:9/partidas"  # ninguém ouvindo
-        enviar.bots_deste_pc = lambda rodar=None: []
+        enviar.bots_deste_pc = lambda rodar=None, raiz=None: []
         try:
-            enviar.sinal("codigo")
+            self.assertFalse(enviar.sinal("codigo"))
         finally:
             enviar.URL, enviar.bots_deste_pc = url, bots
 
