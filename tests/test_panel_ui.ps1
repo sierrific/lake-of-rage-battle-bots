@@ -90,6 +90,8 @@ function Install-Fakes {
     }
     function script:Mensagem([string]$texto, [string]$titulo) { $script:messages.Add($texto) }
     function script:Confirmar([string]$texto) { $script:approve }
+    # Sem o navegador embutido o modo ao vivo abre a partida no navegador (test_ao_vivo_webview.ps1 testa o embutido).
+    function script:Carregar-WebView2 { $false }
     function script:Manter-Vivo { $script:keepalive++ }
     function script:Mudar-Auto { $script:startupChanges++ }
     function script:Start-Process { param([string]$FilePath, $ArgumentList, [switch]$PassThru) $script:launches.Add("$FilePath $ArgumentList") }

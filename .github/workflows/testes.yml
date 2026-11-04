@@ -76,6 +76,11 @@ jobs:
       - name: Painel nativo (PowerShell 5.1, C# 5, layouts, temas e comandos simulados)
         shell: powershell
         run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_panel_ui.ps1 -OutputDirectory "$env:RUNNER_TEMP/lor-panel-ui"
+      - name: Modo ao vivo (WebView2 de verdade, pacote do NuGet)
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_ao_vivo_webview.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Login pelo navegador (PowerShell 5.1, CDP e cliente sinteticos)
         shell: powershell
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_login_navegador.ps1
