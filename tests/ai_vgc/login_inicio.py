@@ -115,7 +115,8 @@ class TestLoginStartup(unittest.TestCase):
               "AccountConfiguration": lambda name, password: types.SimpleNamespace(username=name, password=password),
               "ServerConfiguration": lambda *args: object(), "ShowdownServerConfiguration": object(),
               "ChallengeNNPlayer": Player, "ChallengeMixin": type("ChallengeMixin", (), {}),
-              "to_id_str": lambda s: s.lower(), "__doc__": "test"}
+              "to_id_str": lambda s: s.lower(), "__doc__": "test",
+              "RUN_INFO": {}, "run_info": lambda args: {}}
         exec(compile(ast.Module(body=definitions, type_ignores=[]), "player.py", "exec"), ns)
         modules = {
             "ai_vgc.showdown": types.SimpleNamespace(account=Mock(), ensure_server=Mock(return_value=None), wilson=Mock()),
