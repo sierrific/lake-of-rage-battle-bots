@@ -1344,7 +1344,7 @@ index eb60a97..9030bb2 100644
                f"{wins}/{n} = {wins / max(n, 1):.1%}  95% CI [{lo:.1%}, {hi:.1%}]  {time.time() - t:.0f}s{extra}")
          if me.games:
 diff --git a/src/ai_vgc/nn/rules.py b/src/ai_vgc/nn/rules.py
-index cf62665..da5bff1 100644
+index cf62665..56f71bb 100644
 --- a/src/ai_vgc/nn/rules.py
 +++ b/src/ai_vgc/nn/rules.py
 @@ -39,6 +39,7 @@ from poke_env.battle import (
@@ -1355,7 +1355,34 @@ index cf62665..da5bff1 100644
  from poke_env.data import GenData, to_id_str
  
  # Types that can't get a status condition.
-@@ -342,9 +343,77 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
+@@ -144,6 +145,17 @@ def ability(mon: Pokemon | None, battle: DoubleBattle | None = None) -> str:
+     return current or ""
+ 
+ 
++def _terrain_blocks(battle: DoubleBattle | None, target: Pokemon, move: Move) -> bool:
++    """Electric Terrain stops sleep and Misty Terrain any status on a grounded target, which the rest
++    of these checks don't look at (Sleep Powder three turns in a row, S0053 G2 T2-T4)."""
++    if battle is None or PokemonType.FLYING in target.types or ability(target, battle) == "levitate"             or target.item == "airballoon":
++        return False
++    vol = getattr(move.volatile_status, "name", "").lower()
++    if Field.ELECTRIC_TERRAIN in battle.fields and (move.status == Status.SLP or vol == "yawn"):
++        return True
++    return Field.MISTY_TERRAIN in battle.fields and (move.status is not None or vol in ("yawn", "confusion"))
++
++
+ def _status_fails(attacker: Pokemon | None, target: Pokemon, move: Move,
+                   battle: DoubleBattle | None = None, partner: Pokemon | None = None) -> bool:
+     """Whether a status move is known to fail on this foe."""
+@@ -159,6 +171,8 @@ def _status_fails(attacker: Pokemon | None, target: Pokemon, move: Move,
+         return True
+     if move.id == "thunderwave" and PokemonType.GROUND in target.types:
+         return True
++    if _terrain_blocks(battle, target, move):
++        return True
+     if move.status is not None:
+         if target.status is not None:
+             return True
+@@ -342,9 +356,77 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
          return "Life Dew at full HP"
      if move.id in ("healpulse", "floralhealing") and tgt is not None and tgt.current_hp_fraction == 1:
          return "heal at full HP"
@@ -1434,7 +1461,7 @@ index cf62665..da5bff1 100644
      """The move list that DoublesEnv's action ids index into."""
      mon = battle.active_pokemon[pos]
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
-index 9d7a515..df767ac 100644
+index 9d7a515..2dae957 100644
 --- a/src/ai_vgc/nn/search.py
 +++ b/src/ai_vgc/nn/search.py
 @@ -30,6 +30,7 @@ Search only runs on ordinary move turns; forced switches and team preview use th
@@ -1454,7 +1481,18 @@ index 9d7a515..df767ac 100644
  
  BRIDGE = Path(__file__).with_name("sim_bridge.js")
  STATS = ["hp", "atk", "def", "spa", "spd", "spe"]
-@@ -466,12 +467,67 @@ def _set(mon: Pokemon, teams_dir: str, world: dict | None = None) -> dict:
+@@ -74,6 +75,10 @@ VOLATILES = {
+     Effect.PERISH2: "perish2", Effect.PERISH3: "perish3", Effect.SALT_CURE: "saltcure",
+     Effect.HEAL_BLOCK: "healblock", Effect.CHARGE: "charge",
+ }
++# Binding moves: the simulator has one volatile for them. Without it a Pokemon about to fall to the
++# residual looks alive (Infestation on Archaludon at 4%, S0231 G2 T8, 2026-11-04 review).
++TRAPPING = {Effect.INFESTATION, Effect.WHIRLPOOL, Effect.FIRE_SPIN, Effect.SAND_TOMB, Effect.MAGMA_STORM,
++            Effect.BIND, Effect.WRAP, Effect.CLAMP, Effect.THUNDER_CAGE, Effect.PARTIALLY_TRAPPED}
+ # Turns a condition lasts when set (the item/ability extensions aren't visible, so ignored).
+ SIDE_TURNS = {SideCondition.TAILWIND: 4, SideCondition.REFLECT: 5, SideCondition.LIGHT_SCREEN: 5,
+               SideCondition.AURORA_VEIL: 5, SideCondition.SAFEGUARD: 5, SideCondition.MIST: 5}
+@@ -466,12 +471,68 @@ def _set(mon: Pokemon, teams_dir: str, world: dict | None = None) -> dict:
              "evs": dict(zip(STATS, evs)), "ivs": dict(zip(STATS, ivs))}
  
  
@@ -1512,7 +1550,9 @@ index 9d7a515..df767ac 100644
           "protect": mon.protect_counter, "boosts": dict(mon.boosts), "item": _item(mon),
           "status": mon.status.name.lower() if mon.status and not mon.fainted else "",
           "statusTurns": mon.status_counter,
-          "volatiles": [v for e, v in VOLATILES.items() if e in mon.effects]}
+-         "volatiles": [v for e, v in VOLATILES.items() if e in mon.effects]}
++         "volatiles": [v for e, v in VOLATILES.items() if e in mon.effects]
++         + (["partiallytrapped"] if TRAPPING & set(mon.effects) else [])}
 +    # Locks the simulator has to know about, or a charged Electro Shot charges again and an
 +    # Encored Pokemon picks any move on the turn after (two-turn search and --search-charge).
 +    if battle is not None and mon.active:
@@ -1523,7 +1563,7 @@ index 9d7a515..df767ac 100644
      if ours:
          s["hp"], s["maxhp"] = mon.current_hp, mon.max_hp
          s["stats"] = {k: v for k, v in (mon.stats or {}).items() if v}
-@@ -504,13 +560,46 @@ def _side(battle: DoubleBattle, ours: bool, teams_dir: str, world: dict | None =
+@@ -504,13 +565,46 @@ def _side(battle: DoubleBattle, ours: bool, teams_dir: str, world: dict | None =
      order += [m for m in brought if m not in order]
      conds = battle.side_conditions if ours else battle.opponent_side_conditions
      return {
@@ -1571,7 +1611,7 @@ index 9d7a515..df767ac 100644
  def position(battle: DoubleBattle, fmt: str, teams_dir: str, world: dict | None = None) -> dict | None:
      """The bridge's `state` for this battle (the opponent's hidden sets from `world`), or None when
      it can't be rebuilt."""
-@@ -519,9 +608,9 @@ def position(battle: DoubleBattle, fmt: str, teams_dir: str, world: dict | None
+@@ -519,9 +613,9 @@ def position(battle: DoubleBattle, fmt: str, teams_dir: str, world: dict | None
          return None
      st = {"format": fmt, "turn": battle.turn, "role": battle.player_role,
            "sides": {"us": us, "them": them}, "pseudo": {}}
@@ -1583,7 +1623,7 @@ index 9d7a515..df767ac 100644
      for f, t in battle.fields.items():
          left = max(1, 5 - (battle.turn - t))
          if f in TERRAINS:
-@@ -544,14 +633,26 @@ class Bridge:
+@@ -544,14 +638,26 @@ class Bridge:
          self._start()
  
      def _start(self) -> None:
@@ -1614,7 +1654,7 @@ index 9d7a515..df767ac 100644
          # A bridge that died (e.g. killed on a busy node) is restarted rather than failing
          # every later search in the run.
          if self.proc.poll() is not None:
-@@ -560,10 +661,20 @@ class Bridge:
+@@ -560,10 +666,20 @@ class Bridge:
          self.proc.stdin.write(json.dumps(req) + "\n")
          # The read blocks the event loop and every battle on it, so a simulation that never
          # returns (it happens on ilab) must not wait forever: kill it and start a fresh one.
@@ -1639,7 +1679,7 @@ index 9d7a515..df767ac 100644
          line = self.proc.stdout.readline()
          if not line:
              raise RuntimeError(f"sim bridge exited with code {self.proc.wait()}")
-@@ -572,23 +683,37 @@ class Bridge:
+@@ -572,23 +688,37 @@ class Bridge:
              raise RuntimeError(out["error"])
          return out
  
@@ -1684,7 +1724,7 @@ index 9d7a515..df767ac 100644
  
  
  def after(battle: DoubleBattle, lines: list[str]) -> DoubleBattle:
-@@ -624,8 +749,138 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
+@@ -624,8 +754,138 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
      return sorted(out, key=lambda c: -c[1])[:k]
  
  
@@ -1824,7 +1864,7 @@ index 9d7a515..df767ac 100644
      """(choice, probability) for one opposing slot, from the opponent head's (move-or-switch,
      target) probabilities, or every move and target equally likely without them."""
      mon = battle.opponent_active_pokemon[slot]
-@@ -642,10 +897,29 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
+@@ -642,10 +902,29 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
              ally = moves[i].target in (Target.ADJACENT_ALLY, Target.ADJACENT_ALLY_OR_SELF)
              mv_p[i], tg_p[i] = guess, np.array([0.0, 0.0, 1.0] if ally else [0.5, 0.5, 0.0])
          probs = (mv_p, tg_p)
@@ -1854,7 +1894,7 @@ index 9d7a515..df767ac 100644
          p_move = probs[0][i] if probs is not None else 1.0
          if mv.target in TARGETED:
              tgt = range(3) if probs is not None else range(2)
-@@ -656,31 +930,39 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
+@@ -656,31 +935,39 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
              out[f"move {mv.id}"] = out.get(f"move {mv.id}", 0) + p_move
      bench = [m["set"]["name"] for m in state["sides"]["them"]["mons"][2:] if not m["fainted"]]
      if bench and probs is not None:
@@ -1900,7 +1940,7 @@ index 9d7a515..df767ac 100644
                  mega = s
                  break
      joint = []
-@@ -692,7 +974,17 @@ def opp_candidates(opp_model: Policy | None, battle: DoubleBattle, obs: dict[str
+@@ -692,7 +979,17 @@ def opp_candidates(opp_model: Policy | None, battle: DoubleBattle, obs: dict[str
          joint.append((f"{ca}, {cb}", pa * pb))
      if probs[0] is None:  # all equally likely: a random k of them
          random.shuffle(joint)
@@ -1919,7 +1959,7 @@ index 9d7a515..df767ac 100644
      total = sum(p for _, p in joint) or 1.0
      return [(c, p / total) for c, p in joint]
  
-@@ -705,15 +997,56 @@ def values(model: Policy, battles: list[DoubleBattle], rating: float) -> np.ndar
+@@ -705,15 +1002,56 @@ def values(model: Policy, battles: list[DoubleBattle], rating: float) -> np.ndar
      return torch.sigmoid(model.value(model.encode(b)[0])[:, 0]).numpy()
  
  
@@ -1976,7 +2016,7 @@ index 9d7a515..df767ac 100644
          if r["winner"]:
              v[i] = {"us": 1.0, "them": 0.0}.get(r["winner"], 0.5)
              continue
-@@ -740,7 +1073,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+@@ -740,7 +1078,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
      _second_turn.expanded += len(conts)
      _second_turn.nodes += len(res)
      if conts:
@@ -1986,7 +2026,7 @@ index 9d7a515..df767ac 100644
      leaves, where = [], []
      for n, (i, b, k, q) in enumerate(nodes):
          if not k:
-@@ -759,6 +1093,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+@@ -759,6 +1098,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
                  where.append((n, j))
          nodes[n] = (i, b, k, q, vals)
      if leaves:
@@ -1994,7 +2034,7 @@ index 9d7a515..df767ac 100644
          lv = values(model, leaves, rating)
          for (n, j), x in zip(where, lv):
              if j is None:
-@@ -780,16 +1115,32 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
+@@ -780,16 +1120,32 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
  def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: DoubleBattle,
             mask: np.ndarray, fmt: str, teams_dir: str, rating: float, k: int = 6, opp_k: int = 6,
             seeds: int = 2, prior: float = 0.0, n_worlds: int = 1, depth: int = 1, k2: int = 3,
@@ -2028,7 +2068,7 @@ index 9d7a515..df767ac 100644
      if len(ours) < 2:
          return None
      choices = [DoublesEnv.action_to_order(a, battle, strict=False).message.removeprefix("/choose ")
-@@ -797,29 +1148,52 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -797,29 +1153,52 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      seed_list = [int(s) for s in np.random.randint(1, 2**30, seeds)]
      value, first, errors, sims = np.zeros(len(ours)), None, [], 0
      for world, w in worlds(battle, teams_dir, n_worlds, fmt):
@@ -2085,7 +2125,7 @@ index 9d7a515..df767ac 100644
          M = v.reshape(len(ours), len(theirs), seeds).mean(-1)
          q = np.array([p for _, p in theirs])
          value += w * (M @ q)
-@@ -830,6 +1204,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -830,6 +1209,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      M, q, their_choices = first
      score = value + prior * np.array([lp for _, lp in ours])
      best = int(score.argmax())
@@ -2093,7 +2133,7 @@ index 9d7a515..df767ac 100644
      return ours[best][0], {"M": M, "q": q, "ours": choices, "theirs": their_choices,
                             "actions": np.stack([a for a, _ in ours]), "value": value,
                             "logp": np.array([lp for _, lp in ours]), "obs": obs | {"mask": mask},
-@@ -842,8 +1217,11 @@ class SearchPlayer(NNPlayer):
+@@ -842,8 +1222,11 @@ class SearchPlayer(NNPlayer):
      def __init__(self, *args, opp_model: Policy | str | Path | None = None, fmt: str,
                   teams_dir: str | Path, showdown: str | Path = "pokemon-showdown", k: int = 6,
                   opp_k: int = 6, seeds: int = 2, prior: float = 0.0, worlds: int = 1, depth: int = 1,
@@ -2106,7 +2146,7 @@ index 9d7a515..df767ac 100644
          self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
          self.fmt, self.teams_dir = fmt, str(teams_dir)
          self.bridge = Bridge(showdown)
-@@ -877,7 +1255,10 @@ class SearchPlayer(NNPlayer):
+@@ -877,7 +1260,10 @@ class SearchPlayer(NNPlayer):
              self.leads[battle.battle_tag] = (
                  tuple(m.species for m in battle.active_pokemon if m),
                  tuple(m.species for m in battle.opponent_active_pokemon if m))
@@ -2118,7 +2158,7 @@ index 9d7a515..df767ac 100644
              return await super().choose_move(battle)
          mask = action_mask(battle)
          if self.rules:
-@@ -889,7 +1270,10 @@ class SearchPlayer(NNPlayer):
+@@ -889,7 +1275,10 @@ class SearchPlayer(NNPlayer):
              out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
                                            self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
                                            self.seeds, self.prior, self.worlds, self.depth, self.k2,
@@ -2130,7 +2170,7 @@ index 9d7a515..df767ac 100644
          except Exception as e:  # a position the bridge can't handle: play the policy
              self.logger.warning("search failed on turn %s: %r", battle.turn, e)
              out = None
-@@ -902,6 +1286,8 @@ class SearchPlayer(NNPlayer):
+@@ -902,6 +1291,8 @@ class SearchPlayer(NNPlayer):
          else:
              self.failed_in_a_row = 0
          self.search_time += time.time() - t
@@ -2140,10 +2180,20 @@ index 9d7a515..df767ac 100644
              self.fallbacks += 1
              return await super().choose_move(battle)
 diff --git a/src/ai_vgc/nn/sim_bridge.js b/src/ai_vgc/nn/sim_bridge.js
-index bf07ddc..e5a0839 100644
+index bf07ddc..cd1838a 100644
 --- a/src/ai_vgc/nn/sim_bridge.js
 +++ b/src/ai_vgc/nn/sim_bridge.js
-@@ -44,6 +44,18 @@ function patchMon(battle, p, m) {
+@@ -37,6 +37,9 @@ function patchMon(battle, p, m) {
+       if (v === 'leechseed') {
+         const foe = p.side.foe.active.find(x => x && !x.fainted);
+         if (foe) p.addVolatile(v, foe);
++      } else if (v === 'partiallytrapped') {
++        const foe = p.side.foe.active.find(x => x && !x.fainted);
++        if (foe) p.addVolatile(v, foe, battle.dex.moves.get('infestation'));
+       } else if (v === 'perish1' || v === 'perish2' || v === 'perish3') {
+         if (p.addVolatile('perishsong')) p.volatiles['perishsong'].duration = +v.slice(-1);
+       } else {
+@@ -44,6 +47,18 @@ function patchMon(battle, p, m) {
        }
      } catch (e) {}
    }
@@ -2162,7 +2212,7 @@ index bf07ddc..e5a0839 100644
    if (m.protect) {
      p.addVolatile('stall');
      if (p.volatiles['stall']) p.volatiles['stall'].counter = Math.pow(3, m.protect);
-@@ -111,6 +123,23 @@ function tryChoose(battle, side, choice) {
+@@ -111,6 +126,23 @@ function tryChoose(battle, side, choice) {
    return `default for ${choice}`;
  }
  
@@ -2186,7 +2236,7 @@ index bf07ddc..e5a0839 100644
  function dump(battle) {
    return battle.sides.map(side => side.pokemon.map(p => [
      p.name, p.species.id, p.hp, p.maxhp, p.status, p.item, p.ability,
-@@ -148,7 +177,20 @@ function start(req) {
+@@ -148,7 +180,20 @@ function start(req) {
  let kept = new Map();
  let keptSides = null;
  
@@ -2208,7 +2258,7 @@ index bf07ddc..e5a0839 100644
    const ch = +sides.us.slice(1);
    const results = [];
    for (const [us, them] of pairs) {
-@@ -159,6 +201,7 @@ function play(json, sides, pairs, seeds, keep) {
+@@ -159,6 +204,7 @@ function play(json, sides, pairs, seeds, keep) {
        let err = '';
        try {
          err = [tryChoose(b, sides.us, us), tryChoose(b, sides.them, them)].filter(Boolean).join('; ');
@@ -2216,7 +2266,7 @@ index bf07ddc..e5a0839 100644
        } catch (e) {
          err = String(e && e.message || e);
        }
-@@ -166,6 +209,9 @@ function play(json, sides, pairs, seeds, keep) {
+@@ -166,6 +212,9 @@ function play(json, sides, pairs, seeds, keep) {
        const winner = b.ended ? (b.winner === 'us' ? 'us' : b.winner === 'them' ? 'them' : 'tie') : null;
        const r = {lines, winner, err};
        if (keep && !b.ended && !err) {
@@ -2226,7 +2276,7 @@ index bf07ddc..e5a0839 100644
          const mine = b.getSide(sides.us).activeRequest, theirs = b.getSide(sides.them).activeRequest;
          if (mine && theirs && !mine.wait && !mine.forceSwitch && !theirs.wait && !theirs.forceSwitch) {
            b.log = [];
-@@ -189,7 +235,7 @@ function run(req) {
+@@ -189,7 +238,7 @@ function run(req) {
    if (req.dump) return {dump: dump(battle)};
    kept = new Map();
    keptSides = sides;
