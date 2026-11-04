@@ -1434,7 +1434,7 @@ index cf62665..da5bff1 100644
      """The move list that DoublesEnv's action ids index into."""
      mon = battle.active_pokemon[pos]
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
-index 9d7a515..936b94b 100644
+index 9d7a515..df767ac 100644
 --- a/src/ai_vgc/nn/search.py
 +++ b/src/ai_vgc/nn/search.py
 @@ -30,6 +30,7 @@ Search only runs on ordinary move turns; forced switches and team preview use th
@@ -2028,7 +2028,7 @@ index 9d7a515..936b94b 100644
      if len(ours) < 2:
          return None
      choices = [DoublesEnv.action_to_order(a, battle, strict=False).message.removeprefix("/choose ")
-@@ -797,29 +1148,47 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -797,29 +1148,52 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      seed_list = [int(s) for s in np.random.randint(1, 2**30, seeds)]
      value, first, errors, sims = np.zeros(len(ours)), None, [], 0
      for world, w in worlds(battle, teams_dir, n_worlds, fmt):
@@ -2060,9 +2060,14 @@ index 9d7a515..936b94b 100644
 +                v = np.full(len(res), np.nan)
 +                held = [i for i, r in enumerate(res) if keep and not r["winner"] and _charge_held(r)]
 +                if held:
-+                    v[held] = _second_turn(model, opp_model, bridge, battle, [res[i] for i in held], world, fmt,
-+                                           teams_dir, rating, k2, opp_k2,
-+                                           [int(x) for x in np.random.randint(1, 2**30, seeds2)])
++                    # Only ever lowers the score: the other lines stop a turn earlier, and this turn
++                    # picks our best reply, so taking it as it comes favours charging over them all
++                    # (S0212 G2 T15: 0.42 against 0.12 without it; 22 cases, 2026-11-04 review).
++                    v[held] = np.minimum(
++                        _second_turn(model, opp_model, bridge, battle, [res[i] for i in held], world, fmt,
++                                     teams_dir, rating, k2, opp_k2,
++                                     [int(x) for x in np.random.randint(1, 2**30, seeds2)]),
++                        values(model, [after(battle, res[i]["lines"]) for i in held], rating))
 +                    STATS["charge_followed"] += len(held)
              live, idx = [], []
              for i, r in enumerate(res):
@@ -2080,7 +2085,7 @@ index 9d7a515..936b94b 100644
          M = v.reshape(len(ours), len(theirs), seeds).mean(-1)
          q = np.array([p for _, p in theirs])
          value += w * (M @ q)
-@@ -830,6 +1199,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -830,6 +1204,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      M, q, their_choices = first
      score = value + prior * np.array([lp for _, lp in ours])
      best = int(score.argmax())
@@ -2088,7 +2093,7 @@ index 9d7a515..936b94b 100644
      return ours[best][0], {"M": M, "q": q, "ours": choices, "theirs": their_choices,
                             "actions": np.stack([a for a, _ in ours]), "value": value,
                             "logp": np.array([lp for _, lp in ours]), "obs": obs | {"mask": mask},
-@@ -842,8 +1212,11 @@ class SearchPlayer(NNPlayer):
+@@ -842,8 +1217,11 @@ class SearchPlayer(NNPlayer):
      def __init__(self, *args, opp_model: Policy | str | Path | None = None, fmt: str,
                   teams_dir: str | Path, showdown: str | Path = "pokemon-showdown", k: int = 6,
                   opp_k: int = 6, seeds: int = 2, prior: float = 0.0, worlds: int = 1, depth: int = 1,
@@ -2101,7 +2106,7 @@ index 9d7a515..936b94b 100644
          self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
          self.fmt, self.teams_dir = fmt, str(teams_dir)
          self.bridge = Bridge(showdown)
-@@ -877,7 +1250,10 @@ class SearchPlayer(NNPlayer):
+@@ -877,7 +1255,10 @@ class SearchPlayer(NNPlayer):
              self.leads[battle.battle_tag] = (
                  tuple(m.species for m in battle.active_pokemon if m),
                  tuple(m.species for m in battle.opponent_active_pokemon if m))
@@ -2113,7 +2118,7 @@ index 9d7a515..936b94b 100644
              return await super().choose_move(battle)
          mask = action_mask(battle)
          if self.rules:
-@@ -889,7 +1265,10 @@ class SearchPlayer(NNPlayer):
+@@ -889,7 +1270,10 @@ class SearchPlayer(NNPlayer):
              out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
                                            self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
                                            self.seeds, self.prior, self.worlds, self.depth, self.k2,
@@ -2125,7 +2130,7 @@ index 9d7a515..936b94b 100644
          except Exception as e:  # a position the bridge can't handle: play the policy
              self.logger.warning("search failed on turn %s: %r", battle.turn, e)
              out = None
-@@ -902,6 +1281,8 @@ class SearchPlayer(NNPlayer):
+@@ -902,6 +1286,8 @@ class SearchPlayer(NNPlayer):
          else:
              self.failed_in_a_row = 0
          self.search_time += time.time() - t
