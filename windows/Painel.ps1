@@ -1505,15 +1505,6 @@ $ajudaColmeia = 'Ligado: espera a vez entre os bots do nosso time. Desligado: bu
 $ttTema.SetToolTip($lEsperarColmeia, $ajudaColmeia)
 $ttTema.SetToolTip($xEsperarColmeia, $ajudaColmeia)
 $bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 228 151 38 $cConta
-# Saudações do perfil no começo e no fim; vale já na próxima partida.
-$xChat = New-Object LoR.Chave
-$xChat.FundoNome = 'cartao'
-$xChat.Marcado = $true
-$xChat.AccessibleName = 'Saudações da personalidade no chat das partidas'
-[void](Pos $xChat 20 237 36 20 $cConta)
-$lChat = Novo-Rotulo 'Saudações no chat' 66 230 160 34 $cConta 'texto' 9.5
-$lChat.Cursor = 'Hand'
-$ttTema.SetToolTip($lChat, 'O bot varia as saudações conforme sua personalidade: no começo da partida (no Bo3, da série) e no fim de cada jogo. A apresentação identifica que é um bot LoR.')
 $cColeta = Novo-Cartao 'Coleta de partidas' 'Código para treino e Discord' 591 137 413 286
 $tCodigo = Novo-Campo 'Cole seu código' 20 72 373 38 $cColeta
 $tCodigo.Caixa.AccessibleName = 'Código da coleta de partidas'
@@ -2224,7 +2215,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, mensagens, replays e arquivos locais.' }
@@ -2316,7 +2307,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -2330,7 +2321,6 @@ function Carregar-Opcoes {
     $cFormato.Indice = if ($e['formato'] -eq 'bo1') { 1 } else { 0 }
     $cTimer.Indice = if ($e['timer'] -eq 'nao') { 1 } else { 0 }
     $xDiscord.Marcado = $e['discord'] -ne 'nao'
-    $xChat.Marcado = $e['chat'] -ne 'nao'
     $xBloquearBots.Marcado = $e['bloquear_bots'] -ne 'nao'
     $xEsperarBots.Marcado = $e['esperar_bots'] -ne 'nao'
     $xEsperarColmeia.Marcado = $e['esperar_colmeia'] -ne 'nao'
@@ -2391,17 +2381,6 @@ function Mudar-Discord {
 }
 $xDiscord.add_Mudou({ Mudar-Discord })
 $lDiscord.Add_Click({ if ($xDiscord.Enabled) { $xDiscord.Marcado = -not $xDiscord.Marcado; Mudar-Discord } })
-
-# Vale já na próxima partida, sem reiniciar o bot.
-function Mudar-Chat {
-    $v = if ($xChat.Marcado) { 'sim' } else { 'nao' }
-    if (Resultado (Invoke-Painel @('chat', $v)) '') {
-        if ($xChat.Marcado) { Mensagem 'A partir da próxima partida, o bot usa as saudações da sua personalidade no começo e no fim.' }
-        else { Mensagem 'A partir da próxima partida, o bot não manda mais nada no chat.' }
-    } else { $xChat.Marcado = -not $xChat.Marcado }
-}
-$xChat.add_Mudou({ Mudar-Chat })
-$lChat.Add_Click({ if ($xChat.Enabled) { $xChat.Marcado = -not $xChat.Marcado; Mudar-Chat } })
 
 function Mudar-BloquearBots {
     $v = if ($xBloquearBots.Marcado) { 'sim' } else { 'nao' }
@@ -2783,7 +2762,7 @@ function Atualizar-Painel {
     # desligados até ela terminar.
     $timer.Stop()
     Encerrar-ConsultaEstado
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {

@@ -20,8 +20,6 @@
 #   painel.sh esperar-bots sim|nao      esperar bots adversários conhecidos saírem da fila (padrão: sim)
 #   painel.sh esperar-colmeia sim|nao   esperar a vez entre os bots do nosso time (padrão: sim)
 #   painel.sh decisoes-instantaneas sim|nao   sim = enviar assim que calcular; nao = ritmo do perfil
-#   painel.sh chat sim|nao              saudações do perfil no começo e no fim da partida
-#                                       (padrão: sim; vale já na próxima partida, sem reiniciar)
 #   painel.sh discord sim|nao           as séries deste PC são postadas no Discord do time (padrão:
 #                                       sim); com nao, as partidas seguem indo para a coleta e o treino
 #   painel.sh time top3|<nome>       top3 = o padrão (MC371 ou MC196)
@@ -94,8 +92,6 @@ COLETA_STATUS="$AIVGC/data/live_games/.coleta-status"
 # Existe = não postar no Discord: o enviar-partidas.py marca as partidas que manda com "discord":
 # false (vale para todos os bots deste PC; a coleta continua recebendo tudo).
 SEM_DISCORD="$ETC/sem-discord"
-# Existe = o bot não manda "glhf" / "gg wp" no chat da partida (--chat-off: ele confere a cada partida).
-SEM_CHAT="$ETC/$BOT_ID.sem-chat"
 # Ausente = /blockbots; presente = /allowbots. O bot relê antes de cada busca no ladder.
 PERMITIR_BOTS="$ETC/$BOT_ID.permitir-bots"
 # Presente = pular a espera por adversários conhecidos; não altera a fila dos bots do time.
@@ -129,7 +125,6 @@ gerar_env() {
 	[ $# -eq 2 ] && modo="--challenge $1 $2 --challenge-wait $ESPERA_ACEITE"
 	[ "$formato" = bo1 ] && modo+=" --bo1"
 	[ "$(conf_get timer)" = nao ] && modo+=" --no-timer"
-	modo+=" --chat-off $SEM_CHAT"
 	if [ -n "$time" ] && [ "$time" != top3 ] && [ -f "$TIMES/LOR-$time.txt" ]; then
 		modo+=" --use LOR-$time"
 	else
@@ -380,7 +375,6 @@ estado)
 	tm="$(conf_get timer)"
 	echo "timer=${tm:-sim}"
 	echo "discord=$([ -e "$SEM_DISCORD" ] && echo nao || echo sim)"
-	echo "chat=$([ -e "$SEM_CHAT" ] && echo nao || echo sim)"
 	echo "bloquear_bots=$([ -e "$PERMITIR_BOTS" ] && echo nao || echo sim)"
 	echo "esperar_bots=$([ -e "$SEM_ESPERA_BOTS" ] && echo nao || echo sim)"
 	echo "esperar_colmeia=$([ -e "$SEM_ESPERA_COLMEIA" ] && echo nao || echo sim)"
@@ -594,15 +588,6 @@ decisoes-instantaneas)
 	*) echo "erro=use sim ou nao"; exit 1 ;;
 	esac
 	echo ok=decisoes-instantaneas
-	;;
-chat)
-	# Vale já na próxima partida, sem reiniciar o bot (ele confere o arquivo a cada partida).
-	case "${1:-}" in
-	sim) rm -f "$SEM_CHAT" ;;
-	nao) touch "$SEM_CHAT" && chmod 644 "$SEM_CHAT" ;;
-	*) echo "erro=use sim ou nao"; exit 1 ;;
-	esac
-	echo ok=chat
 	;;
 discord)
 	# Vale já para a próxima partida enviada, sem reiniciar o bot nem o envio.
