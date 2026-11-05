@@ -48,7 +48,7 @@ conferir_codigo() {
 		echo "aviso=coleta fora do ar agora; o código já tinha sido aceito, então o bot liga assim mesmo"
 		return 0
 	fi
-	echo "erro=não consegui falar com a coleta para conferir o código. Tente de novo em alguns minutos."
+	echo "erro=não consegui falar com a coleta para conferir o código. Tente de novo em alguns minutos. Se tiver antivírus (Kaspersky, Avast...), veja se ele não está bloqueando a internet do WSL."
 	return 1
 }
 

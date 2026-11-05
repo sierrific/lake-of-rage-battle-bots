@@ -428,6 +428,11 @@ diagnostico)
 	uname -r
 	free -m | sed -n 1,2p
 	df -h /opt/lor-bots 2>/dev/null | tail -1
+	echo "== rede (antivírus como o Kaspersky às vezes bloqueia o WSL)"
+	for url in "$COLETA_PING" https://play.pokemonshowdown.com/crossdomain.php; do
+		# Só o código HTTP e o tempo (000 = sem conexão); nada de código da coleta aqui.
+		curl -s -o /dev/null --max-time 8 -w "%{http_code} %{time_total}s $url\n" "$url" 2>/dev/null || true
+	done
 	echo "== bot (últimas 200 linhas)"
 	journalctl -u "$UNIT" -u "$DESAFIO" -n 200 -o short-iso --no-pager 2>/dev/null | sed '/|pm|/d' || true
 	echo "== envio para a coleta (últimas 20)"
