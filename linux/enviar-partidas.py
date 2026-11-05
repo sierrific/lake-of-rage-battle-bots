@@ -127,13 +127,16 @@ def _ler_env(arq: Path) -> dict[str, str]:
 
 def partida_atual(log: str) -> str:
     """A última partida anunciada no log ("watch: <url>") se depois dela não veio o resultado
-    (o mesmo que o painel.sh estado faz)."""
+    dela (o mesmo que o painel.sh estado faz)."""
     p = ""
     for linha in log.splitlines():
         if linha.startswith("watch: "):
             p = linha.split()[1] if len(linha.split()) > 1 else ""
         elif re.match(r"^(win|loss|tie) vs ", linha):
-            p = ""
+            # Na Bo3 o jogo seguinte abre antes do resultado do anterior: só zera se for desta sala.
+            sala = re.search(r"([^/(]+)\.html\)$", linha.rstrip())
+            if not sala or p.rsplit("/", 1)[-1] == sala.group(1):
+                p = ""
     return p
 
 

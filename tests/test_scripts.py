@@ -485,6 +485,29 @@ class TestPainelPlacar(TestPainelDesafio):
         self.assertEqual(self.placar(), {"placar_oponente": ""})
 
 
+class TestPainelPartida(TestPainelDesafio):
+    """estado: a partida em andamento sai do log do bot (o último "watch:" sem resultado dela)."""
+
+    def setUp(self):
+        super().setUp()
+        (self.d / "journalctl").write_text('#!/bin/sh\ncat "$D/journal" 2>/dev/null\nexit 0\n')
+
+    def partida(self, log: str) -> str:
+        (self.d / "journal").write_text(log)
+        return dict(x.split("=", 1) for x in self.painel("estado").splitlines() if "=" in x)["partida"]
+
+    def test_bo3_o_jogo_2_abre_antes_do_resultado_do_jogo_1(self):
+        url = "https://play.pokemonshowdown.com/battle-gen9x-"
+        log = (f"watch: {url}111\nwatch: {url}222\n"
+               "win vs Rival in 5 turns (/opt/lor-bots/ai-vgc/data/live_games/2026-11-05/battle-gen9x-111.html)\n")
+        self.assertEqual(self.partida(log), url + "222")
+        self.assertEqual(self.partida(log + "loss vs Rival in 9 turns (/x/battle-gen9x-222.html)\n"), "")
+
+    def test_resultado_sem_sala_encerra_como_antes(self):
+        self.assertEqual(self.partida("watch: https://x/battle-a-1\nwin vs Rival in 7 turns\n"), "")
+        self.assertEqual(self.partida("watch: https://x/battle-a-1\n"), "https://x/battle-a-1")
+
+
 class TestPainelTimer(TestPainelDesafio):
     """timer sim|nao: o bot liga (ou não) o timer em cada partida."""
 

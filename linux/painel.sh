@@ -161,6 +161,12 @@ gerar_env() {
 	mv "$ENV.tmp" "$ENV"
 }
 
+# Lê o log do bot e imprime a partida em andamento (a URL do último "watch:"), ou nada. Um resultado
+# com a sala no fim ("(.../battle-x.html)") só zera se for dessa partida; sem a sala, zera sempre.
+AWK_PARTIDA='/^watch: /{p=$2}
+/^(win|loss|tie) vs /{t=$NF; if (t ~ /\.html\)$/) {sub(/\.html\)$/, "", t); sub(/.*[\/(]/, "", t); n=split(p, a, "/"); if (a[n] == t) p=""} else p=""}
+END{print p}'
+
 estado_unit() { systemctl show -p ActiveState --value "$1" 2>/dev/null || echo desconhecido; }
 
 # Um "Aplicar" agenda parar+ligar numa unit à parte (lor-reinicio-<bot>-*). Desligar, ou um
@@ -396,11 +402,12 @@ estado)
 	[[ "$mem" =~ ^[0-9]+$ && "$cache" =~ ^[0-9]+$ ]] && ((cache < mem)) && mem=$((mem - cache))
 	[[ "$mem" =~ ^[0-9]+$ ]] && echo "memoria_mb=$((mem / 1024 / 1024))" || echo "memoria_mb="
 	# A batalha em andamento: a última anunciada no log ("watch: https://play.pokemonshowdown.com/battle-..."),
-	# se depois dela não veio o resultado ("win vs ...") e o bot está ligado (ou desligando após ela).
+	# se depois dela não veio o resultado dela ("win vs X in 5 turns (.../battle-....html)") e o bot está
+	# ligado (ou desligando após ela). Na Bo3 o jogo seguinte abre antes de o bot escrever o resultado do
+	# anterior (o /savereplay espera 1,5 s): o resultado só encerra a partida se for da mesma sala.
 	p=""
 	if [[ "$(estado_unit "$UNIT")" =~ ^(active|deactivating)$ ]]; then
-		p="$(journalctl -u "$UNIT" -n 300 -o cat --no-pager 2>/dev/null \
-			| awk '/^watch: /{p=$2} /^(win|loss|tie) vs /{p=""} END{print p}')"
+		p="$(journalctl -u "$UNIT" -n 300 -o cat --no-pager 2>/dev/null | awk "$AWK_PARTIDA")"
 	fi
 	echo "partida=$p"
 	placar "$p"
