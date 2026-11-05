@@ -1477,10 +1477,10 @@ $xDecisoesInstantaneas = New-Object LoR.Chave
 $xDecisoesInstantaneas.FundoNome = 'cartao'
 $xDecisoesInstantaneas.Marcado = $false
 $xDecisoesInstantaneas.AccessibleName = 'Decisões Instantâneas: Não'
-[void](Pos $xDecisoesInstantaneas 20 142 36 20 $cConta)
-$lDecisoesInstantaneas = Novo-Rotulo 'Decisões Instantâneas' 66 142 235 22 $cConta 'texto' 9.5
+[void](Pos $xDecisoesInstantaneas 20 138 36 20 $cConta)
+$lDecisoesInstantaneas = Novo-Rotulo 'Decisões Instantâneas' 66 137 235 22 $cConta 'texto' 9.5
 $lDecisoesInstantaneas.Cursor = 'Hand'
-$lDecisoesValor = Novo-Rotulo 'Não' 303 142 68 22 $cConta 'suave' 9.5
+$lDecisoesValor = Novo-Rotulo 'Não' 303 137 68 22 $cConta 'suave' 9.5
 $lDecisoesValor.Cursor = 'Hand'
 $ajudaDecisoes = 'Sim: envia assim que a IA termina o cálculo. Não: usa o ritmo da personalidade da conta, com mais tempo para escolher os Pokémon e menos para trocas forçadas. Reduz a espera quando há pouco tempo no relógio.'
 foreach ($c in @($xDecisoesInstantaneas, $lDecisoesInstantaneas, $lDecisoesValor)) { $ttTema.SetToolTip($c, $ajudaDecisoes) }
@@ -1488,8 +1488,8 @@ $xEsperarBots = New-Object LoR.Chave
 $xEsperarBots.FundoNome = 'cartao'
 $xEsperarBots.Marcado = $true
 $xEsperarBots.AccessibleName = 'Esperar bots adversários conhecidos saírem da fila'
-[void](Pos $xEsperarBots 20 170 36 20 $cConta)
-$lEsperarBots = Novo-Rotulo 'Esperar bots conhecidos' 66 170 305 22 $cConta 'texto' 9.5
+[void](Pos $xEsperarBots 20 162 36 20 $cConta)
+$lEsperarBots = Novo-Rotulo 'Esperar bots conhecidos' 66 161 305 22 $cConta 'texto' 9.5
 $lEsperarBots.Cursor = 'Hand'
 $ajudaEsperaBots = 'Ligado: espera até 10 minutos por bots adversários conhecidos. Desligado: pula essa espera, inclusive se já estiver esperando. A fila do nosso time e a pausa entre partidas continuam iguais.'
 $ttTema.SetToolTip($lEsperarBots, $ajudaEsperaBots)
@@ -1498,20 +1498,31 @@ $xEsperarColmeia = New-Object LoR.Chave
 $xEsperarColmeia.FundoNome = 'cartao'
 $xEsperarColmeia.Marcado = $true
 $xEsperarColmeia.AccessibleName = 'Esperar bots da colmeia saírem da fila'
-[void](Pos $xEsperarColmeia 20 198 36 20 $cConta)
-$lEsperarColmeia = Novo-Rotulo 'Esperar bots da colmeia' 66 198 305 22 $cConta 'texto' 9.5
+[void](Pos $xEsperarColmeia 20 186 36 20 $cConta)
+$lEsperarColmeia = Novo-Rotulo 'Esperar bots da colmeia' 66 185 305 22 $cConta 'texto' 9.5
 $lEsperarColmeia.Cursor = 'Hand'
 $ajudaColmeia = 'Ligado: espera a vez entre os bots do nosso time. Desligado: busca junto com eles e encerra uma espera em curso. Os nossos bots poderão se enfrentar. Religar vale na próxima busca.'
 $ttTema.SetToolTip($lEsperarColmeia, $ajudaColmeia)
 $ttTema.SetToolTip($xEsperarColmeia, $ajudaColmeia)
-$bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 228 151 38 $cConta
+# Pausa aleatória (1 a 5 min, conforme a personalidade) antes de cada nova busca no ladder.
+$xPausa = New-Object LoR.Chave
+$xPausa.FundoNome = 'cartao'
+$xPausa.Marcado = $true
+$xPausa.AccessibleName = 'Pausa entre partidas'
+[void](Pos $xPausa 20 210 36 20 $cConta)
+$lPausa = Novo-Rotulo 'Pausa entre partidas' 66 209 305 22 $cConta 'texto' 9.5
+$lPausa.Cursor = 'Hand'
+$ajudaPausa = 'Ligado: depois de cada partida (no Bo3, de cada série), espera de 1 a 5 minutos antes de buscar a próxima, para não cair sempre contra os mesmos bots. Desligado: busca logo, encerrando uma pausa em curso. As outras esperas seguem suas próprias opções.'
+$ttTema.SetToolTip($lPausa, $ajudaPausa)
+$ttTema.SetToolTip($xPausa, $ajudaPausa)
+$bConta = Novo-Botao 'Salvar conta' 'Primario' '' 234 234 151 36 $cConta
 # Saudações do perfil no começo e no fim; vale já na próxima partida.
 $xChat = New-Object LoR.Chave
 $xChat.FundoNome = 'cartao'
 $xChat.Marcado = $true
 $xChat.AccessibleName = 'Saudações da personalidade no chat das partidas'
-[void](Pos $xChat 20 237 36 20 $cConta)
-$lChat = Novo-Rotulo 'Saudações no chat' 66 230 160 34 $cConta 'texto' 9.5
+[void](Pos $xChat 20 242 36 20 $cConta)
+$lChat = Novo-Rotulo 'Saudações no chat' 66 235 160 34 $cConta 'texto' 9.5
 $lChat.Cursor = 'Hand'
 $ttTema.SetToolTip($lChat, 'O bot varia as saudações conforme sua personalidade: no começo da partida (no Bo3, da série) e no fim de cada jogo. A apresentação identifica que é um bot LoR.')
 $cColeta = Novo-Cartao 'Coleta de partidas' 'Código para treino e Discord' 591 137 413 286
@@ -2224,7 +2235,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, mensagens, replays e arquivos locais.' }
@@ -2316,7 +2327,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -2334,6 +2345,7 @@ function Carregar-Opcoes {
     $xBloquearBots.Marcado = $e['bloquear_bots'] -ne 'nao'
     $xEsperarBots.Marcado = $e['esperar_bots'] -ne 'nao'
     $xEsperarColmeia.Marcado = $e['esperar_colmeia'] -ne 'nao'
+    $xPausa.Marcado = $e['pausa'] -ne 'nao'
     $xDecisoesInstantaneas.Marcado = $e['decisoes_instantaneas'] -eq 'sim'
     Atualizar-RotuloDecisoes
     $cTime.Itens.Clear()
@@ -2432,6 +2444,16 @@ function Mudar-EsperarColmeia {
 }
 $xEsperarColmeia.add_Mudou({ Mudar-EsperarColmeia })
 $lEsperarColmeia.Add_Click({ if ($xEsperarColmeia.Enabled) { $xEsperarColmeia.Marcado = -not $xEsperarColmeia.Marcado; Mudar-EsperarColmeia } })
+
+function Mudar-Pausa {
+    $v = if ($xPausa.Marcado) { 'sim' } else { 'nao' }
+    if (Resultado (Invoke-Painel @('pausa', $v)) '') {
+        if ($xPausa.Marcado) { Mensagem 'Preferência salva. Depois de cada partida, o bot volta a esperar de 1 a 5 minutos antes de buscar a próxima.' }
+        else { Mensagem 'Preferência salva. O bot busca a próxima partida logo, encerrando uma pausa em curso. A vez entre os bots do time e a espera por bots conhecidos seguem suas próprias opções.' }
+    } else { $xPausa.Marcado = -not $xPausa.Marcado }
+}
+$xPausa.add_Mudou({ Mudar-Pausa })
+$lPausa.Add_Click({ if ($xPausa.Enabled) { $xPausa.Marcado = -not $xPausa.Marcado; Mudar-Pausa } })
 
 function Atualizar-RotuloDecisoes {
     $lDecisoesValor.Text = if ($xDecisoesInstantaneas.Marcado) { 'Sim' } else { 'Não' }
@@ -2783,7 +2805,7 @@ function Atualizar-Painel {
     # desligados até ela terminar.
     $timer.Stop()
     Encerrar-ConsultaEstado
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xChat, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {
