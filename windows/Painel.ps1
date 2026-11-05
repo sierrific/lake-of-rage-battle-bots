@@ -1046,7 +1046,7 @@ function Preparar-Atalhos {
 
 function Invoke-ProcessoPainel {
     param([System.Diagnostics.ProcessStartInfo]$Inicio, [string]$Entrada = '',
-          [int]$TimeoutMs = 15000, $Controle = $null)
+          [int]$TimeoutMs = 15000, $Controle = $null, [switch]$Bombear)
     $p = $null
     $relogio = [Diagnostics.Stopwatch]::StartNew()
     try {
@@ -1066,6 +1066,10 @@ function Invoke-ProcessoPainel {
                 $entradaFechada = $true
             }
             if ($p.HasExited -and $saida.IsCompleted -and $erro.IsCompleted) { break }
+            # Na janela: continua desenhando e respondendo enquanto espera o WSL (que pode levar
+            # vários segundos, p.ex. antivírus segurando a rede do WSL). Sem isso o Windows marca o
+            # painel como "Não respondendo" e parece travado.
+            if ($Bombear) { [System.Windows.Forms.Application]::DoEvents() }
             Start-Sleep -Milliseconds 25
         }
         [pscustomobject]@{ Codigo = $p.ExitCode; Saida = $saida.GetAwaiter().GetResult().Trim(); Erro = $erro.GetAwaiter().GetResult().Trim() }
@@ -1094,7 +1098,18 @@ function Invoke-Painel {
     $psi.StandardOutputEncoding = $Utf8
     $psi.StandardErrorEncoding = $Utf8
     # Salvar codigo/time pode consultar a rede por ate 20s no Linux.
-    Invoke-ProcessoPainel $psi $Entrada -TimeoutMs 30000
+    # Uma ação por vez: enquanto uma espera o WSL a janela segue viva, e um segundo clique não
+    # dispara outra por cima (o Resultado ignora o código 125 sem mostrar erro).
+    if ($script:ocupado) { return [pscustomobject]@{ Codigo = 125; Saida = ''; Erro = 'O painel ainda está esperando o WSL.' } }
+    $script:ocupado = $true
+    $janela = $script:form
+    if ($janela) { $janela.UseWaitCursor = $true }
+    # Sem janela (atalho -Ligar), o Windows Forms nem foi carregado: espera simples.
+    try { Invoke-ProcessoPainel $psi $Entrada -TimeoutMs 30000 -Bombear:([bool]$janela) }
+    finally {
+        $script:ocupado = $false
+        if ($janela) { $janela.UseWaitCursor = $false }
+    }
 }
 
 function Ler-Estado($Resposta = $null) {
@@ -2239,6 +2254,7 @@ function Avisar-Bandeja([string]$bot) {
 
 function Copiar-Diagnostico {
     $r = Invoke-Painel @('diagnostico')
+    if ($r.Codigo -eq 125) { Mensagem 'O painel ainda está esperando o WSL. Tente copiar o diagnóstico de novo daqui a pouco.'; return }
     $texto = "Painel $(Versao-Painel) · Windows $([Environment]::OSVersion.Version)`r`n" + (($r.Saida + "`n" + $r.Erro).Trim() -replace "`r?`n", "`r`n")
     try {
         [System.Windows.Forms.Clipboard]::SetText($texto)
@@ -2312,6 +2328,7 @@ function Mostrar-Falha([string]$erro) {
 }
 
 function Atualizar-Tela {
+    if ($script:ocupado) { return }  # quem está esperando o WSL atualiza no fim
     try { Atualizar-EstadoTela } catch { Mostrar-Falha $_.Exception.Message }
 }
 
@@ -2335,6 +2352,7 @@ function Carregar-Opcoes {
 }
 
 function Resultado($r, [string]$ok) {
+    if ($r.Codigo -eq 125) { return $false }  # outra ação ainda esperava o WSL
     if ($r.Codigo -eq 0) { if ($ok) { Mensagem $ok }; return $true }
     $msg = (($r.Saida + "`n" + $r.Erro).Trim() -replace '^erro=', '')
     Mensagem "Não deu certo:`n`n$msg"
@@ -2546,6 +2564,7 @@ $bDesafiar.Add_Click({
 })
 
 $bLigar.Add_Click({
+    $lInfo.Text = 'Ligando o bot… (conferindo o código da coleta)'
     $r = Invoke-Painel @('ligar')
     if (Resultado $r '') {
         Manter-Vivo
@@ -2812,6 +2831,7 @@ $timer = New-Object System.Windows.Forms.Timer
 # Um passo pede e o seguinte mostra: a tela se renova a cada ~5 s, sem esperar o WSL.
 $timer.Interval = 2500
 $timer.Add_Tick({
+    if ($script:ocupado) { return }  # uma ação está esperando o WSL; o estado vem depois dela
     try { Atualizar-EmSegundoPlano } catch { Mostrar-Falha $_.Exception.Message }
 })
 
