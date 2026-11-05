@@ -14,6 +14,8 @@
 #   painel.sh conta                     stdin: usuário na 1ª linha, senha na 2ª
 #   painel.sh conta-navegador           stdin: usuário; senha só no site oficial
 #   painel.sh codigo                    stdin: o código da coleta (conferido na coleta antes de salvar)
+#   painel.sh codigo-atual              codigo=<o código salvo>, para o painel do Windows baixar as
+#                                       atualizações da VPS (vazio sem código)
 #   painel.sh formato bo3|bo1
 #   painel.sh timer sim|nao             o bot liga o timer no começo de cada partida (padrão: sim)
 #   painel.sh bloquear-bots sim|nao     /blockbots ou /allowbots no login e antes da próxima busca
@@ -34,7 +36,7 @@
 #   painel.sh cancelar-desafio
 #   painel.sh log [linhas]
 #   painel.sh manter-vivo               segura o WSL ligado enquanto o bot roda
-#   painel.sh atualizar                 baixa a versão nova do GitHub e reinstala
+#   painel.sh atualizar                 baixa a versão nova da VPS do time e reinstala
 #   painel.sh backup <pasta>|desligar   stdin: o token de backup da coleta; copia as partidas de
 #                                       todos para <pasta> uma vez por dia (C:\... ou /mnt/c/...)
 set -euo pipefail
@@ -526,6 +528,9 @@ conta|conta-navegador)
 	fi
 	gerar_env
 	echo ok=conta
+	;;
+codigo-atual)
+	echo "codigo=$(sed -n 's/^COLETA_CODIGO=//p' "$ETC/coleta.env" 2>/dev/null | head -n1)"
 	;;
 codigo)
 	IFS= read -r codigo || true

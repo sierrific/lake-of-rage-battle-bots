@@ -1,7 +1,11 @@
 # Instalador dos bots da Lake of Rage para Windows 10/11.
 #
-# Abra o PowerShell (de preferencia como administrador) e cole:
-#   irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/estavel/windows/instalar.ps1 | iex
+# Baixe e de dois cliques em https://showdown.sierverso.com.br/coleta/instalar (o .bat), ou abra o
+# PowerShell (de preferencia como administrador) e cole:
+#   irm https://showdown.sierverso.com.br/coleta/instalar.ps1 | iex
+#
+# Ele pede o codigo da coleta que o Thiago passou: o bot e o painel vem da VPS do time, que so
+# entrega a quem tem codigo de membro (o repositorio no GitHub e privado).
 #
 # O que ele faz: liga o WSL (se preciso), cria uma distribuicao Linux so para os bots
 # ("LoRBots", Ubuntu 24.04), instala o bot dentro dela e poe o "Painel LoR Bots" na Area de
@@ -19,7 +23,7 @@ $ProgressPreference = 'SilentlyContinue'  # o Invoke-WebRequest fica 10x mais le
 
 # estavel = a main depois que os testes do GitHub passaram nela; outra branch so para testes
 $Ramo = if ($env:LOR_RAMO) { $env:LOR_RAMO } else { 'estavel' }
-$Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
+$Vps = if ($env:LOR_VPS) { $env:LOR_VPS } else { 'https://showdown.sierverso.com.br/coleta' }
 $Distro = 'LoRBots'
 # Painel, versao e marcas (poucos KB) ficam sempre aqui; o Linux dos bots pode ir para outro disco.
 $Pasta = Join-Path $env:LOCALAPPDATA 'LoRBots'
@@ -98,7 +102,7 @@ function EAdmin {
         [Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 # O comando que roda o instalador de novo (na mesma branch, se era um teste).
-$Volta = "`$env:LOR_RAMO='$Ramo'; irm $Raw/windows/instalar.ps1 | iex"
+$Volta = "`$env:LOR_RAMO='$Ramo'; irm $Vps/instalar.ps1 | iex"
 if ($env:LOR_PASTA_WSL) { $Volta = "`$env:LOR_PASTA_WSL='$($env:LOR_PASTA_WSL)'; $Volta" }
 # Depois de reiniciar, o instalador abre sozinho para continuar.
 function ContinuarDepoisDeReiniciar {
@@ -167,19 +171,57 @@ function ConferirVirtualizacao([switch]$DepoisDeFalhar) {
 # O commit em que a branch esta agora. Bot, painel, VERSION e icone vem todos dele: se a branch
 # andar no meio da instalacao (um merge na main), nada se mistura com uma versao nao testada.
 function RevisaoDoRamo([string]$ramo) {
-    $url = 'https://api.github.com/repos/sierrific/lake-of-rage-battle-bots/commits/' + [Uri]::EscapeDataString($ramo)
+    $url = "$Vps/bots/ramo/" + [Uri]::EscapeDataString($ramo)
     for ($tentativa = 1; $tentativa -le 3; $tentativa++) {
         try {
-            $sha = ((Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri $url).Content | ConvertFrom-Json).sha
+            $sha = ((Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Headers $Autorizacao -Uri $url).Content | ConvertFrom-Json).sha
             if ($sha -cmatch '^[0-9a-f]{40}$') { return $sha }
         } catch { }
         if ($tentativa -lt 3) { Start-Sleep -Seconds (5 * $tentativa) }
     }
-    Falha "Nao consegui consultar a versao do bot no GitHub (branch $ramo). Confira a internet e rode o instalador de novo em alguns minutos."
+    Falha "Nao consegui consultar a versao do bot no servidor do time (branch $ramo). Confira a internet e rode o instalador de novo em alguns minutos."
 }
 function NoLinux([string]$comando) {
     Wsl -d $Distro -u root -e bash -lc $comando
-    if ($LASTEXITCODE -ne 0) { Falha "Falhou dentro do Linux (codigo $LASTEXITCODE): $comando" }
+    # O codigo da coleta nao aparece na mensagem (ela vai para prints de suporte).
+    $mostrar = if ($Codigo) { $comando.Replace($Codigo, '***') } else { $comando }
+    if ($LASTEXITCODE -ne 0) { Falha "Falhou dentro do Linux (codigo $LASTEXITCODE): $mostrar" }
+}
+# O codigo da coleta (o mesmo que vai no painel). Sem ele a VPS nao entrega o bot. Pede uma vez:
+# um instalador que continua depois de reiniciar, ou rodado de novo num PC ja instalado, reaproveita.
+$ArquivoCodigo = Join-Path $Pasta 'codigo-instalacao.txt'
+function ConferirCodigo([string]$c) {
+    if ($c -cnotmatch '^[A-Za-z0-9_-]{8,128}$') { return 'invalido' }
+    try {
+        Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Headers @{ Authorization = "Bearer $c" } -Uri "$Vps/ping" | Out-Null
+        return 'ok'
+    } catch {
+        $r = $_.Exception.Response
+        if ($r -and [int]$r.StatusCode -in @(401, 403)) { return 'recusado' }
+        return 'fora'
+    }
+}
+function PedirCodigo {
+    $candidatos = @($env:LOR_CODIGO)
+    if (Test-Path -LiteralPath $ArquivoCodigo) { $candidatos += (Get-Content -LiteralPath $ArquivoCodigo -TotalCount 1) }
+    if ((Distros) -contains $Distro) {
+        $candidatos += (WslQuieto -d $Distro -u root -e sed -n s/^COLETA_CODIGO=//p /etc/lor-bots/coleta.env | Select-Object -First 1)
+    }
+    foreach ($c in $candidatos) {
+        if (-not $c) { continue }
+        $c = ([string]$c).Trim()
+        $r = ConferirCodigo $c
+        if ($r -eq 'ok') { return $c }
+        if ($r -eq 'fora') { Falha 'Nao consegui falar com o servidor do time. Confira a internet e rode o instalador de novo em alguns minutos.' }
+    }
+    for ($tentativa = 1; $tentativa -le 3; $tentativa++) {
+        $c = ([string](Read-Host 'Cole aqui o codigo da coleta que o Thiago te passou e aperte Enter')) -replace '\s', ''
+        $r = ConferirCodigo $c
+        if ($r -eq 'ok') { return $c }
+        if ($r -eq 'fora') { Falha 'Nao consegui falar com o servidor do time. Confira a internet e rode o instalador de novo em alguns minutos.' }
+        Write-Host 'O servidor nao reconheceu este codigo. Confira se copiou inteiro (sem espacos) e tente de novo.' -ForegroundColor Yellow
+    }
+    Falha 'Sem um codigo da coleta valido nao da para instalar. Peca o seu ao Thiago e rode o instalador de novo.'
 }
 
 # --- Em que disco fica o Linux dos bots ---
@@ -268,6 +310,9 @@ function MoverDistro([string]$destino, [string]$origem) {
 
 Write-Host 'Instalador dos bots da Lake of Rage' -ForegroundColor Green
 New-Item -ItemType Directory -Force -Path $Pasta | Out-Null
+$Codigo = PedirCodigo
+Set-Content -LiteralPath $ArquivoCodigo -Value $Codigo -Encoding ASCII
+$Autorizacao = @{ Authorization = "Bearer $Codigo" }
 
 # 1. WSL
 Passo 'Verificando o WSL'
@@ -393,17 +438,20 @@ if ($pid1 -ne 'systemd') { Falha "O WSL deste PC nao ligou o systemd (achei '$pi
 # 3. Bot (dentro do Linux): o mesmo script do botao Atualizar do painel, fixado num commit so.
 Passo 'Instalando o bot no Linux (Node, Python, PyTorch, simulador; a primeira vez leva uns 10-20 min)'
 $Revisao = RevisaoDoRamo $Ramo
-$RawFixo = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Revisao"
-NoLinux "curl -fsSL $RawFixo/linux/atualizar.sh -o /tmp/lor-atualizar.sh && LOR_RAMO=$Ramo LOR_REVISION=$Revisao bash /tmp/lor-atualizar.sh --forcar"
+$RawFixo = "$Vps/bots/$Revisao"
+NoLinux "curl -fsSL -H 'Authorization: Bearer $Codigo' $RawFixo/linux/atualizar.sh -o /tmp/lor-atualizar.sh && LOR_CODIGO=$Codigo LOR_RAMO=$Ramo LOR_REVISION=$Revisao bash /tmp/lor-atualizar.sh --forcar"
+# O codigo fica salvo no Linux como se tivesse sido colocado no painel (envio das partidas e
+# atualizacoes). Rodar de novo com o mesmo codigo nao muda nada.
+NoLinux "printf '%s\n' $Codigo | /opt/lor-bots/painel.sh codigo"
 
 # 4. Painel (do mesmo commit do bot)
 Passo 'Instalando o painel'
-Invoke-WebRequest -UseBasicParsing -Uri "$RawFixo/windows/Painel.ps1" -OutFile (Join-Path $Pasta 'Painel.ps1')
-Invoke-WebRequest -UseBasicParsing -Uri "$RawFixo/VERSION" -OutFile (Join-Path $Pasta 'VERSION')
+Invoke-WebRequest -UseBasicParsing -Headers $Autorizacao -Uri "$RawFixo/windows/Painel.ps1" -OutFile (Join-Path $Pasta 'Painel.ps1')
+Invoke-WebRequest -UseBasicParsing -Headers $Autorizacao -Uri "$RawFixo/VERSION" -OutFile (Join-Path $Pasta 'VERSION')
 # Icone dos atalhos (Gyarados vermelho). Se nao baixar, fica o padrao e o painel grava o dele ao abrir.
 $iconeAtalho = 'shell32.dll,137'
 try {
-    Invoke-WebRequest -UseBasicParsing -Uri "$RawFixo/windows/painel.ico" -OutFile (Join-Path $Pasta 'Painel.ico')
+    Invoke-WebRequest -UseBasicParsing -Headers $Autorizacao -Uri "$RawFixo/windows/painel.ico" -OutFile (Join-Path $Pasta 'Painel.ico')
     $iconeAtalho = (Join-Path $Pasta 'Painel.ico') + ',0'
 } catch { }
 # A branch escolhida (main, ou outra num teste) fica gravada para o botao Atualizar do painel.
@@ -431,6 +479,8 @@ foreach ($d in $destinos) {
 
 # Se sobrou um "continuar depois de reiniciar" (ex.: o aviso da BIOS), nao precisa mais.
 Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'LoRBots' -ErrorAction SilentlyContinue
+# O codigo ja esta salvo no Linux.
+Remove-Item -LiteralPath $ArquivoCodigo -ErrorAction SilentlyContinue
 Write-Host "`nPronto! Abrindo o Painel LoR Bots (tambem tem um atalho na Area de Trabalho)." -ForegroundColor Green
-Write-Host 'No painel: coloque a conta e a senha do Showdown do bot, o codigo da coleta que o Thiago passou, e clique em Ligar.'
+Write-Host 'No painel: coloque a conta e a senha do Showdown do bot (o codigo da coleta ja esta salvo) e clique em Ligar.'
 Start-Process $wscript -ArgumentList "`"$vbs`""

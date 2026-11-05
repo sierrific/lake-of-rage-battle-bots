@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Baixa a versão mais nova deste repositório (GitHub, branch estavel: a main depois que os testes
-# passaram nela) e reinstala por cima.
+# Baixa a versão mais nova deste repositório (branch estavel: a main depois que os testes passaram
+# nela) e reinstala por cima. Baixa da VPS do time, com o código da coleta: o repositório no GitHub
+# é privado, e a VPS puxa as branches dele (coleta/pacote_bots.py no LOR-SD-Server).
 # Partidas, times salvos e configuração ficam. Se o bot estiver jogando, ele só reinicia
 # depois de terminar a partida/série atual.
 #
@@ -17,19 +18,34 @@ DIR="${LOR_DIR:-/opt/lor-bots}"  # LOR_DIR e LOR_RUN: só para os testes
 exec 8>"${LOR_RUN:-/run}/lor-atualizar.lock"
 flock -n 8 || { echo "Já tem uma atualização rodando; esperando ela terminar..."; flock 8; }
 
-REPO=https://github.com/sierrific/lake-of-rage-battle-bots
+VPS="${LOR_VPS:-https://showdown.sierverso.com.br/coleta/bots}"
 RAMO="${LOR_RAMO:-estavel}"  # outra branch (main, ou uma de teste) só para testar uma versão
 FONTE="$DIR/fonte"
+ETC="${LOR_ETC:-/etc/lor-bots}"
+
+# O código da coleta: o instalador passa em LOR_CODIGO (ainda não há coleta.env); depois, o salvo.
+codigo="${LOR_CODIGO:-}"
+if [ -z "$codigo" ] && [ -r "$ETC/coleta.env" ]; then
+	codigo="$(sed -n 's/^COLETA_CODIGO=//p' "$ETC/coleta.env" | head -n1)"
+fi
+if ! [[ "$codigo" =~ ^[A-Za-z0-9_-]{8,128}$ ]]; then
+	echo 'Sem o código da coleta não dá para baixar a versão nova: coloque o código no painel e clique em Atualizar de novo.' >&2
+	exit 1
+fi
+baixar() {  # baixar <segundos> <caminho na VPS> [opções do curl]
+	local prazo="$1" caminho="$2"
+	shift 2
+	curl -fsSL --max-time "$prazo" -H "Authorization: Bearer $codigo" "$@" "$VPS/$caminho"
+}
 
 # Resolve a branch uma única vez. O painel pode fornecer o mesmo SHA que usou para seu download.
 revisao="${LOR_REVISION:-}"
 if [ -z "$revisao" ]; then
 	ramo_url="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$RAMO")"
-	revisao="$(curl -fsSL --max-time 20 "https://api.github.com/repos/sierrific/lake-of-rage-battle-bots/commits/$ramo_url" |
-		python3 -c 'import json, sys; print(json.load(sys.stdin)["sha"])')"
+	revisao="$(baixar 20 "ramo/$ramo_url" | python3 -c 'import json, sys; print(json.load(sys.stdin)["sha"])')"
 fi
 [[ "$revisao" =~ ^[0-9a-f]{40}$ ]] || { echo 'Revisão inválida; atualização cancelada.' >&2; exit 1; }
-nova="$(curl -fsSL --max-time 20 "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$revisao/VERSION")"
+nova="$(baixar 20 "$revisao/VERSION")"
 [[ "$nova" =~ ^[A-Za-z0-9._-]+$ ]] || { echo 'Versão inválida.' >&2; exit 1; }
 if [ -n "${LOR_VERSION:-}" ] && [ "$nova" != "$LOR_VERSION" ]; then
 	echo 'A versão do runtime diverge da versão solicitada pelo painel.' >&2
@@ -43,7 +59,7 @@ fi
 echo "==> Atualizando de $atual para $nova"
 rm -rf "$FONTE.novo"
 mkdir -p "$FONTE.novo"
-curl -fsSL --max-time 300 "$REPO/archive/$revisao.tar.gz" | tar xz -C "$FONTE.novo" --strip-components 1 --no-same-owner
+baixar 300 "$revisao.tar.gz" | tar xz -C "$FONTE.novo" --strip-components 1 --no-same-owner
 if [ "$(cat "$FONTE.novo/VERSION")" != "$nova" ]; then
 	echo 'O pacote baixado diverge da versão consultada; nada foi ativado.' >&2
 	exit 1

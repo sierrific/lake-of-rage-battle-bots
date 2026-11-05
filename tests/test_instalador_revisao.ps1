@@ -17,16 +17,20 @@ function Passo($texto) { }
 function Start-Sleep { }
 $A = 'a' * 40
 $B = 'b' * 40
+$Vps = 'https://vps.teste/coleta'
+$Codigo = 'codigo-teste'
+$Autorizacao = @{ Authorization = "Bearer $Codigo" }
 function Invoke-WebRequest {
-    param($Uri, $OutFile, $TimeoutSec, [switch]$UseBasicParsing)
+    param($Uri, $OutFile, $TimeoutSec, $Headers, [switch]$UseBasicParsing)
     $script:urls.Add($Uri)
-    if ($Uri -like 'https://api.github.com/*/commits/*') {
+    Assert ($Headers -and $Headers.Authorization -eq 'Bearer codigo-teste') "sem o codigo da coleta: $Uri"
+    if ($Uri -like 'https://vps.teste/coleta/bots/ramo/*') {
         if ($script:apiFalha) { throw 'sem rede' }
         # A branch anda logo depois da primeira consulta (um merge no meio da instalacao).
         $sha = if ($script:consultas++ -eq 0) { $A } else { $B }
         return [pscustomobject]@{ Content = ('{"sha":"' + $sha + '"}') }
     }
-    Assert ($Uri -like "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$A/*") "baixou de outro lugar: $Uri"
+    Assert ($Uri -like "https://vps.teste/coleta/bots/$A/*") "baixou de outro lugar: $Uri"
     if ($OutFile) { [IO.File]::WriteAllText($OutFile, 'x') }
 }
 function NoLinux([string]$comando) { $script:linux.Add($comando) }
@@ -40,21 +44,23 @@ try {
     $script:apiFalha = $false
     & $passos
     Assert ($script:consultas -eq 1) "consultou a branch $($script:consultas) vezes"
-    Assert ($script:linux.Count -eq 1) 'o Linux devia rodar o atualizar.sh uma vez'
+    Assert ($script:linux.Count -eq 2) 'o Linux devia rodar o atualizar.sh e salvar o codigo'
+    Assert ($script:linux[0].Contains('LOR_CODIGO=codigo-teste ')) "o atualizar.sh nao recebeu o codigo: $($script:linux[0])"
+    Assert ($script:linux[1].Contains('painel.sh codigo')) "o codigo nao foi salvo no Linux: $($script:linux[1])"
     Assert ($script:linux[0].Contains("/$A/linux/atualizar.sh")) "atualizar.sh de outra revisao: $($script:linux[0])"
     Assert ($script:linux[0].Contains("LOR_REVISION=$A ")) "o Linux nao recebeu a revisao: $($script:linux[0])"
     Assert (-not $script:linux[0].Contains('/estavel/')) "o Linux leu a branch: $($script:linux[0])"
     foreach ($arq in @('windows/Painel.ps1', 'VERSION', 'windows/painel.ico')) {
-        Assert ($script:urls -contains "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$A/$arq") "nao baixou $arq do commit fixado"
+        Assert ($script:urls -contains "https://vps.teste/coleta/bots/$A/$arq") "nao baixou $arq do commit fixado"
     }
     Assert (Test-Path (Join-Path $Pasta 'Painel.ps1')) 'nao gravou o painel'
 
     # Sem resposta do GitHub: para com uma mensagem, sem baixar nada nem mexer no Linux.
     $script:urls.Clear(); $script:linux.Clear(); $script:apiFalha = $true
     $erro = & { try { & $passos; '' } catch { $_.Exception.Message } }
-    Assert ($erro -like 'FALHA: Nao consegui consultar a versao do bot no GitHub*') "sem GitHub: '$erro'"
+    Assert ($erro -like 'FALHA: Nao consegui consultar a versao do bot no servidor do time*') "sem VPS: '$erro'"
     Assert ($script:linux.Count -eq 0) 'rodou o Linux sem revisao'
-    Assert (@($script:urls | Where-Object { $_ -notlike 'https://api.github.com/*' }).Count -eq 0) 'baixou sem revisao'
+    Assert (@($script:urls | Where-Object { $_ -notlike 'https://vps.teste/coleta/bots/ramo/*' }).Count -eq 0) 'baixou sem revisao'
     Assert (@($script:urls).Count -eq 3) "tentativas: $(@($script:urls).Count)"
     Write-Host 'instalador fixa um commit: ok'
 } finally {
