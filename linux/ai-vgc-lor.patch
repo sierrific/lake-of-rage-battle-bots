@@ -1305,7 +1305,7 @@ index eb60a97..0b51718 100644
                f"{wins}/{n} = {wins / max(n, 1):.1%}  95% CI [{lo:.1%}, {hi:.1%}]  {time.time() - t:.0f}s{extra}")
          if me.games:
 diff --git a/src/ai_vgc/nn/rules.py b/src/ai_vgc/nn/rules.py
-index cf62665..56f71bb 100644
+index cf62665..c0bf3a3 100644
 --- a/src/ai_vgc/nn/rules.py
 +++ b/src/ai_vgc/nn/rules.py
 @@ -39,6 +39,7 @@ from poke_env.battle import (
@@ -1343,7 +1343,7 @@ index cf62665..56f71bb 100644
      if move.status is not None:
          if target.status is not None:
              return True
-@@ -342,9 +356,77 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
+@@ -342,9 +356,170 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
          return "Life Dew at full HP"
      if move.id in ("healpulse", "floralhealing") and tgt is not None and tgt.current_hp_fraction == 1:
          return "heal at full HP"
@@ -1418,9 +1418,135 @@ index cf62665..56f71bb 100644
 +    return False
 +
 +
++# Weather that changes Weather Ball, and what it turns it into (100 BP of that type).
++WEATHER_BALL = {Weather.SUNNYDAY: PokemonType.FIRE, Weather.DESOLATELAND: PokemonType.FIRE,
++                Weather.RAINDANCE: PokemonType.WATER, Weather.PRIMORDIALSEA: PokemonType.WATER,
++                Weather.SANDSTORM: PokemonType.ROCK, Weather.SNOWSCAPE: PokemonType.ICE,
++                Weather.HAIL: PokemonType.ICE}
++WEATHER_ABILITIES = {"drought": Weather.SUNNYDAY, "drizzle": Weather.RAINDANCE, "sandstream": Weather.SANDSTORM,
++                     "snowwarning": Weather.SNOWSCAPE, "orichalcumpulse": Weather.SUNNYDAY,
++                     "desolateland": Weather.DESOLATELAND, "primordialsea": Weather.PRIMORDIALSEA}
++WEATHER_MOVES = set(WEATHERS) | {"chillyreception", "hail"}
++# Variable base power (Eruption at low HP): the listed power can't be compared.
++VARIABLE_POWER = {"eruption", "waterspout", "dragonenergy", "hardpress", "crushgrip", "wringout"}
++
++
++def _weather_now(battle: DoubleBattle, user: Pokemon) -> Weather | None:
++    """The weather our move will be used in, as far as the rules go: the current one, or the one
++    `user`'s own Mega Evolution this turn sets (Drought on Charizard-Mega-Y); None when an active
++    Cloud Nine / Air Lock cancels it."""
++    weather = next(iter(battle.weather), None)
++    if _MEGA_NOW.get() is user and (w := WEATHER_ABILITIES.get(mega_ability(user) or "")):
++        weather = w
++    if any(m is not None and not m.fainted and (m.ability or "") in ("cloudnine", "airlock")
++           for m in [*battle.active_pokemon, *battle.opponent_active_pokemon]):
++        return None
++    return weather
++
++
++def _effective(battle: DoubleBattle, user: Pokemon, move: Move) -> tuple[PokemonType, int] | None:
++    """(type, base power) the move is used with, or None when it can't be told from the move data."""
++    if move.id == "weatherball":
++        weather = _weather_now(battle, user)
++        if weather in (Weather.SUNNYDAY, Weather.RAINDANCE, Weather.DESOLATELAND, Weather.PRIMORDIALSEA) \
++                and user.item == "utilityumbrella":
++            weather = None
++        if weather in WEATHER_BALL:
++            return WEATHER_BALL[weather], 100
++        return PokemonType.NORMAL, 50
++    if move.id in VARIABLE_TYPE or move.id in VARIABLE_POWER or "basePowerCallback" in move.flags \
++            or "onModifyMove" in move.flags:
++        return None
++    if move.type == PokemonType.NORMAL and ability(user, battle) in TYPE_CHANGING:
++        return None
++    return move.type, move.base_power
++
++
++def _weather_may_change(battle: DoubleBattle, foes: list[Pokemon]) -> bool:
++    """A foe could set another weather before our move (a weather move or ability it is known or
++    likely to have, a Mega Evolution with one)."""
++    for mon in foes:
++        if any(mv.id in WEATHER_MOVES for mv in mon.moves.values()):
++            return True
++        abilities = {ability(mon, battle), mon.ability or "", may_mega(battle, mon) or "",
++                     *(to_id_str(a) for a in (mon.possible_abilities or []) if a)}
++        if abilities & set(WEATHER_ABILITIES):
++            return True
++    return False
++
++
++def move_dominated(battle: DoubleBattle, pos: int, move: Move, other: Move) -> bool:
++    """A spread move that can only hit one foe this turn is never better than `other`, a
++    single-target move of the same user with the same type and category, at least the same base
++    power and accuracy, and one of them higher (Heat Wave at 90% next to Weather Ball at 100% in
++    sun, Dazzling Gleam next to Moonblast). With one foe on the field the spread move gets no
++    spread penalty, so all it adds is the chance to miss.
++
++    Only clean cases: the spread move has no likely side effect (Snarl, Icy Wind, Rock Slide's
++    flinch are kept), `other` has no drawback (Overheat's -2, recoil, recharge, contact the
++    spread move doesn't make, lower priority), and no foe can change the weather first when
++    `other` is Weather Ball."""
++    user = battle.active_pokemon[pos]
++    if user is None or move.target != Target.ALL_ADJACENT_FOES or other.id == move.id:
++        return False
++    foes = [m for m in battle.opponent_active_pokemon if m is not None and not m.fainted]
++    if len(foes) != 1 or Effect.SUBSTITUTE in foes[0].effects:
++        return False
++    if other.target not in (Target.NORMAL, Target.ANY, Target.ADJACENT_FOE) or other.category != move.category \
++            or move.category == MoveCategory.STATUS:
++        return False
++    if any(sec.get("chance", 100) >= 30 or "self" in sec for sec in move.secondary) or move.self_boost:
++        return False
++    if other.self_boost or other.recoil or other.self_destruct or other.drain or other.n_hit != (1, 1) \
++            or {"recharge", "charge"} & other.flags or other.priority < move.priority \
++            or ("contact" in other.flags and "contact" not in move.flags):
++        return False
++    a, b = _effective(battle, user, move), _effective(battle, user, other)
++    if a is None or b is None or a[0] != b[0]:
++        return False
++    if other.id == "weatherball" and b[1] == 100 and _weather_may_change(battle, foes):
++        return False
++    acc_a = 1.0 if move.accuracy is True else move.accuracy
++    acc_b = 1.0 if other.accuracy is True else other.accuracy
++    return b[1] >= a[1] and acc_b >= acc_a and (b[1] > a[1] or acc_b > acc_a)
++
++
  def slot_moves(battle: DoubleBattle, pos: int) -> list[Move]:
      """The move list that DoublesEnv's action ids index into."""
      mon = battle.active_pokemon[pos]
+@@ -382,6 +557,32 @@ def _apply_rules(battle: DoubleBattle, mask: np.ndarray) -> np.ndarray:
+                 _MEGA_NOW.reset(token)
+             if fails:
+                 out[pos, a] = False
++        _drop_dominated(battle, pos, mvs, out)
+         if not out[pos].any():
+             out[pos] = mask[pos]
+     return out
++
++
++def _drop_dominated(battle: DoubleBattle, pos: int, mvs: list[Move], out: np.ndarray) -> None:
++    """Remove the spread moves `move_dominated` by a move this slot can still use (same Mega /
++    Tera choice, any target)."""
++    for a in np.flatnonzero(out[pos]):
++        if a < 7:
++            continue
++        block, i = (a - 7) // 20, (a - 7) % 20 // 5
++        if i >= len(mvs):
++            continue
++        base = 7 + block * 20
++        for j, other in enumerate(mvs):
++            if j == i or not out[pos, base + j * 5:base + j * 5 + 5].any():
++                continue
++            token = _MEGA_NOW.set(battle.active_pokemon[pos] if block == 1 else None)
++            try:
++                dominated = move_dominated(battle, pos, mvs[i], other)
++            except KeyError:
++                dominated = False
++            finally:
++                _MEGA_NOW.reset(token)
++            if dominated:
++                out[pos, a] = False
++                break
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
 index 9d7a515..ba41526 100644
 --- a/src/ai_vgc/nn/search.py

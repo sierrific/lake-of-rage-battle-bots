@@ -1,0 +1,54 @@
+|t:|1792873923
+|gametype|doubles
+|player|p1|Alice|1|1100
+|player|p2|Bob|2|1100
+|gen|9
+|tier|[Gen 9 Champions] VGC 2026 Reg M-C (Bo3)
+|rated|
+|clearpoke
+|poke|p1|Charizard, L50, M|
+|poke|p1|Pelipper, L50, F|
+|poke|p1|Incineroar, L50, M|
+|poke|p1|Garchomp, L50, M|
+|poke|p2|Metagross, L50|
+|poke|p2|Whimsicott, L50, F|
+|poke|p2|Gholdengo, L50|
+|poke|p2|Kingambit, L50, M|
+|teampreview|4
+|showteam|p1|Charizard||CharizarditeY|Blaze|HeatWave,WeatherBall,SolarBeam,Protect|Modest||M|||50|]Pelipper||FocusSash|Drizzle|WeatherBall,Hurricane,Tailwind,WideGuard|Modest||F|||50|]Incineroar||SitrusBerry|Intimidate|FakeOut,FlareBlitz,KnockOff,PartingShot|Adamant||M|||50|]Garchomp||LifeOrb|RoughSkin|Earthquake,RockSlide,DragonClaw,Protect|Jolly||M|||50|
+|showteam|p2|Metagross||Metagrossite|ClearBody|IronHead,ZenHeadbutt,BulletPunch,Protect|Jolly||N|||50|]Whimsicott||FocusSash|Prankster|Moonblast,Tailwind,Encore,Protect|Timid||F|||50|]Gholdengo||ChoiceSpecs|GoodasGold|MakeItRain,ShadowBall,NastyPlot,Protect|Modest||N|||50|]Kingambit||BlackGlasses|Defiant|KowtowCleave,SuckerPunch,IronHead,Protect|Adamant||M|||50|
+|
+|teamsize|p1|4
+|teamsize|p2|4
+|start
+|switch|p1a: Charizard|Charizard, L50, M|100/100
+|switch|p1b: Incineroar|Incineroar, L50, M|100/100
+|switch|p2a: Metagross|Metagross, L50|100/100
+|switch|p2b: Whimsicott|Whimsicott, L50, F|100/100
+|turn|1
+|
+|t:|1792873950
+|detailschange|p1a: Charizard|Charizard-Mega-Y, L50, M
+|-mega|p1a: Charizard|Charizard|Charizardite Y
+|-weather|SunnyDay|[from] ability: Drought|[of] p1a: Charizard
+|detailschange|p2a: Metagross|Metagross-Mega, L50
+|-mega|p2a: Metagross|Metagross|Metagrossite
+|move|p2b: Whimsicott|Tailwind|p2b: Whimsicott
+|-sidestart|p2: Bob|move: Tailwind
+|move|p1a: Charizard|Heat Wave|p2a: Metagross|[spread] p2a,p2b
+|-supereffective|p2a: Metagross
+|-damage|p2a: Metagross|40/100
+|-damage|p2b: Whimsicott|0 fnt
+|faint|p2b: Whimsicott
+|move|p2a: Metagross|Iron Head|p1b: Incineroar
+|-damage|p1b: Incineroar|60/100
+|move|p1b: Incineroar|Knock Off|p2a: Metagross
+|-damage|p2a: Metagross|25/100
+|-weather|SunnyDay|[upkeep]
+|upkeep
+|turn|2
+|
+|move|p1a: Charizard|Weather Ball|p2a: Metagross
+|-damage|p2a: Metagross|0 fnt
+|faint|p2a: Metagross
+|win|Alice
