@@ -242,7 +242,7 @@ class TestSinal(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.etc = Path(self.tmp.name)
         enviar.ETC = self.etc
-        (self.etc / "bot.env").write_text('BOT=MadMage\nSERVIDOR=oficial\nMODO="--ladder"\n')
+        (self.etc / "bot.env").write_text('BOT=MadMage\nSERVIDOR=oficial\nMODO="--ladder --model data/models/mc-bo3-rnad-v6.pt --search-prior 0.03"\n')
         (self.etc / "treino.env").write_text("BOT=LoR Sierra\nSERVIDOR=lor\n")
         (self.etc / "coleta.env").write_text("COLETA_CODIGO=segredo\n")
         (self.etc / "vazio.env").write_text("SERVIDOR=lor\n")
@@ -277,12 +277,19 @@ class TestSinal(unittest.TestCase):
         bots = enviar.bots_deste_pc(rodar, raiz)
         self.assertEqual(bots, [
             {"conta": "MadMage", "estado": "active", "partida": "https://play.pokemonshowdown.com/battle-x-9",
-             "servidor": "oficial", "desafio": False,
+             "servidor": "oficial", "modelo": "mc-bo3-rnad-v6", "desafio": False,
              "placar": {"oponente": "Rival", "formato": "gen9x", "bo3": True, "jogo": 2, "vitorias": 0,
                         "derrotas": 1, "turno": 4, "nossos": 3, "deles": 4, "idade": 5}},
-            {"conta": "LoR Sierra", "estado": "inactive", "partida": "", "servidor": "lor", "desafio": False,
-             "placar": None},
+            {"conta": "LoR Sierra", "estado": "inactive", "partida": "", "servidor": "lor", "modelo": "",
+             "desafio": False, "placar": None},
         ])  # sem coleta.env (o código nunca vai no sinal), exemplo.env nem .env sem conta
+
+    def test_modelo_do_modo(self):
+        self.assertEqual(enviar.modelo_do_modo("--ladder --model data/models/mc-bo3-rnad-v5.pt --bo1"),
+                         "mc-bo3-rnad-v5")
+        self.assertEqual(enviar.modelo_do_modo("--model=x/y/meu-modelo.pt"), "meu-modelo")
+        self.assertEqual(enviar.modelo_do_modo("--ladder --use MC371"), "")
+        self.assertEqual(enviar.modelo_do_modo(""), "")
 
     def test_placar_de_outra_partida_ou_velho(self):
         raiz = self.etc

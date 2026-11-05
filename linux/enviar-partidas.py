@@ -125,6 +125,12 @@ def _ler_env(arq: Path) -> dict[str, str]:
     return conf
 
 
+def modelo_do_modo(modo: str) -> str:
+    """O nome do modelo que o bot usa (o --model do MODO, sem pasta nem .pt), ou "" se não tiver."""
+    m = re.search(r"--model[= ]+(\S+)", modo or "")
+    return re.sub(r"\.pt$", "", m.group(1).rsplit("/", 1)[-1])[:40] if m else ""
+
+
 def partida_atual(log: str) -> str:
     """A última partida anunciada no log ("watch: <url>") se depois dela não veio o resultado
     dela (o mesmo que o painel.sh estado faz)."""
@@ -176,7 +182,7 @@ def bots_deste_pc(rodar=_rodar, raiz: Path | None = None) -> list[dict]:
             partida = partida_atual(rodar(["journalctl", "-u", unit, "-n", "300", "-o", "cat", "--no-pager"]))
         desafio = rodar(["systemctl", "show", "-p", "ActiveState", "--value", f"lor-desafio-{bot_id}"]).strip()
         bots.append({"conta": conf["BOT"], "estado": estado, "partida": partida,
-                     "servidor": conf.get("SERVIDOR") or "oficial",
+                     "servidor": conf.get("SERVIDOR") or "oficial", "modelo": modelo_do_modo(conf.get("MODO", "")),
                      "desafio": desafio in ("active", "activating", "deactivating"),
                      "placar": placar(raiz, conf["BOT"], partida)})
     return bots
