@@ -9,10 +9,11 @@ vão para a coleta do time, que alimenta o treino e o canal do Discord.
 1. Crie uma conta para o bot no [Showdown](https://play.pokemonshowdown.com) e registre-a
    (engrenagem → Register). Use uma conta só do bot, não a sua.
 2. Peça ao Thiago o seu **código da coleta**.
-3. Baixe o **[Instalar LoR Bots.bat](https://github.com/sierrific/lake-of-rage-battle-bots/releases/latest/download/Instalar-LoR-Bots.bat)**
+3. Baixe o **[Instalar LoR Bots.bat](https://showdown.sierverso.com.br/coleta/instalar)**
    e dê dois cliques nele. O Windows vai perguntar se pode rodar como administrador: aceite.
    Se aparecer "O Windows protegeu o computador", clique em *Mais informações* → *Executar assim mesmo*
-   (o arquivo não tem assinatura digital, mas é só um atalho para o instalador deste repositório).
+   (o arquivo não tem assinatura digital, mas é só um atalho para o instalador do time). Ele pede o
+   código da coleta: o bot e o painel vêm da VPS do time, que só entrega a quem tem código.
 
    Na primeira vez ele pode pedir para reiniciar o PC (para ligar o WSL); depois de reiniciar ele
    continua sozinho. A instalação leva uns 10–20 min e ocupa ~3 GB.
@@ -21,16 +22,16 @@ vão para a coleta do time, que alimenta o treino e o canal do Discord.
    disco com mais espaço (`D:\LoRBots\wsl`, por exemplo) e muda para lá uma instalação que já
    estava no C:. No C: fica só o próprio WSL do Windows (~1 GB) e o painel (poucos KB). Para
    escolher a pasta, rode pelo PowerShell (como administrador):
-   `$env:LOR_PASTA_WSL='D:\LoRBots'; irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/estavel/windows/instalar.ps1 | iex`
+   `$env:LOR_PASTA_WSL='D:\LoRBots'; irm https://showdown.sierverso.com.br/coleta/instalar.ps1 | iex`
 
    <details><summary>Ou pelo PowerShell</summary>
 
    ```powershell
-   irm https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/estavel/windows/instalar.ps1 | iex
+   irm https://showdown.sierverso.com.br/coleta/instalar.ps1 | iex
    ```
    </details>
-4. No **Painel LoR Bots** (atalho na Área de Trabalho, com o Gyarados vermelho): salve o usuário do bot e o código da
-   coleta e clique em **Ligar**. O Edge ou Chrome abre o site oficial do Showdown em um perfil
+4. No **Painel LoR Bots** (atalho na Área de Trabalho, com o Gyarados vermelho): salve o usuário do bot
+   (o código da coleta já vem do instalador) e clique em **Ligar**. O Edge ou Chrome abre o site oficial do Showdown em um perfil
    separado. Entre na mesma conta nessa janela, em até 5 minutos; a senha é digitada no site.
    Ao concluir a autorização, a janela fecha e o bot continua.
 
@@ -217,7 +218,7 @@ sudo linux/instalar.sh
 Um arquivo por bot em `/etc/lor-bots/<nome>.env` (veja `linux/exemplo.env`: ladder, aceitar
 desafios, desafiar outro bot) e `sudo systemctl enable --now lor-bot@<nome>`. Envio para a
 coleta: `COLETA_CODIGO=...` em `/etc/lor-bots/coleta.env` e `sudo systemctl enable --now lor-envio`.
-Atualizar: `sudo /opt/lor-bots/atualizar.sh`.
+Atualizar: `sudo /opt/lor-bots/atualizar.sh` (baixa da VPS do time com o código do `coleta.env`).
 
 O exemplo Linux mantém `LOGIN=senha` para instalações sem interface gráfica. O fluxo pelo
 navegador desta versão integra o painel Windows e a distribuição `LoRBots`; não é um login

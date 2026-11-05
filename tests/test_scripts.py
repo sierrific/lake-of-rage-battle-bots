@@ -935,8 +935,10 @@ exit 0
 CURL_FALSO = r'''#!/usr/bin/env bash
 url="${@: -1}"
 echo "$url" >>"$D/downloads"
+# A VPS só entrega com o código da coleta.
+[[ " $* " == *" Authorization: Bearer $LOR_CODIGO_ESPERADO "* ]] || { echo "sem código: $*" >>"$D/downloads"; exit 22; }
 case "$url" in
-  */commits/*)
+  https://showdown.sierverso.com.br/coleta/bots/ramo/*)
     printf '{"sha":"%s"}' "$(cat "$D/github/REVISION")"
     # A branch muda depois de resolver o SHA; os artefatos fixados continuam iguais.
     [ ! -f "$D/mudar-branch" ] || echo 999 >"$D/github/VERSION"
@@ -983,7 +985,10 @@ class TestAtualizar(unittest.TestCase):
         (d / "estado-bot").write_text("active")
         self.d = d
         self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "D": str(d),
-                    "LOR_DIR": str(self.opt), "LOR_RUN": str(d), "LOR_ESPERA": "0"}
+                    "LOR_DIR": str(self.opt), "LOR_RUN": str(d), "LOR_ESPERA": "0",
+                    "LOR_ETC": str(d / "etc"), "LOR_CODIGO_ESPERADO": "codigo-do-membro"}
+        (d / "etc").mkdir()
+        (d / "etc" / "coleta.env").write_text("COLETA_CODIGO=codigo-do-membro\n")
         # Instalado: a versão 1, com a marca do que ela instalou.
         self.versao("1", patch="patch 1")
         self.atualizar("--forcar")
@@ -1047,8 +1052,9 @@ class TestAtualizar(unittest.TestCase):
         self.assertEqual((self.opt / "VERSION").read_text(), "2")
         self.assertEqual((self.opt / "REVISION").read_text().strip(), sha)
         urls = (self.d / "downloads").read_text().splitlines()
-        self.assertEqual(sum("/commits/" in u for u in urls), 1)
-        self.assertTrue(all(sha in u for u in urls if "/commits/" not in u), urls)
+        self.assertEqual(sum("/ramo/" in u for u in urls), 1)
+        self.assertTrue(all(sha in u for u in urls if "/ramo/" not in u), urls)
+        self.assertTrue(all(u.startswith("https://showdown.sierverso.com.br/coleta/bots/") for u in urls), urls)
 
     def test_sha_do_painel_nao_consulta_branch(self):
         self.versao("2", patch="patch 2")
@@ -1056,7 +1062,21 @@ class TestAtualizar(unittest.TestCase):
         self.env.update(LOR_REVISION=sha, LOR_VERSION="2")
         (self.d / "downloads").write_text("")
         self.assertEqual(self.atualizar().returncode, 0)
-        self.assertNotIn("/commits/", (self.d / "downloads").read_text())
+        self.assertNotIn("/ramo/", (self.d / "downloads").read_text())
+
+    def test_codigo_do_instalador_e_sem_codigo(self):
+        # O instalador passa o código antes de existir o coleta.env; sem código nada é baixado.
+        self.versao("2", patch="patch 1")
+        (self.d / "etc" / "coleta.env").unlink()
+        (self.d / "downloads").write_text("")
+        r = self.atualizar()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("código da coleta", r.stderr)
+        self.assertEqual((self.d / "downloads").read_text(), "")
+        self.env["LOR_CODIGO"] = "codigo-do-membro"
+        r = self.atualizar()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.opt / "VERSION").read_text(), "2")
 
     def test_versao_divergente_aborta_antes_de_parar_ou_instalar(self):
         for caso in ("pacote", "painel", "sha"):
@@ -1157,10 +1177,20 @@ class TestAtualizar(unittest.TestCase):
         self.assertIn('mv "$DIR/fonte.tmp" "$DIR/fonte"', t)
 
     def test_bootstrap_do_windows_comeca_pela_estavel(self):
-        # O .bat roda o instalador como administrador: nunca uma main que os testes ainda não aprovaram.
+        # O .bat roda o instalador como administrador: o da VPS, que é sempre o da estavel (nunca
+        # uma main que os testes ainda não aprovaram). O repositório no GitHub é privado.
         bat = (RAIZ_REPO / "windows" / "Instalar LoR Bots.bat").read_text()
-        self.assertIn("/estavel/windows/instalar.ps1", bat)
-        self.assertNotIn("/main/", bat)
+        self.assertIn("irm https://showdown.sierverso.com.br/coleta/instalar.ps1 | iex", bat)
+        self.assertNotIn("github", bat)
+
+    def test_nada_baixa_do_github_privado(self):
+        # Com o repositório privado, raw.githubusercontent e a API dariam 404 para os amigos.
+        for arq in ("windows/instalar.ps1", "windows/Painel.ps1", "linux/atualizar.sh", "README.md"):
+            texto = (RAIZ_REPO / arq).read_text(encoding="utf-8-sig")
+            for proibido in ("raw.githubusercontent.com/sierrific", "api.github.com/repos/sierrific",
+                             "github.com/sierrific/lake-of-rage-battle-bots/archive",
+                             "lake-of-rage-battle-bots/releases"):
+                self.assertNotIn(proibido, texto, arq)
 
     def test_mesma_conta_que_o_instalar(self):
         # Se as duas contas divergirem, toda atualização pararia os bots (ou nenhuma pararia).

@@ -977,7 +977,9 @@ $Ramo = 'estavel'
 if ($env:LOR_RAMO) { $Ramo = $env:LOR_RAMO }
 elseif (Test-Path (Join-Path $Pasta 'ramo.txt')) { $Ramo = (Get-Content (Join-Path $Pasta 'ramo.txt') -TotalCount 1).Trim() }
 if (-not $Ramo -or $Ramo -eq 'main') { $Ramo = 'estavel' }
-$Raw = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Ramo"
+# Bot e painel vêm da VPS do time, com o código da coleta (o repositório no GitHub é privado).
+$Vps = 'https://showdown.sierverso.com.br/coleta/bots'
+if ($env:LOR_VPS) { $Vps = $env:LOR_VPS }
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $ArquivoSkin = Join-Path $Pasta 'skin.txt'
 $ArquivoLayout = Join-Path $Pasta 'layout.txt'
@@ -2754,48 +2756,62 @@ function Versao-Painel {
     try { (Get-Content $ArquivoVersao -TotalCount 1).Trim() } catch { '' }
 }
 
-# Versão nova no GitHub para o Linux ou para este painel (cada um pode ter ficado para trás).
+# Versão nova na VPS para o Linux ou para este painel (cada um pode ter ficado para trás).
 function Precisa-Atualizar {
     [bool]$script:versaoNova -and ($script:versaoNova -ne $script:estado['versao'] -or $script:versaoNova -ne (Versao-Painel))
+}
+
+# O código da coleta salvo no Linux: a VPS só entrega as versões a quem tem código de membro.
+function Codigo-Coleta {
+    $r = Invoke-Painel @('codigo-atual')
+    if ($r.Codigo -eq 0 -and $r.Saida -cmatch '(?m)^codigo=([A-Za-z0-9_-]{8,128})\s*$') { return $Matches[1] }
+    ''
 }
 
 function Consultar-Atualizacao {
     $script:versaoNova = $null
     $script:atualizacao = $null
+    $script:semCodigo = $false
+    $codigo = Codigo-Coleta
+    if (-not $codigo) { $script:semCodigo = $true; throw 'Sem o código da coleta.' }
+    $cabecalho = @{ Authorization = "Bearer $codigo" }
     $ramoUrl = [Uri]::EscapeDataString($Ramo)
-    $commit = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "https://api.github.com/repos/sierrific/lake-of-rage-battle-bots/commits/$ramoUrl").Content | ConvertFrom-Json
-    if ($commit.sha -cnotmatch '^[0-9a-f]{40}$') { throw 'O GitHub não informou uma revisão válida.' }
-    $rawFixo = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$($commit.sha)"
-    $versao = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$rawFixo/VERSION").Content.Trim()
-    if ($versao -cnotmatch '^[A-Za-z0-9._-]+$') { throw 'O GitHub não informou uma versão válida.' }
-    $script:atualizacao = [pscustomobject]@{ Sha = $commit.sha; Versao = $versao; Raw = $rawFixo }
+    $commit = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Headers $cabecalho -Uri "$Vps/ramo/$ramoUrl").Content | ConvertFrom-Json
+    if ($commit.sha -cnotmatch '^[0-9a-f]{40}$') { throw 'O servidor do time não informou uma revisão válida.' }
+    $rawFixo = "$Vps/$($commit.sha)"
+    $versao = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Headers $cabecalho -Uri "$rawFixo/VERSION").Content.Trim()
+    if ($versao -cnotmatch '^[A-Za-z0-9._-]+$') { throw 'O servidor do time não informou uma versão válida.' }
+    $script:atualizacao = [pscustomobject]@{ Sha = $commit.sha; Versao = $versao; Raw = $rawFixo; Codigo = $codigo }
     $script:versaoNova = $versao
 }
 
 function Comando-Atualizacao($versao) {
     # Também atualiza instalações cujo updater antigo ainda não entende LOR_REVISION.
-    # Baixa o script inteiro para um temporário antes de executar, sempre do mesmo commit.
+    # Baixa o script inteiro para um temporário antes de executar, sempre do mesmo commit. O código
+    # da coleta é lido no próprio Linux (não vai na linha de comando do Windows).
     $bash = @'
 set -euo pipefail
 script=$(mktemp)
 trap 'rm -f "$script"' EXIT
-curl -fsSL --max-time 30 'https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/{0}/linux/atualizar.sh' -o "$script"
+codigo=$(sed -n 's/^COLETA_CODIGO=//p' /etc/lor-bots/coleta.env | head -n1)
+curl -fsSL --max-time 30 -H "Authorization: Bearer $codigo" '{2}/{0}/linux/atualizar.sh' -o "$script"
 LOR_REVISION='{0}' LOR_VERSION='{1}' bash "$script"
-'@ -f $versao.Sha, $versao.Versao
+'@ -f $versao.Sha, $versao.Versao, $Vps
     $codificado = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bash.Replace("`r", '')))
     "-d $Distro -u root -e bash -c `"echo $codificado | base64 -d | bash`""
 }
 
 function Atualizar-Painel {
     $versao = $script:atualizacao
-    if (-not $versao) { Mensagem 'Consulte a versão no GitHub antes de atualizar.'; return }
+    if (-not $versao) { Mensagem 'Consulte a versão nova antes de atualizar.'; return }
     if (-not (Confirmar "Baixar a versão $($script:versaoNova) do bot e do painel? Se o bot estiver jogando, ele termina a partida atual antes de reiniciar.")) { return }
     # O painel novo só entra no lugar deste depois que a atualização do Linux deu certo; antes disso
     # fica ao lado (Painel.novo.ps1), e o atual vira Painel.anterior.ps1 (para voltar à mão, se precisar).
     $atual = Join-Path $Pasta 'Painel.ps1'
     $novo = Join-Path $Pasta 'Painel.novo.ps1'
     try {
-        Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri "$($versao.Raw)/windows/Painel.ps1" -OutFile $novo
+        Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Headers @{ Authorization = "Bearer $($versao.Codigo)" } `
+            -Uri "$($versao.Raw)/windows/Painel.ps1" -OutFile $novo
         $erros = $null
         [void][System.Management.Automation.PSParser]::Tokenize((Get-Content $novo -Raw -Encoding UTF8), [ref]$erros)
         if ($erros.Count -gt 0) { throw 'o painel baixado veio incompleto ou com erro. Tente de novo.' }
@@ -2853,7 +2869,8 @@ $lAtualizar.Add_Click({
     try { Consultar-Atualizacao } catch { }
     if (Precisa-Atualizar) { Atualizar-Painel }
     elseif ($script:versaoNova) { Mensagem "Já está na versão mais nova ($($script:versaoNova))." }
-    else { Mensagem 'Não consegui ver a versão no GitHub. Confira a internet e tente de novo.' }
+    elseif ($script:semCodigo) { Mensagem 'Para receber atualizações, coloque primeiro o código da coleta que o Thiago te passou.' }
+    else { Mensagem 'Não consegui ver a versão nova no servidor do time. Confira a internet e tente de novo.' }
     Atualizar-Tela
 })
 
@@ -2890,7 +2907,7 @@ $form.Add_Shown({
     $form.Refresh()
     try {
         Carregar-Opcoes
-        # Versão nova no GitHub? (só avisa; atualizar é no link do rodapé)
+        # Versão nova na VPS? (só avisa; atualizar é no link do rodapé)
         try { Consultar-Atualizacao } catch { }
         Atualizar-Tela
         # Depois do Atualizar-Tela, que é quem lê o estado do bot: painel reaberto com o bot já
