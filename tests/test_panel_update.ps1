@@ -49,7 +49,7 @@ $trava | Add-Member ScriptMethod ReleaseMutex { }
 $form = New-Object PSObject
 $form | Add-Member ScriptMethod Close { }
 $lAtualizar = [pscustomobject]@{ Text = ''; Enabled = $true }
-foreach ($name in @('bLigar','bVer','bDesligar','bAgora','bAplicar','bConta','bCodigo','xDiscord','xChat','xBloquearBots','xEsperarBots','xEsperarColmeia','xDecisoesInstantaneas','bDesafiar')) {
+foreach ($name in @('bLigar','bVer','bDesligar','bAgora','bAplicar','bConta','bCodigo','xDiscord','xChat','xBloquearBots','xEsperarBots','xEsperarColmeia','xPausa','xDecisoesInstantaneas','bDesafiar')) {
     Set-Variable $name ([pscustomobject]@{ Enabled = $true })
 }
 try {

@@ -41,7 +41,7 @@ function Fresh-State {
     $script:fake = @{
         hoje_vitorias = '3'; hoje_derrotas = '1'; hoje_times = 'MC371 2-1, MC196 1-0'
         bot = 'active'; conta = 'LoRBotTeste'; senha = 'sim'; codigo = 'sim'; envio = 'active'
-        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; bloquear_bots = 'sim'; esperar_bots = 'sim'; esperar_colmeia = 'sim'; decisoes_instantaneas = 'nao'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
+        formato = 'bo3'; timer = 'sim'; discord = 'sim'; chat = 'sim'; bloquear_bots = 'sim'; esperar_bots = 'sim'; esperar_colmeia = 'sim'; pausa = 'sim'; decisoes_instantaneas = 'nao'; time = 'SolUgarte'; versao = '2026.10.24.19'; memoria_mb = '531'
         partida = 'https://play.pokemonshowdown.com/battle-teste'; desafio = ''; desafio_fase = ''
         placar_oponente = 'AdversarioTeste'; placar_bo3 = 'sim'; placar_jogo = '2'; placar_vitorias = '1'; placar_derrotas = '0'
         placar_turno = '4'; placar_nossos = '3'; placar_deles = '1'; placar_resultado = ''
@@ -76,6 +76,7 @@ function Install-Fakes {
             'bloquear-bots' { $script:fake.bloquear_bots = $Argumentos[1] }
             'esperar-bots' { $script:fake.esperar_bots = $Argumentos[1] }
             'esperar-colmeia' { $script:fake.esperar_colmeia = $Argumentos[1] }
+            pausa { $script:fake.pausa = $Argumentos[1] }
             'decisoes-instantaneas' { $script:fake.decisoes_instantaneas = $Argumentos[1] }
             time { $script:fake.time = $Argumentos[1] }
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
@@ -543,6 +544,19 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             $fake.Remove('esperar_colmeia'); $script:opcoesCarregadas = $false; Atualizar-Tela
             Assert $xEsperarColmeia.Marcado 'estado antigo mantem espera da colmeia'
             $fake.esperar_colmeia = 'sim'
+            Assert $xPausa.Marcado 'pausa entre partidas ligada por padrao'
+            $script:commands.Clear(); $xPausa.Marcado = $false; Mudar-Pausa
+            Assert ((Has-Command 'pausa|nao') -and $fake.pausa -eq 'nao' -and -not (Has-Command 'reiniciar')) 'desligar pausa sem reiniciar'
+            Assert ($fake.esperar_bots -eq 'sim' -and $fake.esperar_colmeia -eq 'sim') 'pausa independente das outras esperas'
+            $script:failure = 'pausa'; $xPausa.Marcado = $true; Mudar-Pausa
+            Assert (-not $xPausa.Marcado) 'falha restaura toggle da pausa'
+            $script:failure = ''; $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert (-not $xPausa.Marcado) 'pausa recupera preferencia salva'
+            $xPausa.Marcado = $true; Mudar-Pausa
+            Assert ($fake.pausa -eq 'sim') 'religar pausa'
+            $fake.Remove('pausa'); $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert $xPausa.Marcado 'estado antigo mantem pausa ligada'
+            $fake.pausa = 'sim'
             Assert (-not $xDecisoesInstantaneas.Marcado -and $lDecisoesValor.Text -eq 'Não') 'instantaneas nao por padrao'
             $script:commands.Clear(); $xDecisoesInstantaneas.Marcado = $true; Mudar-DecisoesInstantaneas
             Assert ((Has-Command 'decisoes-instantaneas|sim') -and $fake.decisoes_instantaneas -eq 'sim' -and -not (Has-Command 'reiniciar')) 'instantaneas sim sem reiniciar'
