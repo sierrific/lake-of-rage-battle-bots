@@ -98,6 +98,12 @@ export LOR_FAST_DECISIONS_FILE="${DECISOES_RAPIDAS_ARQUIVO:-}"
 export LOR_PERSONALITY="${PERSONALIDADE:-auto}"
 
 read -ra args <<<"$MODO"
+# Modelo treinado pelo time: vem da coleta (modelo-time.sh); sem ele, o original.
+for i in "${!args[@]}"; do
+	if [ "${args[$i]}" = --model ] && [ -n "${args[$((i + 1))]:-}" ]; then
+		args[$((i + 1))]="$("${LOR_MODELO_TIME:-/opt/lor-bots/modelo-time.sh}" "${args[$((i + 1))]}")"
+	fi
+done
 if [ "${SERVIDOR:-oficial}" = lor ]; then
 	args+=(--server-url wss://showdown.sierverso.com.br/showdown/websocket
 	       --client-url https://showdown-sierverso-com-br.psim.us/)
