@@ -296,7 +296,7 @@ index 0000000..b3a9a8f
 +    def pause_seconds(self) -> float:
 +        return self.rng.triangular(*self.profile.pause)
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..bb067f9 100644
+index eb60a97..0b51718 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -511,7 +511,7 @@ index eb60a97..bb067f9 100644
  
      async def _ladder(self, n_games: int):
          # poke-env's loop, plus a graceful stop: once `stop_after_match` is set, queue no more
-@@ -549,18 +726,294 @@ class ChallengeMixin:
+@@ -549,18 +726,303 @@ class ChallengeMixin:
          for _ in range(n_games):
              if self.stop_after_match:
                  break
@@ -657,17 +657,26 @@ index eb60a97..bb067f9 100644
 +        often; bots, always in the queue, do. At most the 8 most frequent."""
 +        if self.save_dir is None or not self.save_dir.parent.is_dir():
 +            return []
-+        since = time.strftime("%Y-%m-%d", time.localtime(time.time() - self.KNOWN_BOT_DAYS * 86400))
++        # By each game's own time, not the folder's name: a bot left running keeps writing to the
++        # folder of the day it started (save_dir), so after a week its new games would be skipped
++        # (code review 2026-11-05). A folder untouched for the whole window isn't opened at all.
++        cutoff = time.time() - self.KNOWN_BOT_DAYS * 86400
++        since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(cutoff))
 +        games: Counter[str] = Counter()
 +        for day in self.save_dir.parent.iterdir():
 +            path = day / "games.jsonl"
-+            if day.name < since or not path.is_file():
++            try:
++                if not path.is_file() or path.stat().st_mtime < cutoff:
++                    continue
++            except OSError:
 +                continue
 +            with open(path) as f:
 +                for line in f:
 +                    try:
 +                        row = json.loads(line)
 +                    except ValueError:
++                        continue
++                    if not isinstance(row, dict) or str(row.get("time", "")) < since:
 +                        continue
 +                    if row.get("opponent") and row.get("format") == self._format:
 +                        games[to_id_str(row["opponent"])] += 1
@@ -813,7 +822,7 @@ index eb60a97..bb067f9 100644
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
          opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
-@@ -645,6 +1098,18 @@ class ChallengeMixin:
+@@ -645,6 +1107,18 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
@@ -832,7 +841,7 @@ index eb60a97..bb067f9 100644
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -663,8 +1128,19 @@ class ChallengeMixin:
+@@ -663,8 +1137,19 @@ class ChallengeMixin:
          return battle
  
      def _battle_finished_callback(self, battle: AbstractBattle) -> None:
@@ -853,7 +862,7 @@ index eb60a97..bb067f9 100644
          if self.save_dir is None:
              return
          try:
-@@ -674,13 +1150,21 @@ class ChallengeMixin:
+@@ -674,13 +1159,21 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -876,7 +885,7 @@ index eb60a97..bb067f9 100644
              with open(self.save_dir / "games.jsonl", "a") as f:
                  f.write(json.dumps(row) + "\n")
              if self.logs_dir:
-@@ -714,6 +1198,11 @@ class ChallengeMixin:
+@@ -714,6 +1207,11 @@ class ChallengeMixin:
                  and (self.allowed is None or to_id_str(user) in self.allowed))
  
      async def _handle_challenge_request(self, split_message: list[str]):
@@ -888,7 +897,7 @@ index eb60a97..bb067f9 100644
          if len(split_message) >= 6 and self._wanted(split_message[2], split_message[5]):
              await self._challenge_queue.put((split_message[2].strip(), split_message[5]))
  
-@@ -725,8 +1214,19 @@ class ChallengeMixin:
+@@ -725,8 +1223,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -909,7 +918,7 @@ index eb60a97..bb067f9 100644
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -750,6 +1250,68 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -750,6 +1259,68 @@ def _public_login(player: Player, password: str | None) -> None:
  
      client = player.ps_client
      name = client.account_configuration.username
@@ -978,7 +987,7 @@ index eb60a97..bb067f9 100644
  
      def call(method: str, **kw):
          # The login server is sometimes slow: wait longer than poke-env's 10s, and retry.
-@@ -763,8 +1325,25 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -763,8 +1334,25 @@ def _public_login(player: Player, password: str | None) -> None:
          os._exit(1)
  
      async def log_in(split_message: list[str]) -> None:
@@ -1006,7 +1015,7 @@ index eb60a97..bb067f9 100644
              r = call("POST", data={"act": "login", "name": name, "pass": password, "challstr": challstr})
              try:
                  reply = json.loads(r.text[1:])  # the reply starts with "]"
-@@ -785,12 +1364,50 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -785,12 +1373,50 @@ def _public_login(player: Player, password: str | None) -> None:
              if not assertion or assertion.startswith("{"):
                  print(f"login server refused '{name}': {assertion[:200]}", flush=True)
                  os._exit(1)
@@ -1058,7 +1067,7 @@ index eb60a97..bb067f9 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +1435,12 @@ def main() -> None:
+@@ -818,6 +1444,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -1071,7 +1080,7 @@ index eb60a97..bb067f9 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -829,6 +1452,9 @@ def main() -> None:
+@@ -829,6 +1461,9 @@ def main() -> None:
      ap.add_argument("--challenge", nargs="+", metavar="NAME",
                      help="challenge these accounts (e.g. scripts/vgcbench_bot.py) --n times in total, "
                           "one battle per account at a time")
@@ -1081,7 +1090,7 @@ index eb60a97..bb067f9 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1483,17 @@ def main() -> None:
+@@ -857,6 +1492,17 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
@@ -1099,7 +1108,7 @@ index eb60a97..bb067f9 100644
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -882,6 +1519,9 @@ def main() -> None:
+@@ -882,6 +1528,9 @@ def main() -> None:
                      help="draw each match's team at random from just these --teams files (stems)")
      ap.add_argument("--no-timer", action="store_true",
                      help="on Showdown, don't turn the battle timer on at the start of each game")
@@ -1109,7 +1118,7 @@ index eb60a97..bb067f9 100644
      ap.add_argument("--no-munchstats", action="store_true",
                      help="--search on Showdown: don't fetch MunchStats usage for unknown opposing species")
      ap.add_argument("--closed-sheets", action="store_true",
-@@ -896,6 +1536,7 @@ def main() -> None:
+@@ -896,6 +1545,7 @@ def main() -> None:
                      help="team folder search and --adapt read EV spreads from (default: --teams). Use the full "
                           "pool when --teams is small, or opponents' spreads fall back to 0 EVs")
      args = ap.parse_args()
@@ -1117,7 +1126,7 @@ index eb60a97..bb067f9 100644
      torch.set_num_threads(1)
      if args.search_team_mass is not None:
          from ai_vgc.nn import search as _search
-@@ -913,17 +1554,24 @@ def main() -> None:
+@@ -913,17 +1563,24 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -1145,7 +1154,7 @@ index eb60a97..bb067f9 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -932,9 +1580,21 @@ def main() -> None:
+@@ -932,9 +1589,21 @@ def main() -> None:
              common.update(max_concurrent_battles=1)
              del common["battle_format"]
              password = None
@@ -1168,7 +1177,7 @@ index eb60a97..bb067f9 100644
              acct = AccountConfiguration(args.accept, password)
              kw = dict(rules=not args.no_rules, team=teams(), account_configuration=acct, **common)
              if args.search:
-@@ -949,7 +1609,8 @@ def main() -> None:
+@@ -949,7 +1618,8 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -1178,7 +1187,7 @@ index eb60a97..bb067f9 100644
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -958,6 +1619,7 @@ def main() -> None:
+@@ -958,6 +1628,7 @@ def main() -> None:
                      bot.refresher = Refresher()
              else:
                  bot = ChallengeNNPlayer(args.model, args.rating, args.greedy, formats=formats, **kw)
@@ -1186,7 +1195,7 @@ index eb60a97..bb067f9 100644
              if public:
                  _public_login(bot, password)
              bot.vary, bot.vary_k, bot.vary_margin = args.vary, args.vary_k, args.vary_margin
-@@ -966,9 +1628,15 @@ def main() -> None:
+@@ -966,9 +1637,15 @@ def main() -> None:
              bot.set_guess = (str(args.sets or args.teams or TEAMS_DIR), formats[0]) if args.set_guess else None
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
@@ -1203,7 +1212,7 @@ index eb60a97..bb067f9 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -976,42 +1644,53 @@ def main() -> None:
+@@ -976,42 +1653,53 @@ def main() -> None:
                  def watchdog():
                      # poke-env's listener just ends when the server drops the connection, leaving the
                      # bot waiting forever; exit with 75 instead so scripts/bot.sh logs in again.
@@ -1275,7 +1284,7 @@ index eb60a97..bb067f9 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1714,8 @@ def main() -> None:
+@@ -1035,7 +1723,8 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -1285,13 +1294,13 @@ index eb60a97..bb067f9 100644
              me.counter_t1 = args.counter_t1
          else:
              me = NNPlayer(args.model, args.rating, args.greedy, rules=not args.no_rules,
-@@ -1093,6 +1773,9 @@ def main() -> None:
+@@ -1093,6 +1782,9 @@ def main() -> None:
              extra = (f"  search: {me.searched} decisions, {me.search_time / max(me.searched, 1):.2f}s each, "
                       f"{me.fallbacks} by policy, {me.sim_errors}/{me.sims} sims failed, "
                       f"{me.countered} turn 1s countered")
-+            from ai_vgc.nn.search import STATS
-+            if STATS:
-+                extra += "  " + ", ".join(f"{k} {v}" for k, v in sorted(STATS.items()))
++            from ai_vgc.nn.search import SEARCH_STATS
++            if SEARCH_STATS:
++                extra += "  " + ", ".join(f"{k} {v}" for k, v in sorted(SEARCH_STATS.items()))
          print(f"{Path(args.model).name}{'+search' if args.search else ''} vs {args.opponent}: "
                f"{wins}/{n} = {wins / max(n, 1):.1%}  95% CI [{lo:.1%}, {hi:.1%}]  {time.time() - t:.0f}s{extra}")
          if me.games:
@@ -1413,7 +1422,7 @@ index cf62665..56f71bb 100644
      """The move list that DoublesEnv's action ids index into."""
      mon = battle.active_pokemon[pos]
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
-index 9d7a515..63aa574 100644
+index 9d7a515..ba41526 100644
 --- a/src/ai_vgc/nn/search.py
 +++ b/src/ai_vgc/nn/search.py
 @@ -30,6 +30,7 @@ Search only runs on ordinary move turns; forced switches and team preview use th
@@ -1424,7 +1433,7 @@ index 9d7a515..63aa574 100644
  import copy
  import json
  import random
-@@ -64,7 +65,7 @@ from ai_vgc import munchstats
+@@ -64,16 +65,23 @@ from ai_vgc import munchstats
  from ai_vgc.nn.encode import encode
  from ai_vgc.nn.model import Policy, masked, slot_b_mask
  from ai_vgc.nn.player import NNPlayer, action_mask, load_policy
@@ -1432,8 +1441,14 @@ index 9d7a515..63aa574 100644
 +from ai_vgc.nn.rules import apply_rules, mega_stones
  
  BRIDGE = Path(__file__).with_name("sim_bridge.js")
- STATS = ["hp", "atk", "def", "spa", "spd", "spe"]
-@@ -74,6 +75,10 @@ VOLATILES = {
+-STATS = ["hp", "atk", "def", "spa", "spd", "spe"]
++# The six stats, in Showdown's order, for the sets' EVs and IVs. Never rebind this name: from
++# 2026-11-01 (v2026.11.01.17) to 2026-11-05 the search counters were also called STATS, which
++# replaced this list, so every simulated opponent had 0 EVs and 31 IVs (code review 2026-11-05).
++STATS = ("hp", "atk", "def", "spa", "spd", "spe")
+ VOLATILES = {
+     Effect.SUBSTITUTE: "substitute", Effect.TAUNT: "taunt", Effect.CONFUSION: "confusion",
+     Effect.LEECH_SEED: "leechseed", Effect.YAWN: "yawn", Effect.PERISH1: "perish1",
      Effect.PERISH2: "perish2", Effect.PERISH3: "perish3", Effect.SALT_CURE: "saltcure",
      Effect.HEAL_BLOCK: "healblock", Effect.CHARGE: "charge",
  }
@@ -1444,7 +1459,7 @@ index 9d7a515..63aa574 100644
  # Turns a condition lasts when set (the item/ability extensions aren't visible, so ignored).
  SIDE_TURNS = {SideCondition.TAILWIND: 4, SideCondition.REFLECT: 5, SideCondition.LIGHT_SCREEN: 5,
                SideCondition.AURORA_VEIL: 5, SideCondition.SAFEGUARD: 5, SideCondition.MIST: 5}
-@@ -466,12 +471,68 @@ def _set(mon: Pokemon, teams_dir: str, world: dict | None = None) -> dict:
+@@ -466,12 +474,68 @@ def _set(mon: Pokemon, teams_dir: str, world: dict | None = None) -> dict:
              "evs": dict(zip(STATS, evs)), "ivs": dict(zip(STATS, ivs))}
  
  
@@ -1515,7 +1530,7 @@ index 9d7a515..63aa574 100644
      if ours:
          s["hp"], s["maxhp"] = mon.current_hp, mon.max_hp
          s["stats"] = {k: v for k, v in (mon.stats or {}).items() if v}
-@@ -504,13 +565,46 @@ def _side(battle: DoubleBattle, ours: bool, teams_dir: str, world: dict | None =
+@@ -504,13 +568,46 @@ def _side(battle: DoubleBattle, ours: bool, teams_dir: str, world: dict | None =
      order += [m for m in brought if m not in order]
      conds = battle.side_conditions if ours else battle.opponent_side_conditions
      return {
@@ -1563,7 +1578,7 @@ index 9d7a515..63aa574 100644
  def position(battle: DoubleBattle, fmt: str, teams_dir: str, world: dict | None = None) -> dict | None:
      """The bridge's `state` for this battle (the opponent's hidden sets from `world`), or None when
      it can't be rebuilt."""
-@@ -519,9 +613,9 @@ def position(battle: DoubleBattle, fmt: str, teams_dir: str, world: dict | None
+@@ -519,9 +616,9 @@ def position(battle: DoubleBattle, fmt: str, teams_dir: str, world: dict | None
          return None
      st = {"format": fmt, "turn": battle.turn, "role": battle.player_role,
            "sides": {"us": us, "them": them}, "pseudo": {}}
@@ -1575,7 +1590,7 @@ index 9d7a515..63aa574 100644
      for f, t in battle.fields.items():
          left = max(1, 5 - (battle.turn - t))
          if f in TERRAINS:
-@@ -544,14 +638,26 @@ class Bridge:
+@@ -544,14 +641,26 @@ class Bridge:
          self._start()
  
      def _start(self) -> None:
@@ -1606,7 +1621,7 @@ index 9d7a515..63aa574 100644
          # A bridge that died (e.g. killed on a busy node) is restarted rather than failing
          # every later search in the run.
          if self.proc.poll() is not None:
-@@ -560,10 +666,20 @@ class Bridge:
+@@ -560,10 +669,20 @@ class Bridge:
          self.proc.stdin.write(json.dumps(req) + "\n")
          # The read blocks the event loop and every battle on it, so a simulation that never
          # returns (it happens on ilab) must not wait forever: kill it and start a fresh one.
@@ -1631,7 +1646,7 @@ index 9d7a515..63aa574 100644
          line = self.proc.stdout.readline()
          if not line:
              raise RuntimeError(f"sim bridge exited with code {self.proc.wait()}")
-@@ -572,23 +688,37 @@ class Bridge:
+@@ -572,23 +691,37 @@ class Bridge:
              raise RuntimeError(out["error"])
          return out
  
@@ -1676,7 +1691,7 @@ index 9d7a515..63aa574 100644
  
  
  def after(battle: DoubleBattle, lines: list[str]) -> DoubleBattle:
-@@ -624,8 +754,138 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
+@@ -624,8 +757,138 @@ def our_candidates(model: Policy, obs: dict[str, np.ndarray], mask: np.ndarray,
      return sorted(out, key=lambda c: -c[1])[:k]
  
  
@@ -1816,7 +1831,7 @@ index 9d7a515..63aa574 100644
      """(choice, probability) for one opposing slot, from the opponent head's (move-or-switch,
      target) probabilities, or every move and target equally likely without them."""
      mon = battle.opponent_active_pokemon[slot]
-@@ -642,10 +902,29 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
+@@ -642,10 +905,29 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
              ally = moves[i].target in (Target.ADJACENT_ALLY, Target.ADJACENT_ALLY_OR_SELF)
              mv_p[i], tg_p[i] = guess, np.array([0.0, 0.0, 1.0] if ally else [0.5, 0.5, 0.0])
          probs = (mv_p, tg_p)
@@ -1836,7 +1851,7 @@ index 9d7a515..63aa574 100644
 +        moved = mv_p[:len(moves)].sum()
 +        mv_p[:len(moves)] = (1 - w) * mv_p[:len(moves)] + w * moved * f
 +        probs = (mv_p, probs[1])
-+        STATS["series_slots"] += 1
++        SEARCH_STATS["series_slots"] += 1
      # Their view: our a / our b are foe slots 1 / 2; the ally is -1 (slot a) or -2 (slot b).
      targets = [1, 2, -2 if slot == 0 else -1]
      out: dict[str, float] = {}
@@ -1846,7 +1861,7 @@ index 9d7a515..63aa574 100644
          p_move = probs[0][i] if probs is not None else 1.0
          if mv.target in TARGETED:
              tgt = range(3) if probs is not None else range(2)
-@@ -656,31 +935,39 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
+@@ -656,31 +938,39 @@ def _slot_options(battle: DoubleBattle, state: dict, slot: int,
              out[f"move {mv.id}"] = out.get(f"move {mv.id}", 0) + p_move
      bench = [m["set"]["name"] for m in state["sides"]["them"]["mons"][2:] if not m["fainted"]]
      if bench and probs is not None:
@@ -1892,7 +1907,7 @@ index 9d7a515..63aa574 100644
                  mega = s
                  break
      joint = []
-@@ -692,7 +979,17 @@ def opp_candidates(opp_model: Policy | None, battle: DoubleBattle, obs: dict[str
+@@ -692,7 +982,17 @@ def opp_candidates(opp_model: Policy | None, battle: DoubleBattle, obs: dict[str
          joint.append((f"{ca}, {cb}", pa * pb))
      if probs[0] is None:  # all equally likely: a random k of them
          random.shuffle(joint)
@@ -1907,18 +1922,18 @@ index 9d7a515..63aa574 100644
 +                best = next((j for j in ranked if _part(j[0], slot) == c and j[1] > 0), None)
 +                if best:
 +                    joint.append(best)
-+                    STATS["field_added"] += 1
++                    SEARCH_STATS["field_added"] += 1
      total = sum(p for _, p in joint) or 1.0
      return [(c, p / total) for c, p in joint]
  
-@@ -705,15 +1002,56 @@ def values(model: Policy, battles: list[DoubleBattle], rating: float) -> np.ndar
+@@ -705,15 +1005,56 @@ def values(model: Policy, battles: list[DoubleBattle], rating: float) -> np.ndar
      return torch.sigmoid(model.value(model.encode(b)[0])[:, 0]).numpy()
  
  
 +# What the 2026-11-01 options did, for the end-of-run summary (player.py): escape lines scored /
 +# chosen, charge playouts scored after the firing turn, field options added to the opponent's
 +# candidates, opposing slots whose probabilities the series memory changed.
-+STATS: Counter = Counter()
++SEARCH_STATS: Counter = Counter()
 +
 +
 +def _starts_charge(battle: DoubleBattle, action: np.ndarray) -> bool:
@@ -1968,7 +1983,7 @@ index 9d7a515..63aa574 100644
          if r["winner"]:
              v[i] = {"us": 1.0, "them": 0.0}.get(r["winner"], 0.5)
              continue
-@@ -740,7 +1078,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+@@ -740,7 +1081,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
      _second_turn.expanded += len(conts)
      _second_turn.nodes += len(res)
      if conts:
@@ -1978,7 +1993,7 @@ index 9d7a515..63aa574 100644
      leaves, where = [], []
      for n, (i, b, k, q) in enumerate(nodes):
          if not k:
-@@ -759,6 +1098,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+@@ -759,6 +1101,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
                  where.append((n, j))
          nodes[n] = (i, b, k, q, vals)
      if leaves:
@@ -1986,7 +2001,7 @@ index 9d7a515..63aa574 100644
          lv = values(model, leaves, rating)
          for (n, j), x in zip(where, lv):
              if j is None:
-@@ -780,16 +1120,32 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
+@@ -780,16 +1123,32 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
  def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: DoubleBattle,
             mask: np.ndarray, fmt: str, teams_dir: str, rating: float, k: int = 6, opp_k: int = 6,
             seeds: int = 2, prior: float = 0.0, n_worlds: int = 1, depth: int = 1, k2: int = 3,
@@ -2016,11 +2031,11 @@ index 9d7a515..63aa574 100644
 +    first_escape = len(ours)
 +    if escape:
 +        ours += escape_candidates(model, obs | {"mask": mask}, mask, ours)
-+        STATS["escape_lines"] += len(ours) - first_escape
++        SEARCH_STATS["escape_lines"] += len(ours) - first_escape
      if len(ours) < 2:
          return None
      choices = [DoublesEnv.action_to_order(a, battle, strict=False).message.removeprefix("/choose ")
-@@ -797,29 +1153,47 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -797,29 +1156,47 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      seed_list = [int(s) for s in np.random.randint(1, 2**30, seeds)]
      value, first, errors, sims = np.zeros(len(ours)), None, [], 0
      for world, w in worlds(battle, teams_dir, n_worlds, fmt):
@@ -2055,7 +2070,7 @@ index 9d7a515..63aa574 100644
 +                    v[held] = _second_turn(model, opp_model, bridge, battle, [res[i] for i in held], world, fmt,
 +                                           teams_dir, rating, k2, opp_k2,
 +                                           [int(x) for x in np.random.randint(1, 2**30, seeds2)])
-+                    STATS["charge_followed"] += len(held)
++                    SEARCH_STATS["charge_followed"] += len(held)
              live, idx = [], []
              for i, r in enumerate(res):
 +                if i in held:
@@ -2072,15 +2087,15 @@ index 9d7a515..63aa574 100644
          M = v.reshape(len(ours), len(theirs), seeds).mean(-1)
          q = np.array([p for _, p in theirs])
          value += w * (M @ q)
-@@ -830,6 +1204,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -830,6 +1207,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      M, q, their_choices = first
      score = value + prior * np.array([lp for _, lp in ours])
      best = int(score.argmax())
-+    STATS["escape_chosen"] += best >= first_escape
++    SEARCH_STATS["escape_chosen"] += best >= first_escape
      return ours[best][0], {"M": M, "q": q, "ours": choices, "theirs": their_choices,
                             "actions": np.stack([a for a, _ in ours]), "value": value,
                             "logp": np.array([lp for _, lp in ours]), "obs": obs | {"mask": mask},
-@@ -842,8 +1217,11 @@ class SearchPlayer(NNPlayer):
+@@ -842,8 +1220,11 @@ class SearchPlayer(NNPlayer):
      def __init__(self, *args, opp_model: Policy | str | Path | None = None, fmt: str,
                   teams_dir: str | Path, showdown: str | Path = "pokemon-showdown", k: int = 6,
                   opp_k: int = 6, seeds: int = 2, prior: float = 0.0, worlds: int = 1, depth: int = 1,
@@ -2093,7 +2108,7 @@ index 9d7a515..63aa574 100644
          self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
          self.fmt, self.teams_dir = fmt, str(teams_dir)
          self.bridge = Bridge(showdown)
-@@ -877,7 +1255,10 @@ class SearchPlayer(NNPlayer):
+@@ -877,7 +1258,10 @@ class SearchPlayer(NNPlayer):
              self.leads[battle.battle_tag] = (
                  tuple(m.species for m in battle.active_pokemon if m),
                  tuple(m.species for m in battle.opponent_active_pokemon if m))
@@ -2105,7 +2120,7 @@ index 9d7a515..63aa574 100644
              return await super().choose_move(battle)
          mask = action_mask(battle)
          if self.rules:
-@@ -889,7 +1270,10 @@ class SearchPlayer(NNPlayer):
+@@ -889,7 +1273,10 @@ class SearchPlayer(NNPlayer):
              out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
                                            self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
                                            self.seeds, self.prior, self.worlds, self.depth, self.k2,
@@ -2117,7 +2132,7 @@ index 9d7a515..63aa574 100644
          except Exception as e:  # a position the bridge can't handle: play the policy
              self.logger.warning("search failed on turn %s: %r", battle.turn, e)
              out = None
-@@ -902,6 +1286,8 @@ class SearchPlayer(NNPlayer):
+@@ -902,6 +1289,8 @@ class SearchPlayer(NNPlayer):
          else:
              self.failed_in_a_row = 0
          self.search_time += time.time() - t
@@ -2127,7 +2142,7 @@ index 9d7a515..63aa574 100644
              self.fallbacks += 1
              return await super().choose_move(battle)
 diff --git a/src/ai_vgc/nn/sim_bridge.js b/src/ai_vgc/nn/sim_bridge.js
-index bf07ddc..cd1838a 100644
+index bf07ddc..6ecc0a8 100644
 --- a/src/ai_vgc/nn/sim_bridge.js
 +++ b/src/ai_vgc/nn/sim_bridge.js
 @@ -37,6 +37,9 @@ function patchMon(battle, p, m) {
@@ -2213,17 +2228,23 @@ index bf07ddc..cd1838a 100644
        } catch (e) {
          err = String(e && e.message || e);
        }
-@@ -166,6 +212,9 @@ function play(json, sides, pairs, seeds, keep) {
+@@ -166,8 +212,15 @@ function play(json, sides, pairs, seeds, keep) {
        const winner = b.ended ? (b.winner === 'us' ? 'us' : b.winner === 'them' ? 'them' : 'tie') : null;
        const r = {lines, winner, err};
        if (keep && !b.ended && !err) {
++        const before = b.log.length;
 +        if (fill) {
 +          try { fillFaints(b); } catch (e) {}
 +        }
          const mine = b.getSide(sides.us).activeRequest, theirs = b.getSide(sides.them).activeRequest;
          if (mine && theirs && !mine.wait && !mine.forceSwitch && !theirs.wait && !theirs.forceSwitch) {
++          // The replacements' switch-ins (and their entry abilities) are part of the position the
++          // next turn starts from: search.py rebuilds it from these lines (code review 2026-11-05).
++          if (b.log.length > before) r.lines = extractChannelMessages(b.log.join('\n'), [ch])[ch];
            b.log = [];
-@@ -189,7 +238,7 @@ function run(req) {
+           const id = kept.size;
+           kept.set(id, JSON.stringify(State.serializeBattle(b)));
+@@ -189,7 +242,7 @@ function run(req) {
    if (req.dump) return {dump: dump(battle)};
    kept = new Map();
    keptSides = sides;

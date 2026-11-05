@@ -299,8 +299,10 @@ hoje() {
 	conta="$(conf_get conta)"
 	[ -n "$conta" ] || { echo "hoje_vitorias="; return; }
 	python3 -I - "$AIVGC/data/live_games" "$conta" "${LOR_RUN:-/run}/lor-hoje-$BOT_ID.json" 2>/dev/null <<'PY' || echo "hoje_vitorias="
-import json, os, sys, time
+import json, os, re, sys, time
 raiz, conta, cache = sys.argv[1], sys.argv[2], sys.argv[3]
+uid = lambda nome: re.sub(r"[^a-z0-9]", "", str(nome or "").lower())
+conta_id = uid(conta)
 hoje = time.strftime("%Y-%m-%d")
 meia_noite = time.mktime(time.strptime(hoje, "%Y-%m-%d"))
 arqs = []
@@ -311,7 +313,7 @@ for d in sorted(os.listdir(raiz)) if os.path.isdir(raiz) else []:
             arqs.append(a)
     except OSError:
         pass
-chave = [hoje, conta] + [[a, os.path.getmtime(a)] for a in arqs]
+chave = [2, hoje, conta] + [[a, os.path.getmtime(a)] for a in arqs]
 try:
     c = json.load(open(cache))
     if c.get("chave") != chave:
@@ -328,7 +330,9 @@ except (OSError, ValueError):
                     r = json.loads(linha)
                 except ValueError:
                     continue
-                if not str(r.get("time", "")).startswith(hoje) or r.get("user") != conta:
+                # A grafia da conta pode variar ("LoR Bot1" no painel, "lorbot1" ou "LoR  Bot1!" no
+                # Showdown): compara o ID, como o Showdown faz.
+                if not str(r.get("time", "")).startswith(hoje) or uid(r.get("user")) != conta_id:
                     continue
                 res = r.get("result")
                 if res not in ("win", "loss"):
@@ -411,8 +415,12 @@ estado)
 	fi
 	if [ "${1:-}" = --log ] && [[ "${2:-}" =~ ^[0-9]+$ ]]; then
 		if [ -f "$AIVGC/src/ai_vgc/nn/messages.py" ]; then
+			# O messages.py fica no checkout do Ai-vgc, que o usuário bots pode editar: roda como bots,
+			# nunca como root (senão um bot comprometido viraria root na próxima consulta do painel).
+			# setpriv e não sudo: o painel consulta a cada poucos segundos e o sudo anotaria cada vez no log.
 			journalctl -u "$UNIT" -u "$DESAFIO" -n 300 -o json --no-pager 2>/dev/null \
-				| python3 -I "$AIVGC/src/ai_vgc/nn/messages.py" "$AIVGC/data/live_games" "$(conf_get conta)" "$2" || true
+				| setpriv --reuid=bots --regid=bots --init-groups -- \
+					python3 -I "$AIVGC/src/ai_vgc/nn/messages.py" "$AIVGC/data/live_games" "$(conf_get conta)" "$2" || true
 		else
 			echo "---log---"
 			journalctl -u "$UNIT" -u "$DESAFIO" -n "$2" -o cat --no-pager 2>/dev/null || true

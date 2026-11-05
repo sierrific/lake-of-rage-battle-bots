@@ -166,10 +166,32 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
         day.mkdir()
         self.bot.save_dir = day
         self.bot.KNOWN_BOT_DAYS, self.bot.KNOWN_BOT_GAMES = 7, 6
-        rows = [json.dumps({"format": "gen9test", "opponent": name})
+        agora = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(1_800_000_000))
+        rows = [json.dumps({"format": "gen9test", "opponent": name, "time": agora})
                 for name in ("OutroBot", "Adversario") for _ in range(6)]
         (day / "games.jsonl").write_text("\n".join(rows))
+        os.utime(day / "games.jsonl", (1_800_000_000, 1_800_000_000))
         self.assertEqual(self.bot._known_bots(), ["adversario"])
+
+    def test_known_bots_by_game_time_not_folder(self):
+        # Bot ligado há 10 dias: tudo cai na pasta do dia em que ligou (save_dir). Os jogos desta
+        # semana contam; os da primeira semana, na mesma pasta, não (revisão de código de 05/11).
+        self.bot._team_bots, self.bot._format = set(), "gen9test"
+        now = 1_800_000_000
+        start = self.directory / time.strftime("%Y-%m-%d", time.localtime(now - 10 * 86400))
+        start.mkdir()
+        self.bot.save_dir = start
+        self.bot.KNOWN_BOT_DAYS, self.bot.KNOWN_BOT_GAMES = 7, 6
+        when = lambda t: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t))
+        rows = ([{"format": "gen9test", "opponent": "Antigo", "time": when(now - 9 * 86400)}] * 6
+                + [{"format": "gen9test", "opponent": "Recente", "time": when(now - 3600)}] * 6
+                + [{"format": "outro", "opponent": "OutroFormato", "time": when(now - 3600)}] * 6)
+        (start / "games.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n[1]\n")
+        os.utime(start / "games.jsonl", (now - 3600, now - 3600))
+        self.assertEqual(self.bot._known_bots(), ["recente"])
+        # Uma pasta que não mudou na semana nem é lida.
+        os.utime(start / "games.jsonl", (now - 8 * 86400, now - 8 * 86400))
+        self.assertEqual(self.bot._known_bots(), [])
 
 
 if __name__ == "__main__":

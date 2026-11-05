@@ -164,6 +164,19 @@ function ConferirVirtualizacao([switch]$DepoisDeFalhar) {
     PedirReinicio 'Virtualizacao ligada.'
     return $true
 }
+# O commit em que a branch esta agora. Bot, painel, VERSION e icone vem todos dele: se a branch
+# andar no meio da instalacao (um merge na main), nada se mistura com uma versao nao testada.
+function RevisaoDoRamo([string]$ramo) {
+    $url = 'https://api.github.com/repos/sierrific/lake-of-rage-battle-bots/commits/' + [Uri]::EscapeDataString($ramo)
+    for ($tentativa = 1; $tentativa -le 3; $tentativa++) {
+        try {
+            $sha = ((Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri $url).Content | ConvertFrom-Json).sha
+            if ($sha -cmatch '^[0-9a-f]{40}$') { return $sha }
+        } catch { }
+        if ($tentativa -lt 3) { Start-Sleep -Seconds (5 * $tentativa) }
+    }
+    Falha "Nao consegui consultar a versao do bot no GitHub (branch $ramo). Confira a internet e rode o instalador de novo em alguns minutos."
+}
 function NoLinux([string]$comando) {
     Wsl -d $Distro -u root -e bash -lc $comando
     if ($LASTEXITCODE -ne 0) { Falha "Falhou dentro do Linux (codigo $LASTEXITCODE): $comando" }
@@ -377,18 +390,20 @@ if ($pid1 -ne 'systemd') {
 }
 if ($pid1 -ne 'systemd') { Falha "O WSL deste PC nao ligou o systemd (achei '$pid1'). Rode 'wsl --update' como administrador e tente de novo." }
 
-# 3. Bot (dentro do Linux): o mesmo script do botao Atualizar do painel.
+# 3. Bot (dentro do Linux): o mesmo script do botao Atualizar do painel, fixado num commit so.
 Passo 'Instalando o bot no Linux (Node, Python, PyTorch, simulador; a primeira vez leva uns 10-20 min)'
-NoLinux "curl -fsSL $Raw/linux/atualizar.sh -o /tmp/lor-atualizar.sh && LOR_RAMO=$Ramo bash /tmp/lor-atualizar.sh --forcar"
+$Revisao = RevisaoDoRamo $Ramo
+$RawFixo = "https://raw.githubusercontent.com/sierrific/lake-of-rage-battle-bots/$Revisao"
+NoLinux "curl -fsSL $RawFixo/linux/atualizar.sh -o /tmp/lor-atualizar.sh && LOR_RAMO=$Ramo LOR_REVISION=$Revisao bash /tmp/lor-atualizar.sh --forcar"
 
-# 4. Painel
+# 4. Painel (do mesmo commit do bot)
 Passo 'Instalando o painel'
-Invoke-WebRequest -UseBasicParsing -Uri "$Raw/windows/Painel.ps1" -OutFile (Join-Path $Pasta 'Painel.ps1')
-Invoke-WebRequest -UseBasicParsing -Uri "$Raw/VERSION" -OutFile (Join-Path $Pasta 'VERSION')
+Invoke-WebRequest -UseBasicParsing -Uri "$RawFixo/windows/Painel.ps1" -OutFile (Join-Path $Pasta 'Painel.ps1')
+Invoke-WebRequest -UseBasicParsing -Uri "$RawFixo/VERSION" -OutFile (Join-Path $Pasta 'VERSION')
 # Icone dos atalhos (Gyarados vermelho). Se nao baixar, fica o padrao e o painel grava o dele ao abrir.
 $iconeAtalho = 'shell32.dll,137'
 try {
-    Invoke-WebRequest -UseBasicParsing -Uri "$Raw/windows/painel.ico" -OutFile (Join-Path $Pasta 'Painel.ico')
+    Invoke-WebRequest -UseBasicParsing -Uri "$RawFixo/windows/painel.ico" -OutFile (Join-Path $Pasta 'Painel.ico')
     $iconeAtalho = (Join-Path $Pasta 'Painel.ico') + ',0'
 } catch { }
 # A branch escolhida (main, ou outra num teste) fica gravada para o botao Atualizar do painel.

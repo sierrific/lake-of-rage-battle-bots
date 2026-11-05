@@ -69,6 +69,8 @@ jobs:
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_instalador_wsl.ps1
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_instalador_revisao.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_panel_process.ps1
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_panel_update.ps1
@@ -138,6 +140,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/pausa_partidas.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/ritmo_decisoes.py" src/ai_vgc/nn/player.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/chat_restrito.py" src/ai_vgc/nn/player.py
+          python3 "$GITHUB_WORKSPACE/tests/ai_vgc/atributos_sets.py" src/ai_vgc/nn/search.py
 
       - name: PowerShell do Windows (sintaxe; acentos só com UTF-8 com BOM)
         shell: pwsh
