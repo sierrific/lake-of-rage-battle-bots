@@ -81,6 +81,7 @@ function Install-Fakes {
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
             'conta-navegador' { $script:fake.conta = ($Entrada -split "`n")[0]; $script:fake.login = 'navegador' }
             codigo { $script:fake.codigo = 'sim'; $out = "membro=joao`nok=codigo" }
+            'codigo-atual' { $out = 'codigo=codigo-teste-ui' }
             desligar { $script:fake.bot = 'deactivating' }
             agora { $script:fake.bot = 'inactive'; $script:fake.partida = ''; $script:fake.placar_oponente = '' }
             ligar { $script:fake.bot = 'active' }
@@ -96,9 +97,10 @@ function Install-Fakes {
     function script:Mudar-Auto { $script:startupChanges++ }
     function script:Start-Process { param([string]$FilePath, $ArgumentList, [switch]$PassThru) $script:launches.Add("$FilePath $ArgumentList") }
     function script:Invoke-WebRequest {
-        param($Uri, $OutFile, $TimeoutSec, [switch]$UseBasicParsing)
+        param($Uri, $OutFile, $TimeoutSec, $Headers, [switch]$UseBasicParsing)
         if ($OutFile) { throw 'Download nao permitido neste teste.' }
-        [pscustomobject]@{ Content = $(if ($Uri -like '*/commits/*') { '{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' } else { '2026.10.25.01' }) }
+        if (-not $Headers -or $Headers.Authorization -ne 'Bearer codigo-teste-ui') { throw "Sem o codigo da coleta: $Uri" }
+        [pscustomobject]@{ Content = $(if ($Uri -like '*/ramo/*') { '{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' } else { '2026.10.25.01' }) }
     }
 }
 function Assert-Layout($parent) {
