@@ -91,8 +91,8 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
   Desligada, busca logo e encerra uma pausa em curso, sem reiniciar. A escolha fica salva. A vez
   entre os bots do time e a espera por bots conhecidos seguem suas próprias opções.
 - **Personalidade**: cada conta recebe um perfil estável (Reservado, Cordial, Analítico, Energético
-  ou Tranquilo), com avatar, saudações e ritmo próprios. O mesmo perfil acompanha a conta em outros
-  PCs e após reiniciar. As frases variam entre partidas, sem repetir a última saudação do mesmo tipo.
+  ou Tranquilo), com avatar e ritmo próprios. O mesmo perfil acompanha a conta em outros
+  PCs e após reiniciar.
 - **Decisões Instantâneas** (em Ajustes; **Não** por padrão): com **Não**, completa o tempo de cada
   decisão até um alvo do perfil, contando o cálculo da IA: 8–26 segundos nos turnos, 17–40 na escolha
   dos Pokémon e 4–10 em trocas forçadas (os intervalos específicos variam por perfil).
@@ -100,10 +100,10 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
   Com pouco tempo no relógio, reduz ou pula a espera adicional, reservando 5 segundos para envio.
   Correções de jogadas recusadas não recebem nova espera. Se o cálculo sozinho passar do alvo,
   envia ao terminar, sem espera extra. A preferência fica salva por bot e vale para cada jogo do Bo3.
-- **Chat restrito pelo Showdown**: se o servidor recusar o chat por restrição do provedor,
-  o bot suspende as saudações nessa conexão e mostra um aviso específico. A opção de chat fica
-  salva como você escolheu; o bot não tenta reenviar as mensagens recusadas. Comandos e erros de
-  batalha continuam sendo tratados normalmente.
+- **Sem chat**: o bot não escreve nada no chat das partidas nem manda mensagens privadas. Ele só
+  envia comandos do Showdown (`/timer on`, `/savereplay`, `/blockbots` etc.). Se o servidor avisar
+  que o chat está restrito pelo provedor, o painel mostra um aviso específico e os erros de batalha
+  continuam sendo tratados normalmente.
 - **Código da coleta**: conferido na coleta ao salvar (o painel diz de quem é o código). Se depois a
   coleta recusar o código ou estiver fora do ar, o aviso aparece ali mesmo.
 - **Formato** (Bo3/Bo1) e **Time**: o padrão (MC371 ou MC196, os melhores do bot no ladder) ou um time seu. Em
@@ -119,9 +119,6 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
 - **Postar no Discord** (em Ajustes, no cartão da coleta): desligado, as séries deste PC não aparecem
   no canal do Discord, mas as partidas continuam indo para a coleta e o treino. Vale já para a
   próxima partida, sem reiniciar o bot.
-- **Saudações no chat** (em Ajustes, no cartão da conta; ligado por padrão): o bot usa frases do
-  perfil no começo da partida (no Bo3, só no jogo 1) e no fim de cada jogo, sem repetir mensagens em
-  pedidos reenviados. A apresentação identifica o bot LoR. Vale já para a próxima partida, sem reiniciar.
 - **Ligar o bot junto com o Windows**.
 - Enquanto o bot está ligado, o PC **não entra em suspensão** sozinho (com o PC dormindo, o timer da
   partida corre e o bot perde). A tela ainda apaga normalmente. Num notebook, fechar a tampa segue a
@@ -142,27 +139,26 @@ decisão foram de 13,3 a 22,6 s. Exemplos: rafac33, 18 s por decisão e 20 s no 
 apareceu em uma minoria, enquanto avatares escolhidos foram comuns. Isso orientou as diferenças
 abaixo; os intervalos são escolhas de design, não estimativas estatísticas da população.
 
-| Perfil | Turno (s) | Escolha do time (s) | Pausa entre partidas (s) | Tom |
-| --- | --- | --- | --- | --- |
-| Reservado | 9–20 | 18–30 | 60–240 | Curto e discreto |
-| Cordial | 10–24 | 20–35 | 90–300 | Acolhedor, agradece a partida |
-| Analítico | 13–26 | 23–40 | 120–300 | Calmo e ponderado |
-| Energético | 8–21 | 17–29 | 60–210 | Breve e animado |
-| Tranquilo | 11–25 | 21–38 | 120–300 | Casual e descontraído |
+| Perfil | Turno (s) | Escolha do time (s) | Pausa entre partidas (s) |
+| --- | --- | --- | --- |
+| Reservado | 9–20 | 18–30 | 60–240 |
+| Cordial | 10–24 | 20–35 | 90–300 |
+| Analítico | 13–26 | 23–40 | 120–300 |
+| Energético | 8–21 | 17–29 | 60–210 |
+| Tranquilo | 11–25 | 21–38 | 120–300 |
 
 O perfil é escolhido pelo SHA-256 do ID normalizado da conta. Não há cópia de nomes, falas ou
 avatares dos oponentes, nem consulta ao admin durante o jogo. Um sorteador separado varia os
-tempos (distribuição triangular) e frases sem consumir a aleatoriedade da IA. As jogadas, o
+tempos (distribuição triangular) sem consumir a aleatoriedade da IA. As jogadas, o
 modelo, o pedido de timer e a coordenação da fila continuam com suas configurações existentes.
 O preview tem teto de 40 s; os alertas de tempo do turno **e do total** reduzem a espera com 5 s
 de margem. Uma troca forçada usa 4–10 s. Não são reproduzidas perdas por tempo ou reclamações do chat.
-Saudações são limitadas à abertura e ao encerramento; restrições do servidor e a opção de chat
-desligado prevalecem. A pausa só ocorre entre partidas/séries completas do ladder.
+O bot não usa o chat. A pausa só ocorre entre partidas/séries completas do ladder.
 
 No Windows, o perfil automático passa a valer após instalar esta versão e reiniciar o bot com calma.
 Em instalações Linux manuais, `PERSONALIDADE=auto` é o padrão do `rodar-bot.sh`; no `.env`, pode-se
-escolher `reservado`, `cordial`, `analitico`, `energetico`, `tranquilo` ou `classico` (avatar e
-frases anteriores, ritmo 10–20 s). A escolha manual vale no próximo início. Chamadas diretas do
+escolher `reservado`, `cordial`, `analitico`, `energetico`, `tranquilo` ou `classico` (avatar
+anterior, ritmo 10–20 s). A escolha manual vale no próximo início. Chamadas diretas do
 Ai-vgc e ferramentas de avaliação mantêm o modo clássico se `LOR_PERSONALITY` não for definido.
 Sem `DECISOES_RAPIDAS_ARQUIVO`, não é acrescentada espera às decisões em instalações manuais.
 
