@@ -49,7 +49,7 @@ ENV="$ETC/$BOT_ID.env"
 UNIT="lor-bot@$BOT_ID"
 AIVGC="${LOR_AIVGC:-/opt/lor-bots/ai-vgc}"
 TIMES="$AIVGC/data/teams/reg_mc_top"
-MODELO=data/models/mc-bo3-rnad-v5.pt
+MODELO=data/models/mc-bo3-rnad-v6.pt
 # Times do padrão ("top3", nome antigo da opção): os dois melhores do Bo3 no ladder em 24/10
 # (MC371 20-14, MC196 12-10); o MC147 do antigo --top 3 ficou em 3-7.
 PADRAO="MC371 MC196"
