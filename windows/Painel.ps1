@@ -2000,8 +2000,9 @@ function Mostrar-Placar($e) {
         $lPlacarLegenda.Text = if ($bo3) { 'placar da série' } else { 'partida BO1' }
         $contexto = if ($bo3) { "BO3 · Jogo $($e['placar_jogo'])" } else { 'BO1' }
         $resultado = @{ win = 'Vitória'; loss = 'Derrota'; tie = 'Empate' }[[string]$e['placar_resultado']]
-        $fase = if ($resultado) { $resultado } elseif (-not $e['placar_turno'] -or $e['placar_turno'] -eq '0') { 'Prévia de time' } else { "Turno $($e['placar_turno'])" }
-        $lInfo.Text = "$contexto · $fase"
+        $fase = if ($resultado) { $resultado } elseif (-not $e['partida']) { '' } elseif (-not $e['placar_turno'] -or $e['placar_turno'] -eq '0') { 'Prévia de time' } else { "Turno $($e['placar_turno'])" }
+        # Sem partida em andamento, o turno do placar é de um jogo que já acabou: não mostra.
+        $lInfo.Text = if ($fase) { "$contexto · $fase" } else { $contexto }
         $lPlacar.CorNome = switch ($e['placar_resultado']) { 'win' { 'verde' } 'loss' { 'vermelho' } 'tie' { 'ambar' } default { 'ouro' } }
         if ($null -ne $e['placar_nossos'] -and $e['placar_nossos'] -ne '' -and $null -ne $e['placar_deles'] -and $e['placar_deles'] -ne '') {
             $lPokemon.Text = "Pokémon: $($e['placar_nossos']) × $($e['placar_deles'])"
@@ -2146,6 +2147,13 @@ function Texto-Hoje($e) {
     $t
 }
 
+# Bo3 com um jogo já decidido e a série ainda aberta (ninguém com 2 vitórias): o próximo jogo
+# começa em segundos, então o painel não diz "Aguardando partida" com o placar na tela.
+function Entre-Jogos($e) {
+    if ($e['partida'] -or -not $e['placar_oponente'] -or $e['placar_bo3'] -ne 'sim' -or -not $e['placar_resultado']) { return $false }
+    [int]('0' + $e['placar_vitorias']) -lt 2 -and [int]('0' + $e['placar_derrotas']) -lt 2
+}
+
 function Atualizar-EstadoTela($Resposta = $null) {
     $e = Ler-Estado $Resposta
     # Se o WSL não respondeu na abertura, os seletores ainda estão no padrão: carrega antes de
@@ -2174,7 +2182,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     } elseif ($bot -eq 'active') {
         $faseLogin = Estado-Login
         $selo.Tipo = if ($faseLogin -in @('pendente', 'falhou')) { 'ambar' } else { 'neutra' }
-        $selo.Text = switch ($faseLogin) { 'pendente' { 'Aguardando login' } 'falhou' { 'Login não confirmado' } default { 'Aguardando partida' } }
+        $selo.Text = switch ($faseLogin) { 'pendente' { 'Aguardando login' } 'falhou' { 'Login não confirmado' } default { if (Entre-Jogos $e) { 'Entre jogos da série' } else { 'Aguardando partida' } } }
         $selo.Visible = $true
     }
     elseif ($bot -eq 'failed') { $selo.Tipo = 'ambar'; $selo.Text = 'Veja a atividade'; $selo.Visible = $true }

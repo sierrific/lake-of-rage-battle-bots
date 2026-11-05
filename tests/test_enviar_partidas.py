@@ -256,6 +256,11 @@ class TestSinal(unittest.TestCase):
         self.assertEqual(enviar.partida_atual(log), "https://play.pokemonshowdown.com/battle-a-2")
         self.assertEqual(enviar.partida_atual(log + "loss vs Y\n"), "")
         self.assertEqual(enviar.partida_atual(""), "")
+        # Bo3: o jogo 2 abre antes de o bot escrever o resultado do jogo 1.
+        bo3 = ("watch: https://x/battle-g-111\nwatch: https://x/battle-g-222\n"
+               "win vs X in 5 turns (/opt/ai/data/live_games/2026-11-05/battle-g-111.html)\n")
+        self.assertEqual(enviar.partida_atual(bo3), "https://x/battle-g-222")
+        self.assertEqual(enviar.partida_atual(bo3 + "loss vs X in 9 turns (/opt/battle-g-222.html)\n"), "")
 
     def test_bots_deste_pc(self):
         def rodar(cmd):

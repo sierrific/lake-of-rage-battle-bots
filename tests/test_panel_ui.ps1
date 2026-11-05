@@ -247,6 +247,19 @@ foreach ($scale in @(1, 1.25, 1.5)) {
         Atualizar-Tela
         Assert ($tUsuario.Caixa.Text -eq 'EdicaoNaoSalva') 'polling preserva usuario editado'
         $tUsuario.Caixa.Modified = $false
+        # Bo3 entre jogos: o jogo 1 acabou e o 2 ainda não abriu. O selo e o placar concordam.
+        $fake.partida = ''; $fake.placar_jogo = '1'; $fake.placar_resultado = 'win'
+        Atualizar-Tela
+        Assert ($selo.Text -eq 'Entre jogos da série' -and $lInfo.Text -eq 'BO3 · Jogo 1 · Vitória' -and $lPlacar.Text -eq '1 : 0') 'bo3 entre jogos'
+        $fake.placar_jogo = '2'; $fake.placar_resultado = ''
+        Atualizar-Tela
+        Assert ($selo.Text -eq 'Aguardando partida' -and $lInfo.Text -eq 'BO3 · Jogo 2') 'sem partida nao mostra turno velho'
+        $fake.placar_vitorias = '2'; $fake.placar_resultado = 'win'
+        Atualizar-Tela
+        Assert ($selo.Text -eq 'Aguardando partida') 'serie encerrada volta a aguardar'
+        $fake.partida = 'https://play.pokemonshowdown.com/battle-teste'; $fake.placar_vitorias = '1'; $fake.placar_resultado = ''
+        Atualizar-Tela
+        Assert ($selo.Text -eq 'Partida em andamento' -and $lInfo.Text -eq 'BO3 · Jogo 2 · Turno 4') 'partida em andamento mostra turno'
         $fake.placar_bo3 = 'nao'; $fake.formato = 'bo1'; $fake.placar_nossos = '0'
         Atualizar-Tela
         Assert ($lPlacar.Text -eq 'VS' -and $bDesligar.Text -eq 'Parar após a partida') 'BO1 sem placar de serie'
