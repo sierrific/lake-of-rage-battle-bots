@@ -319,6 +319,7 @@ index 0000000..678c612
 +        self._last[event] = phrase
 +        return phrase
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
+index eb60a97..6e4c15e 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -331,7 +332,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
  $PS_PASSWORD, or you type it at a prompt (blank for an unregistered name). `--from` accepts
  challenges only from those accounts; without it, anyone on the server can start a game.
  
-@@ -525,22 +526,225 @@
+@@ -525,22 +526,225 @@ class ChallengeMixin:
      save_dir: Path | None = None  # games.jsonl plus an HTML replay per game
      logs_dir: Path | None = None  # logs_<format>.json, the scraped logs' layout, for the bot's games only
      watch_url: str | None = None  # "https://play.pokemonshowdown.com/": print each battle's link there
@@ -560,7 +561,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
  
      async def _ladder(self, n_games: int):
          # poke-env's loop, plus a graceful stop: once `stop_after_match` is set, queue no more
-@@ -549,17 +753,286 @@
+@@ -549,18 +753,294 @@ class ChallengeMixin:
          for _ in range(n_games):
              if self.stop_after_match:
                  break
@@ -597,21 +598,28 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
 +            await self._ladder_pause()
          while self._busy():
              await asyncio.sleep(1)
-+
+ 
 +    LADDER_PAUSE = (60, 300)  # seconds, random, between ladder matches
 +
 +    async def _ladder_pause(self) -> None:
 +        """Wait a random while before searching again. Other ladder bots re-search the moment a
 +        match ends, so searching right away mostly pairs us with them; a random pause drifts us
 +        out of step and lets us meet whoever (often a human) joins the queue meanwhile."""
-+        if self.stop_after_match:
++        skip_file = os.environ.get("LOR_SKIP_PAUSE_FILE", "")
++
++        def pause_enabled() -> bool:  # panel toggle, reread every second: also ends a pause in progress
++            return not (skip_file and os.path.exists(skip_file))
++
++        if self.stop_after_match or not pause_enabled():
 +            return
 +        personality = getattr(self, 'personality', None)
 +        pause = personality.pause_seconds() if personality else random.uniform(*self.LADDER_PAUSE)
 +        print(f"pausing {pause / 60:.1f} min before the next ladder search", flush=True)
 +        end = time.time() + pause
-+        while not self.stop_after_match and time.time() < end:
++        while not self.stop_after_match and time.time() < end and pause_enabled():
 +            await asyncio.sleep(1)
++        if not self.stop_after_match and not pause_enabled():
++            print("pause between matches disabled: searching now", flush=True)
 +
 +    TURN_URL = os.environ.get("COLETA_FILA", "https://showdown.sierverso.com.br/coleta/fila")
 +    _team_bots: set[str] = set()  # the team's bot accounts, as the coleta last listed them
@@ -851,10 +859,11 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
 +                return False
 +            print(f"no match in {self.SEARCH_RETRY // 60} min: searching again", flush=True)
 +            await asyncio.sleep(2)
- 
++
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
-@@ -645,6 +1118,20 @@
+         opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
+@@ -645,6 +1125,20 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
@@ -875,7 +884,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -663,8 +1150,19 @@
+@@ -663,8 +1157,19 @@ class ChallengeMixin:
          return battle
  
      def _battle_finished_callback(self, battle: AbstractBattle) -> None:
@@ -896,7 +905,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
          if self.save_dir is None:
              return
          try:
-@@ -674,13 +1172,19 @@
+@@ -674,13 +1179,19 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -917,7 +926,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
              with open(self.save_dir / "games.jsonl", "a") as f:
                  f.write(json.dumps(row) + "\n")
              if self.logs_dir:
-@@ -714,6 +1218,11 @@
+@@ -714,6 +1225,11 @@ class ChallengeMixin:
                  and (self.allowed is None or to_id_str(user) in self.allowed))
  
      async def _handle_challenge_request(self, split_message: list[str]):
@@ -929,7 +938,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
          if len(split_message) >= 6 and self._wanted(split_message[2], split_message[5]):
              await self._challenge_queue.put((split_message[2].strip(), split_message[5]))
  
-@@ -725,8 +1234,19 @@
+@@ -725,8 +1241,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -950,7 +959,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -750,6 +1270,68 @@
+@@ -750,6 +1277,68 @@ def _public_login(player: Player, password: str | None) -> None:
  
      client = player.ps_client
      name = client.account_configuration.username
@@ -1019,7 +1028,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
  
      def call(method: str, **kw):
          # The login server is sometimes slow: wait longer than poke-env's 10s, and retry.
-@@ -763,8 +1345,25 @@
+@@ -763,8 +1352,25 @@ def _public_login(player: Player, password: str | None) -> None:
          os._exit(1)
  
      async def log_in(split_message: list[str]) -> None:
@@ -1047,7 +1056,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
              r = call("POST", data={"act": "login", "name": name, "pass": password, "challstr": challstr})
              try:
                  reply = json.loads(r.text[1:])  # the reply starts with "]"
-@@ -785,10 +1384,35 @@
+@@ -785,12 +1391,37 @@ def _public_login(player: Player, password: str | None) -> None:
              if not assertion or assertion.startswith("{"):
                  print(f"login server refused '{name}': {assertion[:200]}", flush=True)
                  os._exit(1)
@@ -1074,17 +1083,19 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
          await client.change_avatar(client._avatar)
  
      client.log_in = log_in
-+
-+
+ 
+ 
 +def _dex_name(mon) -> str:
 +    """Display name ("Ogerpon-Wellspring") for a poke-env species id ("ogerponwellspring")."""
 +    from poke_env.data import GenData
 +
 +    return GenData.from_gen(mon.gen).pokedex.get(mon.species, {}).get("name", mon.species)
- 
- 
++
++
  def main() -> None:
-@@ -818,6 +1442,12 @@
+     from ai_vgc.showdown import account, ensure_server, wilson
+     from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
+@@ -818,6 +1449,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -1097,7 +1108,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -829,6 +1459,9 @@
+@@ -829,6 +1466,9 @@ def main() -> None:
      ap.add_argument("--challenge", nargs="+", metavar="NAME",
                      help="challenge these accounts (e.g. scripts/vgcbench_bot.py) --n times in total, "
                           "one battle per account at a time")
@@ -1107,7 +1118,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1490,17 @@
+@@ -857,6 +1497,17 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
@@ -1125,7 +1136,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -882,6 +1526,10 @@
+@@ -882,6 +1533,10 @@ def main() -> None:
                      help="draw each match's team at random from just these --teams files (stems)")
      ap.add_argument("--no-timer", action="store_true",
                      help="on Showdown, don't turn the battle timer on at the start of each game")
@@ -1136,7 +1147,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
      ap.add_argument("--no-munchstats", action="store_true",
                      help="--search on Showdown: don't fetch MunchStats usage for unknown opposing species")
      ap.add_argument("--closed-sheets", action="store_true",
-@@ -913,17 +1561,24 @@
+@@ -913,17 +1568,24 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -1164,7 +1175,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -932,9 +1587,21 @@
+@@ -932,9 +1594,21 @@ def main() -> None:
              common.update(max_concurrent_battles=1)
              del common["battle_format"]
              password = None
@@ -1187,7 +1198,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
              acct = AccountConfiguration(args.accept, password)
              kw = dict(rules=not args.no_rules, team=teams(), account_configuration=acct, **common)
              if args.search:
-@@ -949,7 +1616,8 @@
+@@ -949,7 +1623,8 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -1197,7 +1208,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -958,6 +1626,7 @@
+@@ -958,6 +1633,7 @@ def main() -> None:
                      bot.refresher = Refresher()
              else:
                  bot = ChallengeNNPlayer(args.model, args.rating, args.greedy, formats=formats, **kw)
@@ -1205,7 +1216,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
              if public:
                  _public_login(bot, password)
              bot.vary, bot.vary_k, bot.vary_margin = args.vary, args.vary_k, args.vary_margin
-@@ -966,52 +1635,71 @@
+@@ -966,52 +1642,71 @@ def main() -> None:
              bot.set_guess = (str(args.sets or args.teams or TEAMS_DIR), formats[0]) if args.set_guess else None
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
@@ -1296,7 +1307,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1723,8 @@
+@@ -1035,7 +1730,8 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -1306,7 +1317,7 @@ diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
              me.counter_t1 = args.counter_t1
          else:
              me = NNPlayer(args.model, args.rating, args.greedy, rules=not args.no_rules,
-@@ -1093,6 +1782,9 @@
+@@ -1093,6 +1789,9 @@ def main() -> None:
              extra = (f"  search: {me.searched} decisions, {me.search_time / max(me.searched, 1):.2f}s each, "
                       f"{me.fallbacks} by policy, {me.sim_errors}/{me.sims} sims failed, "
                       f"{me.countered} turn 1s countered")
