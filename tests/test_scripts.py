@@ -520,23 +520,14 @@ class TestPainelLogin(TestPainelDesafio):
         self.assertIn("ok=ligado", self.painel("ligar"))
 
 
-class TestPainelChat(TestPainelDesafio):
-    """chat sim|nao: "glhf" / "gg wp" no chat da partida, por um arquivo que o bot confere a cada
-    partida (--chat-off), sem reiniciar."""
+class TestPainelSemChat(TestPainelDesafio):
+    """O bot não escreve no chat da partida: sem opção no painel nem --chat-off no bot.env."""
 
-    def test_chat_liga_por_padrao_e_desliga_sem_reiniciar(self):
-        self.assertIn("chat=sim", self.painel("estado").splitlines())
+    def test_sem_opcao_de_chat(self):
+        self.assertNotIn("chat=", "\n".join(self.painel("estado").splitlines()))
         self.painel("formato", "bo3")
-        self.assertIn(f"--chat-off {self.d}/bot.sem-chat", (self.d / "bot.env").read_text())
-        antes = (self.d / "bot.env").read_text()
-        self.assertIn("ok=chat", self.painel("chat", "nao"))
-        self.assertTrue((self.d / "bot.sem-chat").exists())
-        self.assertIn("chat=nao", self.painel("estado").splitlines())
-        self.assertEqual((self.d / "bot.env").read_text(), antes)
-        self.painel("chat", "sim")
-        self.assertFalse((self.d / "bot.sem-chat").exists())
-        self.assertIn("chat=sim", self.painel("estado").splitlines())
-        self.assertIn("erro=", self.painel("chat", "talvez", ok=False))
+        self.assertNotIn("--chat-off", (self.d / "bot.env").read_text())
+        self.assertNotIn("ok=chat", self.painel("chat", "sim", ok=False))
 
 
 class TestPainelBloquearBots(TestPainelDesafio):
