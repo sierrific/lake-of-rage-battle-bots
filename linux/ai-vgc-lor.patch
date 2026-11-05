@@ -296,7 +296,7 @@ index 0000000..b3a9a8f
 +    def pause_seconds(self) -> float:
 +        return self.rng.triangular(*self.profile.pause)
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..b1c675b 100644
+index eb60a97..0b51718 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -511,7 +511,7 @@ index eb60a97..b1c675b 100644
  
      async def _ladder(self, n_games: int):
          # poke-env's loop, plus a graceful stop: once `stop_after_match` is set, queue no more
-@@ -549,18 +726,296 @@ class ChallengeMixin:
+@@ -549,18 +726,303 @@ class ChallengeMixin:
          for _ in range(n_games):
              if self.stop_after_match:
                  break
@@ -555,14 +555,21 @@ index eb60a97..b1c675b 100644
 +        """Wait a random while before searching again. Other ladder bots re-search the moment a
 +        match ends, so searching right away mostly pairs us with them; a random pause drifts us
 +        out of step and lets us meet whoever (often a human) joins the queue meanwhile."""
-+        if self.stop_after_match:
++        skip_file = os.environ.get("LOR_SKIP_PAUSE_FILE", "")
++
++        def pause_enabled() -> bool:  # panel toggle, reread every second: also ends a pause in progress
++            return not (skip_file and os.path.exists(skip_file))
++
++        if self.stop_after_match or not pause_enabled():
 +            return
 +        personality = getattr(self, 'personality', None)
 +        pause = personality.pause_seconds() if personality else random.uniform(*self.LADDER_PAUSE)
 +        print(f"pausing {pause / 60:.1f} min before the next ladder search", flush=True)
 +        end = time.time() + pause
-+        while not self.stop_after_match and time.time() < end:
++        while not self.stop_after_match and time.time() < end and pause_enabled():
 +            await asyncio.sleep(1)
++        if not self.stop_after_match and not pause_enabled():
++            print("pause between matches disabled: searching now", flush=True)
 +
 +    TURN_URL = os.environ.get("COLETA_FILA", "https://showdown.sierverso.com.br/coleta/fila")
 +    _team_bots: set[str] = set()  # the team's bot accounts, as the coleta last listed them
@@ -815,7 +822,7 @@ index eb60a97..b1c675b 100644
      def _watch(self, url: str, tag: str) -> None:
          """Show battle `tag` in the watch page. The first call starts a small local server and
          opens its page once. Showdown's own client refuses to run in a frame, so the page's frame
-@@ -645,6 +1100,18 @@ class ChallengeMixin:
+@@ -645,6 +1107,18 @@ class ChallengeMixin:
          webbrowser.open(page_url)
  
      async def _handle_battle_message(self, split_messages: list[list[str]]):
@@ -834,7 +841,7 @@ index eb60a97..b1c675b 100644
          await super()._handle_battle_message(split_messages)
          # poke-env reads the open team sheets but leaves them out of the battle's log; the scraped
          # human logs have them (right after |teampreview|), and replay.py needs them for full sets.
-@@ -663,8 +1130,19 @@ class ChallengeMixin:
+@@ -663,8 +1137,19 @@ class ChallengeMixin:
          return battle
  
      def _battle_finished_callback(self, battle: AbstractBattle) -> None:
@@ -855,7 +862,7 @@ index eb60a97..b1c675b 100644
          if self.save_dir is None:
              return
          try:
-@@ -674,13 +1152,21 @@ class ChallengeMixin:
+@@ -674,13 +1159,21 @@ class ChallengeMixin:
              row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "tag": battle.battle_tag, "user": self.username,
                     "format": self._format, "opponent": battle.opponent_username, "result": result,
                     "turns": battle.turn, "replay": replay.name,
@@ -878,7 +885,7 @@ index eb60a97..b1c675b 100644
              with open(self.save_dir / "games.jsonl", "a") as f:
                  f.write(json.dumps(row) + "\n")
              if self.logs_dir:
-@@ -714,6 +1200,11 @@ class ChallengeMixin:
+@@ -714,6 +1207,11 @@ class ChallengeMixin:
                  and (self.allowed is None or to_id_str(user) in self.allowed))
  
      async def _handle_challenge_request(self, split_message: list[str]):
@@ -890,7 +897,7 @@ index eb60a97..b1c675b 100644
          if len(split_message) >= 6 and self._wanted(split_message[2], split_message[5]):
              await self._challenge_queue.put((split_message[2].strip(), split_message[5]))
  
-@@ -725,8 +1216,19 @@ class ChallengeMixin:
+@@ -725,8 +1223,19 @@ class ChallengeMixin:
      async def _accept_challenges(self, opponent, n_challenges: int, packed_team: str | None):
          await self.ps_client.logged_in.wait()
          for _ in range(n_challenges):
@@ -911,7 +918,7 @@ index eb60a97..b1c675b 100644
              self._format = fmt
              print(f"accepting {fmt} from {user}", flush=True)
              await self.ps_client.accept_challenge(to_id_str(user), packed_team or self.next_team)
-@@ -750,6 +1252,68 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -750,6 +1259,68 @@ def _public_login(player: Player, password: str | None) -> None:
  
      client = player.ps_client
      name = client.account_configuration.username
@@ -980,7 +987,7 @@ index eb60a97..b1c675b 100644
  
      def call(method: str, **kw):
          # The login server is sometimes slow: wait longer than poke-env's 10s, and retry.
-@@ -763,8 +1327,25 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -763,8 +1334,25 @@ def _public_login(player: Player, password: str | None) -> None:
          os._exit(1)
  
      async def log_in(split_message: list[str]) -> None:
@@ -1008,7 +1015,7 @@ index eb60a97..b1c675b 100644
              r = call("POST", data={"act": "login", "name": name, "pass": password, "challstr": challstr})
              try:
                  reply = json.loads(r.text[1:])  # the reply starts with "]"
-@@ -785,12 +1366,50 @@ def _public_login(player: Player, password: str | None) -> None:
+@@ -785,12 +1373,50 @@ def _public_login(player: Player, password: str | None) -> None:
              if not assertion or assertion.startswith("{"):
                  print(f"login server refused '{name}': {assertion[:200]}", flush=True)
                  os._exit(1)
@@ -1060,7 +1067,7 @@ index eb60a97..b1c675b 100644
  def main() -> None:
      from ai_vgc.showdown import account, ensure_server, wilson
      from ai_vgc.teams import TEAMS_DIR, RandomPoolTeambuilder
-@@ -818,6 +1437,12 @@ def main() -> None:
+@@ -818,6 +1444,12 @@ def main() -> None:
                           "challenges (one at a time; games are saved as with --accept)")
      ap.add_argument("--server", choices=["local", "showdown"], default="local",
                      help="showdown: play.pokemonshowdown.com (--accept only; password from $PS_PASSWORD or a prompt)")
@@ -1073,7 +1080,7 @@ index eb60a97..b1c675b 100644
      ap.add_argument("--save-dir", type=Path, default=Path("data/live_games"),
                      help="--accept: where each game goes (games.jsonl and one HTML replay per game)")
      ap.add_argument("--logs-dir", type=Path, default=Path("data/bot_logs"),
-@@ -829,6 +1454,9 @@ def main() -> None:
+@@ -829,6 +1461,9 @@ def main() -> None:
      ap.add_argument("--challenge", nargs="+", metavar="NAME",
                      help="challenge these accounts (e.g. scripts/vgcbench_bot.py) --n times in total, "
                           "one battle per account at a time")
@@ -1083,7 +1090,7 @@ index eb60a97..b1c675b 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1485,17 @@ def main() -> None:
+@@ -857,6 +1492,17 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
@@ -1101,7 +1108,7 @@ index eb60a97..b1c675b 100644
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -882,6 +1521,9 @@ def main() -> None:
+@@ -882,6 +1528,9 @@ def main() -> None:
                      help="draw each match's team at random from just these --teams files (stems)")
      ap.add_argument("--no-timer", action="store_true",
                      help="on Showdown, don't turn the battle timer on at the start of each game")
@@ -1111,7 +1118,7 @@ index eb60a97..b1c675b 100644
      ap.add_argument("--no-munchstats", action="store_true",
                      help="--search on Showdown: don't fetch MunchStats usage for unknown opposing species")
      ap.add_argument("--closed-sheets", action="store_true",
-@@ -896,6 +1538,7 @@ def main() -> None:
+@@ -896,6 +1545,7 @@ def main() -> None:
                      help="team folder search and --adapt read EV spreads from (default: --teams). Use the full "
                           "pool when --teams is small, or opponents' spreads fall back to 0 EVs")
      args = ap.parse_args()
@@ -1119,7 +1126,7 @@ index eb60a97..b1c675b 100644
      torch.set_num_threads(1)
      if args.search_team_mass is not None:
          from ai_vgc.nn import search as _search
-@@ -913,17 +1556,24 @@ def main() -> None:
+@@ -913,17 +1563,24 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -1147,7 +1154,7 @@ index eb60a97..b1c675b 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -932,9 +1582,21 @@ def main() -> None:
+@@ -932,9 +1589,21 @@ def main() -> None:
              common.update(max_concurrent_battles=1)
              del common["battle_format"]
              password = None
@@ -1170,7 +1177,7 @@ index eb60a97..b1c675b 100644
              acct = AccountConfiguration(args.accept, password)
              kw = dict(rules=not args.no_rules, team=teams(), account_configuration=acct, **common)
              if args.search:
-@@ -949,7 +1611,8 @@ def main() -> None:
+@@ -949,7 +1618,8 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -1180,7 +1187,7 @@ index eb60a97..b1c675b 100644
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -958,6 +1621,7 @@ def main() -> None:
+@@ -958,6 +1628,7 @@ def main() -> None:
                      bot.refresher = Refresher()
              else:
                  bot = ChallengeNNPlayer(args.model, args.rating, args.greedy, formats=formats, **kw)
@@ -1188,7 +1195,7 @@ index eb60a97..b1c675b 100644
              if public:
                  _public_login(bot, password)
              bot.vary, bot.vary_k, bot.vary_margin = args.vary, args.vary_k, args.vary_margin
-@@ -966,9 +1630,15 @@ def main() -> None:
+@@ -966,9 +1637,15 @@ def main() -> None:
              bot.set_guess = (str(args.sets or args.teams or TEAMS_DIR), formats[0]) if args.set_guess else None
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
@@ -1205,7 +1212,7 @@ index eb60a97..b1c675b 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -976,42 +1646,53 @@ def main() -> None:
+@@ -976,42 +1653,53 @@ def main() -> None:
                  def watchdog():
                      # poke-env's listener just ends when the server drops the connection, leaving the
                      # bot waiting forever; exit with 75 instead so scripts/bot.sh logs in again.
@@ -1277,7 +1284,7 @@ index eb60a97..b1c675b 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1716,8 @@ def main() -> None:
+@@ -1035,7 +1723,8 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
@@ -1287,7 +1294,7 @@ index eb60a97..b1c675b 100644
              me.counter_t1 = args.counter_t1
          else:
              me = NNPlayer(args.model, args.rating, args.greedy, rules=not args.no_rules,
-@@ -1093,6 +1775,9 @@ def main() -> None:
+@@ -1093,6 +1782,9 @@ def main() -> None:
              extra = (f"  search: {me.searched} decisions, {me.search_time / max(me.searched, 1):.2f}s each, "
                       f"{me.fallbacks} by policy, {me.sim_errors}/{me.sims} sims failed, "
                       f"{me.countered} turn 1s countered")

@@ -19,6 +19,8 @@
 #   painel.sh bloquear-bots sim|nao     /blockbots ou /allowbots no login e antes da próxima busca
 #   painel.sh esperar-bots sim|nao      esperar bots adversários conhecidos saírem da fila (padrão: sim)
 #   painel.sh esperar-colmeia sim|nao   esperar a vez entre os bots do nosso time (padrão: sim)
+#   painel.sh pausa sim|nao             pausa aleatória (1 a 5 min) antes de cada nova busca no
+#                                       ladder (padrão: sim; nao também encerra uma pausa em curso)
 #   painel.sh decisoes-instantaneas sim|nao   sim = enviar assim que calcular; nao = ritmo do perfil
 #   painel.sh discord sim|nao           as séries deste PC são postadas no Discord do time (padrão:
 #                                       sim); com nao, as partidas seguem indo para a coleta e o treino
@@ -98,6 +100,8 @@ PERMITIR_BOTS="$ETC/$BOT_ID.permitir-bots"
 SEM_ESPERA_BOTS="$ETC/$BOT_ID.sem-espera-bots"
 # Presente = buscar sem esperar a vez dos outros bots do time.
 SEM_ESPERA_COLMEIA="$ETC/$BOT_ID.sem-espera-colmeia"
+# Presente = buscar logo após cada partida, sem a pausa aleatória entre partidas.
+SEM_PAUSA="$ETC/$BOT_ID.sem-pausa"
 # Presente = enviar a escolha assim que calculada, sem completar o intervalo de 10–20 s.
 DECISOES_RAPIDAS="$ETC/$BOT_ID.decisoes-rapidas"
 # O bot só liga com um código da coleta aceito pela coleta: rodar-bot.sh --conferir.
@@ -145,6 +149,7 @@ gerar_env() {
 		printf 'PERMITIR_BOTS_ARQUIVO=%s\n' "$PERMITIR_BOTS"
 		printf 'SEM_ESPERA_BOTS_ARQUIVO=%s\n' "$SEM_ESPERA_BOTS"
 		printf 'SEM_ESPERA_COLMEIA_ARQUIVO=%s\n' "$SEM_ESPERA_COLMEIA"
+		printf 'SEM_PAUSA_ARQUIVO=%s\n' "$SEM_PAUSA"
 		printf 'DECISOES_RAPIDAS_ARQUIVO=%s\n' "$DECISOES_RAPIDAS"
 		printf 'SERVIDOR=%s\n' "$(conf_get servidor || true)"
 		printf 'MODO="%s"\n' "$modo"
@@ -382,6 +387,7 @@ estado)
 	echo "bloquear_bots=$([ -e "$PERMITIR_BOTS" ] && echo nao || echo sim)"
 	echo "esperar_bots=$([ -e "$SEM_ESPERA_BOTS" ] && echo nao || echo sim)"
 	echo "esperar_colmeia=$([ -e "$SEM_ESPERA_COLMEIA" ] && echo nao || echo sim)"
+	echo "pausa=$([ -e "$SEM_PAUSA" ] && echo nao || echo sim)"
 	echo "decisoes_instantaneas=$([ -e "$DECISOES_RAPIDAS" ] && echo sim || echo nao)"
 	mem=$(systemctl show -p MemoryCurrent --value "$UNIT" 2>/dev/null || true)
 	# MemoryCurrent soma o cache de arquivos do Linux, que é descartável: o painel mostra só o que é do bot.
@@ -593,6 +599,14 @@ esperar-colmeia)
 	*) echo "erro=use sim ou nao"; exit 1 ;;
 	esac
 	echo ok=esperar-colmeia
+	;;
+pausa)
+	case "${1:-}" in
+	sim) rm -f "$SEM_PAUSA" ;;
+	nao) touch "$SEM_PAUSA" && chmod 644 "$SEM_PAUSA" ;;
+	*) echo "erro=use sim ou nao"; exit 1 ;;
+	esac
+	echo ok=pausa
 	;;
 decisoes-instantaneas)
 	case "${1:-}" in
