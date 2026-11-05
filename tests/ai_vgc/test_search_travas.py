@@ -61,6 +61,21 @@ class TestLocksInBridge(unittest.TestCase):
         self.assertIsNone(plain.get("next"))
         self.assertTrue(_charge_held(filled), filled.get("next"))
 
+    def test_filled_lines_bring_the_switch_in(self):
+        # The kept position is rebuilt in search.py from these lines: they must include the
+        # replacement coming in and its entry ability (Pelipper's Drizzle starts rain, which makes
+        # the charged Electro Shot fire at once). Before 2026-11-05 they stopped at the faint.
+        pair = [("move icepunch 2, move electroshot 2", "move hypervoice, move heatwave")]
+        filled = self.bridge.run(state(), pair, [1], keep=True, fill=True)[0]
+        text = "\n".join(filled["lines"])
+        self.assertIsNotNone(filled.get("next"))
+        self.assertLess(text.index("|faint|p2a: Annihilape"), text.index("|switch|p2a: "))
+        self.assertIn("|-weather|RainDance|[from] ability: Drizzle", text)
+        self.assertTrue(text.rstrip().endswith("|turn|3"), text[-200:])
+        # Without fill (or when nothing fainted) the lines are the turn as before.
+        plain = self.bridge.run(state(), [("move icepunch 2, move dragonpulse 2", THEM)], [1], keep=True, fill=True)[0]
+        self.assertNotIn("|switch|", "\n".join(plain["lines"]))
+
     def test_charged_move_fires(self):
         # Charged last turn: it fires now (no second -prepare, no second +1).
         st = state(charging="electroshot", chargeLoc=2)

@@ -306,7 +306,9 @@ class TestPainelDesafio(unittest.TestCase):
         d = Path(self.tmp.name)
         falsos = {"systemctl": SYSTEMCTL_DESAFIO, "id": "#!/bin/sh\necho 0\n", "chown": "#!/bin/sh\n",
                   "sleep": "#!/bin/sh\n", "journalctl": '#!/bin/sh\n[ -f "$D/aceito" ] && echo "watch: x"\nexit 0\n',
-                  "systemd-run": '#!/bin/sh\necho "systemd-run $*" >>"$D/log"\n', "curl": CURL_PING}
+                  "systemd-run": '#!/bin/sh\necho "systemd-run $*" >>"$D/log"\n', "curl": CURL_PING,
+                  # Anota e roda o comando depois do "--" (no teste não dá para trocar de usuário).
+                  "setpriv": '#!/bin/sh\necho "setpriv $*" >>"$D/log"\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n'}
         for nome, corpo in falsos.items():
             (d / nome).write_text(corpo)
             (d / nome).chmod(0o755)
@@ -816,6 +818,14 @@ class TestPainelHoje(TestPainelPlacar):
         os.utime(arq, (time.time() - 3 * 86400, time.time() - 3 * 86400))
         self.assertEqual(self.hoje()["hoje_vitorias"], "2")
 
+    def test_grafia_da_conta(self):
+        # O Showdown pode confirmar a conta com outra grafia: conta o ID, como o Showdown faz.
+        hoje = time.strftime("%Y-%m-%d")
+        jogo = {"team": "MC371", "result": "win", "time": f"{hoje} 10:00:00"}
+        self.escrever(hoje, {**jogo, "user": "lorbot1"}, {**jogo, "user": "LoR  Bot-1"},
+                      {**jogo, "user": "LoR Bot1", "result": "loss"}, {**jogo, "user": "LoR Bot12"}, {**jogo})
+        self.assertEqual(self.hoje(), {"hoje_vitorias": "2", "hoje_derrotas": "1", "hoje_times": "MC371 2-1"})
+
     def test_sem_partidas(self):
         self.assertEqual(self.hoje(), {"hoje_vitorias": "0", "hoje_derrotas": "0", "hoje_times": ""})
 
@@ -826,6 +836,19 @@ class TestPainelHoje(TestPainelPlacar):
         self.assertIn("bot=active", chaves)
         self.assertEqual(log.strip(), "watch: x")
         self.assertNotIn("---log---", self.painel("estado"))
+
+    def test_historico_roda_como_bots(self):
+        # O messages.py está no checkout do Ai-vgc, que o usuário bots pode editar: o painel (root)
+        # só o roda como bots (revisão de código de 05/11).
+        nn = self.d / "ai" / "src" / "ai_vgc" / "nn"
+        nn.mkdir(parents=True)
+        (nn / "messages.py").write_text("import sys\nprint('---log---')\nprint('do messages', sys.argv[2], sys.argv[3])\n")
+        saida = self.painel("estado", "--log", "80")
+        self.assertIn("do messages LoR Bot1 80", saida)
+        chamadas = [c for c in self.chamadas() if c.startswith("setpriv ")]
+        self.assertEqual(len(chamadas), 1, self.chamadas())
+        self.assertIn("--reuid=bots --regid=bots --init-groups -- python3 -I ", chamadas[0])
+        self.assertTrue(chamadas[0].endswith("messages.py " + str(self.d / "ai" / "data" / "live_games") + " LoR Bot1 80"))
 
 
 if __name__ == "__main__":
