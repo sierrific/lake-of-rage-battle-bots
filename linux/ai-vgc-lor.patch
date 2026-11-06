@@ -1354,7 +1354,7 @@ index eb60a97..3771edd 100644
                f"{wins}/{n} = {wins / max(n, 1):.1%}  95% CI [{lo:.1%}, {hi:.1%}]  {time.time() - t:.0f}s{extra}")
          if me.games:
 diff --git a/src/ai_vgc/nn/rules.py b/src/ai_vgc/nn/rules.py
-index cf62665..d8b9c3b 100644
+index cf62665..0667e5d 100644
 --- a/src/ai_vgc/nn/rules.py
 +++ b/src/ai_vgc/nn/rules.py
 @@ -39,6 +39,7 @@ from poke_env.battle import (
@@ -1392,7 +1392,19 @@ index cf62665..d8b9c3b 100644
      if move.status is not None:
          if target.status is not None:
              return True
-@@ -342,9 +356,238 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
+@@ -313,6 +327,11 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
+         tgt = ally
+     status = move.category == MoveCategory.STATUS
+ 
++    if target in (battle.POKEMON_1_POSITION, battle.POKEMON_2_POSITION) and -target - 1 != pos and ally is None:
++        # Our partner's slot with nobody in it (fainted, no replacement left): Showdown sends a
++        # move there nowhere ("[notarget]") instead of redirecting it to a foe as it does for an
++        # empty foe slot (Last Respects into the fainted partner, 2026-11-06 review).
++        return "no partner in that slot"
+     if move.id in FIRST_TURN_ONLY and not user.first_turn:
+         return "not the first turn out"
+     if move.id in SELF_KO and not _ignores_abilities(user) and \
+@@ -342,9 +361,238 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
          return "Life Dew at full HP"
      if move.id in ("healpulse", "floralhealing") and tgt is not None and tgt.current_hp_fraction == 1:
          return "heal at full HP"
@@ -1631,7 +1643,7 @@ index cf62665..d8b9c3b 100644
  def slot_moves(battle: DoubleBattle, pos: int) -> list[Move]:
      """The move list that DoublesEnv's action ids index into."""
      mon = battle.active_pokemon[pos]
-@@ -382,6 +625,32 @@ def _apply_rules(battle: DoubleBattle, mask: np.ndarray) -> np.ndarray:
+@@ -382,6 +630,32 @@ def _apply_rules(battle: DoubleBattle, mask: np.ndarray) -> np.ndarray:
                  _MEGA_NOW.reset(token)
              if fails:
                  out[pos, a] = False

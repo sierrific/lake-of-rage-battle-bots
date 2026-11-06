@@ -274,5 +274,37 @@ class TestPranksterEDark(unittest.TestCase):
         self.assertGreater(prio(comum, PROTECT), prio(prankster, FAKE_OUT))
 
 
+class TestAlvoNoParceiroDesmaiado(unittest.TestCase):
+    """Golpe de um alvo no slot do parceiro quando o parceiro já desmaiou e não há reposição: o
+    Showdown manda o golpe para lugar nenhum ([notarget]); só um slot adversário vazio é
+    redirecionado. A regra tem de tirar esse alvo, sem mexer nos alvos adversários."""
+
+    def setUp(self):
+        self.basculegion = mon("basculegion", [TY.WATER, TY.GHOST], "adaptability")
+        caido = mon("archaludon", [TY.STEEL, TY.DRAGON], "stamina")
+        caido.fainted = True
+        self.b = battle(self.basculegion, [mon("gardevoir", [TY.PSYCHIC, TY.FAIRY], "trace"),
+                                           mon("raichu", [TY.ELECTRIC], "lightningrod")], ally=caido)
+        # O nosso Pokémon vivo está no slot b (posição 1); o parceiro desmaiado ficou no slot a.
+        self.b.active_pokemon = [caido, self.basculegion]
+        self.golpe = move("lastrespects", TY.GHOST, power=50)
+
+    def test_slot_do_parceiro_desmaiado_e_bloqueado(self):
+        self.assertEqual(R["move_fails"](self.b, 1, self.golpe, -1), "no partner in that slot")
+
+    def test_slot_vazio_tambem(self):
+        self.b.active_pokemon = [None, self.basculegion]
+        self.assertEqual(R["move_fails"](self.b, 1, self.golpe, -1), "no partner in that slot")
+
+    def test_alvos_adversarios_continuam(self):
+        for alvo in (1, 2):
+            self.assertIsNone(R["move_fails"](self.b, 1, self.golpe, alvo), alvo)
+
+    def test_parceiro_vivo_continua_alvo_valido(self):
+        vivo = mon("archaludon", [TY.STEEL, TY.DRAGON], "stamina")
+        self.b.active_pokemon = [vivo, self.basculegion]
+        self.assertIsNone(R["move_fails"](self.b, 1, move("pollenpuff", TY.BUG, category=C.SPECIAL), -1))
+
+
 if __name__ == "__main__":
     unittest.main()
