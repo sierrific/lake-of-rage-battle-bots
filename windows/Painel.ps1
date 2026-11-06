@@ -2,9 +2,11 @@
 # Fala com o Linux pelo /opt/lor-bots/painel.sh (distribuição LoRBots).
 #   Painel.ps1          abre a janela
 #   Painel.ps1 -Ligar   só liga o bot e sai (usado ao iniciar o Windows)
+#   Painel.ps1 -Minimizado -Atualizado   reaberto depois de trocar a si mesmo sozinho ("Atualizar
+#                       sozinho"): volta minimizado se estava, e avisa na bandeja
 # A janela é desenhada à mão (componentes em C# logo abaixo), com dois temas tirados dos
 # modelos do Thiago: "Dragão" (vermelho e dourado) e "Lago" (azul e dourado); a escolha fica em skin.txt.
-param([switch]$Ligar)
+param([switch]$Ligar, [switch]$Minimizado, [switch]$Atualizado)
 
 # Dados embutidos (um arquivo sÃ³, que o botÃ£o Atualizar baixa inteiro): os componentes da janela em
 # C# (Windows PowerShell 5.1 compila sÃ³ C# 5) e os cabeÃ§alhos de windows/skins/*.jpg em base64.
@@ -1577,9 +1579,19 @@ $atividadeHistorico.AccessibleName = 'Histórico de partidas e mensagens'
 $xAuto = New-Object LoR.Chave
 $xAuto.AccessibleName = 'Iniciar o bot com o Windows'
 [void](Pos $xAuto 22 658 36 20 $form)
-$lAuto = Novo-Rotulo 'Iniciar com o Windows' 68 651 280 32 $form 'texto' 9.5
+$lAuto = Novo-Rotulo 'Iniciar com o Windows' 68 651 146 32 $form 'texto' 9.5
 $lAuto.FundoNome = 'fundo'
 $lAuto.Cursor = 'Hand'
+# "Atualizar sozinho" (vale para o PC todo, guardado no Linux): desligado por padrão.
+$xAutoAtualizar = New-Object LoR.Chave
+$xAutoAtualizar.AccessibleName = 'Atualizar sozinho'
+[void](Pos $xAutoAtualizar 218 658 36 20 $form)
+$lAutoAtualizar = Novo-Rotulo 'Atualizar sozinho' 264 651 124 32 $form 'texto' 9.5
+$lAutoAtualizar.FundoNome = 'fundo'
+$lAutoAtualizar.Cursor = 'Hand'
+$ajudaAutoAtualizar = 'Ligado: a cada ~10 minutos o bot procura uma versão nova e instala sozinho. Se estiver numa partida ou série, termina ela antes de reiniciar; parado entre partidas, reinicia na hora. O painel se troca sozinho depois. Desligado: só pelo link "Atualizar" do rodapé.'
+$ttTema.SetToolTip($lAutoAtualizar, $ajudaAutoAtualizar)
+$ttTema.SetToolTip($xAutoAtualizar, $ajudaAutoAtualizar)
 $lAtualizar = New-Object LoR.AcaoTexto
 $lAtualizar.Text = 'Verificar atualização'
 $lAtualizar.CorNome = 'ouro'
@@ -1589,7 +1601,7 @@ $lAtualizar.FundoNome = 'fundo'
 $lAtualizar.Sublinhado = $true
 $lAtualizar.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
 # Versão e módulos (modelo, oponente; o resto ao passar o mouse): mais largo, para caber a branch de teste.
-$lVersao = Novo-Rotulo 'Versão' 356 651 417 32 $form 'suave' 9.5
+$lVersao = Novo-Rotulo 'Versão' 394 651 379 32 $form 'suave' 9.5
 $lVersao.FundoNome = 'fundo'
 $lVersao.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter, EndEllipsis'
 $divRodape = New-Object LoR.Divisor
@@ -2208,7 +2220,8 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $lVersao.Text = $modulos.Curto
     $ttTema.SetToolTip($lVersao, $modulos.Detalhe)
     $lVersao.AccessibleDescription = $modulos.Detalhe
-    if (Precisa-Atualizar) { $lAtualizar.Text = "Atualizar para $($script:versaoNova)"; $lAtualizar.Negrito = $true }
+    if ($e['auto_atualizando'] -eq 'sim') { $lAtualizar.Text = 'Atualizando sozinho…'; $lAtualizar.Negrito = $false }
+    elseif (Precisa-Atualizar) { $lAtualizar.Text = "Atualizar para $($script:versaoNova)"; $lAtualizar.Negrito = $true }
     else { $lAtualizar.Text = 'Verificar atualização'; $lAtualizar.Negrito = $false }
     if (-not $tUsuario.Caixa.Focused -and -not $tUsuario.Caixa.Modified) { $tUsuario.Caixa.Text = $e['conta'] }
     $lNavConta.Text = if ($e['conta']) { $e['conta'] } else { 'Sem conta' }
@@ -2257,7 +2270,7 @@ function Atualizar-EstadoTela($Resposta = $null) {
     $bAgora.Enabled = $bot -in @('active', 'activating', 'deactivating')
     $bVer.Enabled = [bool]$e['partida']
     $bDesafiar.Text = if ($desafio) { 'Cancelar desafio' } else { 'Desafiar jogador' }
-    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $true }
+    foreach ($c in @($bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $xAutoAtualizar, $bDesafiar)) { $c.Enabled = $true }
     $script:resumoHoje = Texto-Hoje $e
     if ($script:secao -eq 'historico') {
         $lSubtitulo.Text = if ($script:resumoHoje) { $script:resumoHoje } else { 'Resultados, mensagens, replays e arquivos locais.' }
@@ -2350,7 +2363,7 @@ function Mostrar-Falha([string]$erro) {
     $chip.Visible = $false
     $pElo.Visible = $false
     $selo.Visible = $false
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $xAutoAtualizar, $bDesafiar)) { $c.Enabled = $false }
     Arrumar-Status
 }
 
@@ -2369,6 +2382,7 @@ function Carregar-Opcoes {
     $xEsperarBots.Marcado = $e['esperar_bots'] -ne 'nao'
     $xEsperarColmeia.Marcado = $e['esperar_colmeia'] -ne 'nao'
     $xPausa.Marcado = $e['pausa'] -ne 'nao'
+    $xAutoAtualizar.Marcado = $e['auto_atualizar'] -eq 'sim'
     $xDecisoesInstantaneas.Marcado = $e['decisoes_instantaneas'] -eq 'sim'
     Atualizar-RotuloDecisoes
     $cTime.Itens.Clear()
@@ -2467,6 +2481,23 @@ function Mudar-Pausa {
 }
 $xPausa.add_Mudou({ Mudar-Pausa })
 $lPausa.Add_Click({ if ($xPausa.Enabled) { $xPausa.Marcado = -not $xPausa.Marcado; Mudar-Pausa } })
+
+function Mudar-AutoAtualizar {
+    $v = if ($xAutoAtualizar.Marcado) { 'sim' } else { 'nao' }
+    $r = Invoke-Painel @('auto-atualizar', $v)
+    if ($r.Codigo -eq 0) {
+        if ($xAutoAtualizar.Marcado) { Mensagem 'Atualização automática ligada. O bot procura versão nova agora e depois a cada ~10 minutos. Se estiver numa partida ou série, termina ela antes de reiniciar com a versão nova; o painel se troca sozinho em seguida.' }
+        else { Mensagem 'Atualização automática desligada. Versões novas só pelo link "Atualizar" do rodapé (uma atualização que já tinha começado termina).' }
+        return
+    }
+    $xAutoAtualizar.Marcado = -not $xAutoAtualizar.Marcado
+    if ($r.Codigo -eq 125) { return }  # outra ação ainda esperava o WSL
+    # Um painel.sh antigo (sem esta opção) só mostra a ajuda: um Atualizar normal traz ela.
+    if ($r.Saida -match 'erro=') { [void](Resultado $r '') }
+    else { Mensagem 'Para ligar a atualização automática, clique uma vez em "Atualizar" no rodapé: a versão instalada no Linux ainda não tem esta opção.' }
+}
+$xAutoAtualizar.add_Mudou({ Mudar-AutoAtualizar })
+$lAutoAtualizar.Add_Click({ if ($xAutoAtualizar.Enabled) { $xAutoAtualizar.Marcado = -not $xAutoAtualizar.Marcado; Mudar-AutoAtualizar } })
 
 function Atualizar-RotuloDecisoes {
     $lDecisoesValor.Text = if ($xDecisoesInstantaneas.Marcado) { 'Sim' } else { 'Não' }
@@ -2838,10 +2869,12 @@ LOR_REVISION='{0}' LOR_VERSION='{1}' LOR_RAMO='{4}' LOR_VPS='{3}' bash "$script"
     "-d $Distro -u root -e bash -c `"echo $codificado | base64 -d | bash`""
 }
 
-function Atualizar-Painel {
+function Atualizar-Painel([switch]$Auto) {
+    # -Auto ("Atualizar sozinho"): o Linux já se atualizou sozinho para esta versão; falta só trocar
+    # este arquivo. Sem perguntar, sem a janela de progresso, e sem avisos em caixa (só na bandeja).
     $versao = $script:atualizacao
-    if (-not $versao) { Mensagem 'Consulte a versão nova antes de atualizar.'; return }
-    if (-not (Confirmar "Baixar a versão $($script:versaoNova) do bot e do painel? Se o bot estiver jogando, ele termina a partida atual antes de reiniciar.")) { return }
+    if (-not $versao) { if (-not $Auto) { Mensagem 'Consulte a versão nova antes de atualizar.' }; return }
+    if (-not $Auto -and -not (Confirmar "Baixar a versão $($script:versaoNova) do bot e do painel? Se o bot estiver jogando, ele termina a partida atual antes de reiniciar.")) { return }
     # O painel novo só entra no lugar deste depois que a atualização do Linux deu certo; antes disso
     # fica ao lado (Painel.novo.ps1), e o atual vira Painel.anterior.ps1 (para voltar à mão, se precisar).
     $atual = Join-Path $Pasta 'Painel.ps1'
@@ -2854,7 +2887,25 @@ function Atualizar-Painel {
         if ($erros.Count -gt 0) { throw 'o painel baixado veio incompleto ou com erro. Tente de novo.' }
     } catch {
         Remove-Item $novo -ErrorAction SilentlyContinue
-        Mensagem "Não consegui baixar a versão nova: $($_.Exception.Message)"
+        if (-not $Auto) { Mensagem "Não consegui baixar a versão nova: $($_.Exception.Message)" }
+        return
+    }
+    if ($Auto) {
+        try {
+            Copy-Item -Force $atual (Join-Path $Pasta 'Painel.anterior.ps1')
+            Move-Item -Force $novo $atual
+            Set-Content -Path $ArquivoVersao -Value $versao.Versao -Encoding ASCII
+            Set-Content -Path (Join-Path $Pasta 'REVISION') -Value $versao.Sha -Encoding ASCII
+        } catch {
+            Remove-Item $novo -ErrorAction SilentlyContinue
+            return
+        }
+        $argumentos = "`"$Lancador`" -Atualizado"
+        if ($form.WindowState -eq 'Minimized') { $argumentos += ' -Minimizado' }
+        Manter-Vivo
+        $trava.ReleaseMutex()
+        Start-Process wscript.exe -ArgumentList $argumentos
+        $form.Close()
         return
     }
     # O Linux numa janela que mostra o progresso; o código de saída diz se deu certo.
@@ -2864,7 +2915,7 @@ function Atualizar-Painel {
     # desligados até ela terminar.
     $timer.Stop()
     Encerrar-ConsultaEstado
-    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $bDesafiar)) { $c.Enabled = $false }
+    foreach ($c in @($bLigar, $bVer, $bDesligar, $bAgora, $bAplicar, $bConta, $bCodigo, $xDiscord, $xBloquearBots, $xEsperarBots, $xEsperarColmeia, $xPausa, $xDecisoesInstantaneas, $xAutoAtualizar, $bDesafiar)) { $c.Enabled = $false }
     $lAtualizar.Text = 'Atualizando… (veja a janela de progresso)'
     $lAtualizar.Enabled = $false
     while (-not $p.HasExited) {
@@ -2902,6 +2953,28 @@ function Atualizar-Painel {
     Start-Process wscript.exe -ArgumentList "`"$Lancador`""
     $form.Close()
 }
+# "Atualizar sozinho": quem instala é o Linux (lor-auto-atualizar.timer, que espera a partida ou
+# série acabar). Quando ele já está numa versão que este painel não é, o painel baixa o próprio
+# arquivo da mesma revisão e se reabre. Nunca roda a atualização do Linux daqui (ela pode esperar
+# uma série inteira com a janela travada). Uma tentativa por versão a cada 30 min.
+function Auto-TrocarPainel {
+    $e = $script:estado
+    if (-not $e -or $e['auto_atualizar'] -ne 'sim' -or $e['auto_atualizando'] -eq 'sim') { return }
+    $linux = [string]$e['versao']
+    if (-not $linux -or $linux -eq '?' -or $linux -eq (Versao-Painel)) { return }
+    # Com uma caixa de mensagem ou outra janela do painel aberta (ao vivo, desafio), espera ela fechar.
+    if ($script:ocupado -or -not $form.CanFocus -or @([System.Windows.Forms.Application]::OpenForms | Where-Object { $_.Visible }).Count -gt 1) { return }
+    if (-not $script:autoTentativas) { $script:autoTentativas = @{} }
+    $ultima = $script:autoTentativas[$linux]
+    if ($ultima -and ((Get-Date) - $ultima).TotalMinutes -lt 30) { return }
+    $script:autoTentativas[$linux] = Get-Date
+    try { Consultar-Atualizacao } catch { return }
+    # A VPS já pode estar numa versão mais nova que a do Linux: aí espera o Linux chegar nela.
+    $revisao = [string]$e['revisao']
+    if ($script:versaoNova -ne $linux -or ($revisao -and -not $script:atualizacao.Sha.StartsWith($revisao))) { return }
+    Atualizar-Painel -Auto
+}
+
 $lAtualizar.Add_Click({
     try { Consultar-Atualizacao } catch { }
     if (Precisa-Atualizar) { Atualizar-Painel }
@@ -2917,6 +2990,7 @@ $timer.Interval = 2500
 $timer.Add_Tick({
     if ($script:ocupado) { return }  # uma ação está esperando o WSL; o estado vem depois dela
     try { Atualizar-EmSegundoPlano } catch { Mostrar-Falha $_.Exception.Message }
+    try { Auto-TrocarPainel } catch { }
 })
 
 $script:bandeja = New-Object System.Windows.Forms.NotifyIcon
@@ -2950,6 +3024,10 @@ $form.Add_Shown({
         # Depois do Atualizar-Tela, que é quem lê o estado do bot: painel reaberto com o bot já
         # ligado volta a segurar o WSL (o painel.sh não abre um segundo guardião se ainda há um).
         if ($script:estado['bot'] -in @('active', 'activating', 'deactivating')) { Manter-Vivo }
+        if ($Atualizado) {
+            $script:bandeja.ShowBalloonTip(8000, 'LoR Bots atualizado',
+                "Bot e painel na versão $(Versao-Painel) (atualização automática).", 'Info')
+        }
     } catch {
         Mostrar-Falha $_.Exception.Message
     }
@@ -2957,6 +3035,7 @@ $form.Add_Shown({
     $timer.Start()
 })
 
+if ($Minimizado) { $form.WindowState = 'Minimized' }
 [void]$form.ShowDialog()
 $timer.Stop()
 Encerrar-ConsultaEstado

@@ -76,6 +76,7 @@ function Install-Fakes {
             'esperar-bots' { $script:fake.esperar_bots = $Argumentos[1] }
             'esperar-colmeia' { $script:fake.esperar_colmeia = $Argumentos[1] }
             pausa { $script:fake.pausa = $Argumentos[1] }
+            'auto-atualizar' { $script:fake.auto_atualizar = $Argumentos[1] }
             'decisoes-instantaneas' { $script:fake.decisoes_instantaneas = $Argumentos[1] }
             time { $script:fake.time = $Argumentos[1] }
             reiniciar { $out = if ($script:fake.desafio) { 'ok=depois-do-desafio' } else { 'ok=reiniciando' } }
@@ -564,6 +565,18 @@ foreach ($scale in @(1, 1.25, 1.5)) {
             $fake.Remove('pausa'); $script:opcoesCarregadas = $false; Atualizar-Tela
             Assert $xPausa.Marcado 'estado antigo mantem pausa ligada'
             $fake.pausa = 'sim'
+            Assert (-not $xAutoAtualizar.Marcado) 'atualizar sozinho desligado por padrao'
+            $script:commands.Clear(); $xAutoAtualizar.Marcado = $true; Mudar-AutoAtualizar
+            Assert ((Has-Command 'auto-atualizar|sim') -and $fake.auto_atualizar -eq 'sim' -and -not (Has-Command 'reiniciar')) 'ligar atualizar sozinho sem reiniciar o bot'
+            $script:failure = 'auto-atualizar'; $xAutoAtualizar.Marcado = $false; Mudar-AutoAtualizar
+            Assert $xAutoAtualizar.Marcado 'falha restaura atualizar sozinho'
+            $script:failure = ''; $script:opcoesCarregadas = $false; Atualizar-Tela
+            Assert $xAutoAtualizar.Marcado 'atualizar sozinho recupera preferencia salva'
+            $fake.auto_atualizando = 'sim'; Atualizar-Tela
+            Assert ($lAtualizar.Text -eq 'Atualizando sozinho…') "rodape durante a atualizacao automatica: $($lAtualizar.Text)"
+            $fake.auto_atualizando = 'nao'
+            $xAutoAtualizar.Marcado = $false; Mudar-AutoAtualizar
+            Assert ($fake.auto_atualizar -eq 'nao') 'desligar atualizar sozinho'
             Assert (-not $xDecisoesInstantaneas.Marcado -and $lDecisoesValor.Text -eq 'Não') 'instantaneas nao por padrao'
             $script:commands.Clear(); $xDecisoesInstantaneas.Marcado = $true; Mudar-DecisoesInstantaneas
             Assert ((Has-Command 'decisoes-instantaneas|sim') -and $fake.decisoes_instantaneas -eq 'sim' -and -not (Has-Command 'reiniciar')) 'instantaneas sim sem reiniciar'
