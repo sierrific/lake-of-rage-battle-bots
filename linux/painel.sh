@@ -23,7 +23,7 @@
 #   painel.sh esperar-colmeia sim|nao   esperar a vez entre os bots do nosso time (padrão: sim)
 #   painel.sh pausa sim|nao             pausa aleatória (1 a 5 min) antes de cada nova busca no
 #                                       ladder (padrão: sim; nao também encerra uma pausa em curso)
-#   painel.sh auto-atualizar sim|nao    "Atualizar sozinho": procura versão nova a cada ~10 min e
+#   painel.sh auto-atualizar sim|nao    "Atualizar sozinho": procura versão nova a cada ~30 min e
 #                                       instala (o bot termina a partida/série antes; padrão: nao)
 #   painel.sh decisoes-instantaneas sim|nao   sim = enviar assim que calcular; nao = ritmo do perfil
 #   painel.sh discord sim|nao           as séries deste PC são postadas no Discord do time (padrão:
@@ -678,7 +678,7 @@ auto-atualizar)
 		touch "$AUTO_ATUALIZAR" && chmod 644 "$AUTO_ATUALIZAR"
 		systemctl daemon-reload || true
 		systemctl enable --now lor-auto-atualizar.timer >/dev/null 2>&1 || true
-		# A primeira procura já agora, sem esperar os 10 min do timer.
+		# A primeira procura já agora, sem esperar os 30 min do timer.
 		systemctl start --no-block lor-auto-atualizar.service || true
 		;;
 	nao)

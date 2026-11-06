@@ -1290,7 +1290,7 @@ class TestPainelAutoAtualizar(TestPainelDesafio):
         self.assertIn("ExecStart=/bin/bash /opt/lor-bots/fonte/linux/auto-atualizar.sh", servico)
         self.assertIn("Type=oneshot", servico)
         timer = (RAIZ_REPO / "linux" / "lor-auto-atualizar.timer").read_text()
-        self.assertIn("OnUnitInactiveSec=10min", timer)
+        self.assertIn("OnUnitInactiveSec=30min", timer)
         # Fora do instalar.sh: mudar ele faria todos os bots pararem para reinstalar o Ai-vgc.
         self.assertNotIn("auto-atualizar", (RAIZ_REPO / "linux" / "instalar.sh").read_text())
 
