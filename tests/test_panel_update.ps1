@@ -42,6 +42,8 @@ function Start-Process {
     Assert ($bash.Contains('-o "$script"')) 'Script executado antes de completar download'
     # A mesma raiz da coleta que o instalador passa (revisao de codigo de 06/11).
     Assert ($bash.Contains("LOR_VPS='https://vps.teste/coleta' bash")) 'o Linux nao recebeu a VPS do painel'
+    # A branch do painel vai junto: o atualizar.sh grava em /opt/lor-bots/RAMO para o estado e o sinal.
+    Assert ($bash.Contains("LOR_RAMO='estavel' LOR_VPS=")) 'o Linux nao recebeu a branch do painel'
     # Simula outra versao publicada enquanto o runtime atualiza.
     $script:versaoNova = '999'
     $p = [pscustomobject]@{ Handle = 1; HasExited = $true; ExitCode = $script:exitCode }

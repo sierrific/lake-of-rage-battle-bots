@@ -278,10 +278,15 @@ class TestSinal(unittest.TestCase):
         bots = enviar.bots_deste_pc(rodar, raiz)
         self.assertEqual(bots, [
             {"conta": "MadMage", "estado": "active", "partida": "https://play.pokemonshowdown.com/battle-x-9",
-             "servidor": "oficial", "modelo": "mc-bo3-rnad-v6", "desafio": False,
+             "servidor": "oficial", "modelo": "mc-bo3-rnad-v6", "oponente": "", "busca": "prior 0.03",
+             "formato": "bo3", "timer": True,
+             "opcoes": {"colmeia": True, "pausa": True, "esperar_bots": True, "decisoes_rapidas": False},
+             "desafio": False,
              "placar": {"oponente": "Rival", "formato": "gen9x", "bo3": True, "jogo": 2, "vitorias": 0,
                         "derrotas": 1, "turno": 4, "nossos": 3, "deles": 4, "idade": 5}},
             {"conta": "LoR Sierra", "estado": "inactive", "partida": "", "servidor": "lor", "modelo": "",
+             "oponente": "", "busca": "", "formato": "bo3", "timer": True,
+             "opcoes": {"colmeia": True, "pausa": True, "esperar_bots": True, "decisoes_rapidas": False},
              "desafio": False, "placar": None},
         ])  # sem coleta.env (o código nunca vai no sinal), exemplo.env nem .env sem conta
 
@@ -291,6 +296,38 @@ class TestSinal(unittest.TestCase):
         self.assertEqual(enviar.modelo_do_modo("--model=x/y/meu-modelo.pt"), "meu-modelo")
         self.assertEqual(enviar.modelo_do_modo("--ladder --use MC371"), "")
         self.assertEqual(enviar.modelo_do_modo(""), "")
+
+    def test_modulos_do_modo(self):
+        modo = ("--ladder --use MC371 --bo1 --no-timer --model data/models/mc-bo3-rnad-v6.pt --change-after-loss "
+                "--counter-t1 0.5 --search-prior 0.03 --search-protect --search-series 0.3 "
+                "--opp-model data/models/lor-opp-v4-tudo.pt")
+        self.assertEqual(enviar.modulos_do_modo(modo), {
+            "oponente": "lor-opp-v4-tudo", "busca": "change-after-loss counter-t1 0.5 prior 0.03 protect series 0.3",
+            "formato": "bo1", "timer": False})
+        self.assertEqual(enviar.modulos_do_modo(""), {"oponente": "", "busca": "", "formato": "bo3", "timer": True})
+
+    def test_opcoes_do_bot(self):
+        bandeira = self.etc / "bot.sem-espera-colmeia"
+        bandeira.touch()
+        conf = {"SEM_ESPERA_COLMEIA_ARQUIVO": str(bandeira), "SEM_PAUSA_ARQUIVO": str(self.etc / "nao-existe"),
+                "DECISOES_RAPIDAS_ARQUIVO": str(bandeira)}
+        self.assertEqual(enviar.opcoes_do_bot(conf),
+                         {"colmeia": False, "pausa": True, "esperar_bots": True, "decisoes_rapidas": True})
+
+    def test_modulos_do_pc(self):
+        antes = enviar.INSTALACAO
+        try:
+            enviar.INSTALACAO = self.etc
+            self.assertEqual(enviar.modulos_do_pc(), {"ramo": "", "revisao": "", "aivgc": "", "patch": ""})
+            (self.etc / "RAMO").write_text("claude/v041-pausa\n")
+            (self.etc / "REVISION").write_text("0123456789abcdef" * 2 + "\n")
+            (self.etc / "ai-vgc" / ".git").mkdir(parents=True)
+            (self.etc / "ai-vgc" / ".git" / "HEAD").write_text("0bd586d4b2c2cbca9e06d52dada06c46649a32a5\n")
+            (self.etc / "ai-vgc-lor.patch").write_text("x")
+            self.assertEqual(enviar.modulos_do_pc(), {"ramo": "claude/v041-pausa", "revisao": "0123456789ab",
+                                                      "aivgc": "0bd586d", "patch": "2d71164"})
+        finally:
+            enviar.INSTALACAO = antes
 
     def test_placar_de_outra_partida_ou_velho(self):
         raiz = self.etc

@@ -162,5 +162,8 @@ if ! bash "$FONTE/linux/instalar.sh"; then
 	religar
 	exit 1
 fi
+# A branch de onde veio (estavel ou uma de teste), para o painel e a página de admin mostrarem. Fica
+# fora do instalar.sh: mudar ele faz os bots pararem para reinstalar o Ai-vgc.
+printf '%s\n' "$RAMO" >"$DIR/RAMO" || true
 religar
 echo "Atualizado para $nova."

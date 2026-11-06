@@ -618,6 +618,39 @@ class TestPainelEsperarColmeia(TestPainelDesafio):
         self.assertIn("esperar_colmeia=sim", self.painel("estado").splitlines())
 
 
+class TestPainelModulos(TestPainelDesafio):
+    """estado: as peças com que o bot joga (modelo, oponente, busca, branch, Ai-vgc), para o rodapé do painel."""
+
+    def modulos(self) -> dict:
+        return dict(x.split("=", 1) for x in self.painel("estado").splitlines()
+                    if x.split("=", 1)[0] in ("modelo", "oponente", "busca", "ramo", "revisao", "aivgc", "patch"))
+
+    def test_sem_env_nem_instalacao(self):
+        self.assertEqual(self.modulos(), {"modelo": "", "oponente": "", "busca": "", "ramo": "", "revisao": "",
+                                          "aivgc": "", "patch": ""})
+
+    def test_do_env_e_da_instalacao(self):
+        self.painel("formato", "bo3")  # gera o bot.env com o MODO do painel
+        m = self.modulos()
+        self.assertEqual(m["modelo"], "mc-bo3-rnad-v5")
+        self.assertEqual(m["oponente"], "")  # sem lor-opp-v*: o original do bot.sh
+        self.assertTrue(m["busca"].startswith("change-after-loss counter-t1 0.5 prior 0.03 protect escape"), m["busca"])
+        self.assertNotIn("--", m["busca"])
+        modelos = self.d / "ai" / "data" / "models"
+        modelos.mkdir(parents=True)
+        (modelos / "lor-opp-v4-tudo.pt").touch()
+        (self.d / "ai" / ".git").mkdir()
+        (self.d / "ai" / ".git" / "HEAD").write_text("0bd586d4b2c2cbca9e06d52dada06c46649a32a5\n")
+        (self.d / "ai-vgc-lor.patch").write_text("x")
+        (self.d / "RAMO").write_text("claude/v041-pausa\n")
+        (self.d / "REVISION").write_text("abcdef0123456789" * 2 + "\n")
+        self.painel("formato", "bo3")
+        m = self.modulos()
+        self.assertEqual(m["oponente"], "lor-opp-v4-tudo")
+        self.assertEqual((m["ramo"], m["revisao"], m["aivgc"], m["patch"]),
+                         ("claude/v041-pausa", "abcdef012345", "0bd586d", "2d71164"))
+
+
 class TestPainelPausa(TestPainelDesafio):
     def test_padrao_ligado_e_toggle_persistente_independente_sem_reiniciar(self):
         self.assertIn("pausa=sim", self.painel("estado").splitlines())

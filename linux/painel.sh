@@ -363,6 +363,42 @@ print("hoje_times=" + ", ".join(f"{n} {a}-{b}" for n, (a, b) in sorted(c["times"
 PY
 }
 
+# As peças com que o bot joga, para o painel mostrar (e comparar entre PCs): o que vale é o MODO do
+# .env (o que o bot usa de fato), a branch/revisão desta instalação e o commit do Ai-vgc com o patch.
+# Sem .env (bot nunca configurado), o modelo e a busca saem vazios.
+#   modelo=mc-bo3-rnad-v6       o --model, sem pasta nem .pt
+#   oponente=lor-opp-v4-tudo    o --opp-model; vazio = o all-bo3-opp-v2 que o bot.sh usa sem ele
+#   busca=prior 0.03 protect …  as opções --search-* e de adaptação do Bo3, sem o "--search-"/"--"
+modulos() {
+	local base="${AIVGC%/*}" modo="" modelo="" oponente="" busca="" i palavra
+	[ -f "$ENV" ] && modo="$(sed -n 's/^MODO="\(.*\)"$/\1/p' "$ENV" | tail -1)"
+	local -a p
+	read -ra p <<<"$modo"
+	for ((i = 0; i < ${#p[@]}; i++)); do
+		palavra="${p[i]}"
+		case "$palavra" in
+		--model) modelo="${p[i + 1]:-}" ;;
+		--opp-model) oponente="${p[i + 1]:-}" ;;
+		--search-* | --change-after-loss | --counter-t1)
+			palavra="${palavra#--search-}"
+			busca+=" ${palavra#--}"
+			# Um número logo depois é o valor da opção (--search-prior 0.03, --counter-t1 0.5).
+			[[ "${p[i + 1]:-}" =~ ^[0-9.]+$ ]] && busca+=" ${p[i + 1]}" && i=$((i + 1))
+			;;
+		esac
+	done
+	modelo="${modelo##*/}"
+	oponente="${oponente##*/}"
+	echo "modelo=${modelo%.pt}"
+	echo "oponente=${oponente%.pt}"
+	echo "busca=${busca# }"
+	echo "ramo=$(head -c 100 "$base/RAMO" 2>/dev/null | tr -cd 'A-Za-z0-9._/-' || true)"
+	echo "revisao=$(head -c 12 "$base/REVISION" 2>/dev/null | tr -cd '0-9a-f' || true)"
+	# O HEAD do checkout direto do arquivo: o git como root recusaria a pasta, que é do usuário bots.
+	echo "aivgc=$(head -c 7 "$AIVGC/.git/HEAD" 2>/dev/null | tr -cd '0-9a-f' || true)"
+	echo "patch=$(sha256sum "$base/ai-vgc-lor.patch" 2>/dev/null | head -c 7 || true)"
+}
+
 desafio_ativo() { [[ "$(estado_unit "$DESAFIO")" =~ ^(active|activating|deactivating)$ ]]; }
 desafio_get() { cat "$DESAFIO_DIR/$1" 2>/dev/null || true; }
 desafio_set() { [ -d "$DESAFIO_DIR" ] && echo "$2" >"$DESAFIO_DIR/$1" || true; }
@@ -397,6 +433,7 @@ estado)
 	echo "esperar_colmeia=$([ -e "$SEM_ESPERA_COLMEIA" ] && echo nao || echo sim)"
 	echo "pausa=$([ -e "$SEM_PAUSA" ] && echo nao || echo sim)"
 	echo "decisoes_instantaneas=$([ -e "$DECISOES_RAPIDAS" ] && echo sim || echo nao)"
+	modulos
 	mem=$(systemctl show -p MemoryCurrent --value "$UNIT" 2>/dev/null || true)
 	# MemoryCurrent soma o cache de arquivos do Linux, que é descartável: o painel mostra só o que é do bot.
 	cg=$(systemctl show -p ControlGroup --value "$UNIT" 2>/dev/null || true)
