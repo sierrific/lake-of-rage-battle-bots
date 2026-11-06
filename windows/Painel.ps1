@@ -1589,7 +1589,7 @@ $xAutoAtualizar.AccessibleName = 'Atualizar sozinho'
 $lAutoAtualizar = Novo-Rotulo 'Atualizar sozinho' 264 651 124 32 $form 'texto' 9.5
 $lAutoAtualizar.FundoNome = 'fundo'
 $lAutoAtualizar.Cursor = 'Hand'
-$ajudaAutoAtualizar = 'Ligado: a cada ~10 minutos o bot procura uma versão nova e instala sozinho. Se estiver numa partida ou série, termina ela antes de reiniciar; parado entre partidas, reinicia na hora. O painel se troca sozinho depois. Desligado: só pelo link "Atualizar" do rodapé.'
+$ajudaAutoAtualizar = 'Ligado: a cada ~30 minutos o bot procura uma versão nova e instala sozinho. Se estiver numa partida ou série, termina ela antes de reiniciar; parado entre partidas, reinicia na hora. O painel se troca sozinho depois. Desligado: só pelo link "Atualizar" do rodapé.'
 $ttTema.SetToolTip($lAutoAtualizar, $ajudaAutoAtualizar)
 $ttTema.SetToolTip($xAutoAtualizar, $ajudaAutoAtualizar)
 $lAtualizar = New-Object LoR.AcaoTexto
@@ -2486,7 +2486,7 @@ function Mudar-AutoAtualizar {
     $v = if ($xAutoAtualizar.Marcado) { 'sim' } else { 'nao' }
     $r = Invoke-Painel @('auto-atualizar', $v)
     if ($r.Codigo -eq 0) {
-        if ($xAutoAtualizar.Marcado) { Mensagem 'Atualização automática ligada. O bot procura versão nova agora e depois a cada ~10 minutos. Se estiver numa partida ou série, termina ela antes de reiniciar com a versão nova; o painel se troca sozinho em seguida.' }
+        if ($xAutoAtualizar.Marcado) { Mensagem 'Atualização automática ligada. O bot procura versão nova agora e depois a cada ~30 minutos. Se estiver numa partida ou série, termina ela antes de reiniciar com a versão nova; o painel se troca sozinho em seguida.' }
         else { Mensagem 'Atualização automática desligada. Versões novas só pelo link "Atualizar" do rodapé (uma atualização que já tinha começado termina).' }
         return
     }

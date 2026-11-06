@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Atualização automática (opção "Atualizar sozinho" do painel; painel.sh auto-atualizar sim|nao).
-# O lor-auto-atualizar.timer roda isto a cada ~10 min: se a branch deste PC (/opt/lor-bots/RAMO,
+# O lor-auto-atualizar.timer roda isto a cada ~30 min: se a branch deste PC (/opt/lor-bots/RAMO,
 # estavel por padrão, ou a de teste com que ele foi instalado) tem uma revisão nova na VPS do time,
 # roda o atualizar.sh dessa revisão, como o botão Atualizar. O atualizar.sh já espera: bot no meio
 # de uma partida ou série termina ela antes de reiniciar com a versão nova; parado entre partidas,
