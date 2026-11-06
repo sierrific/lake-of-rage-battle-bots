@@ -36,8 +36,8 @@ function Invoke-WebRequest {
     Assert ($Uri -like "https://vps.teste/coleta/bots/$A/*") "baixou de outro lugar: $Uri"
     if ($OutFile -and $Uri -like '*/windows/Painel.ps1') {
         # Reinstalacao interrompida: metade do painel chega (string sem fim) ou a conexao cai.
-        if ($script:painel -eq 'metade') { [IO.File]::WriteAllText($OutFile, "Write-Host 'metade do pai"); return }
-        if ($script:painel -eq 'caiu') { [IO.File]::WriteAllText($OutFile, '# come'); throw 'a conexao caiu' }
+        if ($script:modoPainel -eq 'metade') { [IO.File]::WriteAllText($OutFile, "Write-Host 'metade do pai"); return }
+        if ($script:modoPainel -eq 'caiu') { [IO.File]::WriteAllText($OutFile, '# come'); throw 'a conexao caiu' }
         [IO.File]::WriteAllText($OutFile, "# painel novo`nWrite-Host 'ok'")
         return
     }
@@ -71,13 +71,13 @@ try {
     $painel = Join-Path $Pasta 'Painel.ps1'
     foreach ($modo in @('metade', 'caiu')) {
         [IO.File]::WriteAllText($painel, '# painel que funcionava')
-        $script:painel = $modo; $script:consultas = 0; $script:linux.Clear()
+        $script:modoPainel = $modo; $script:consultas = 0; $script:linux.Clear()
         $erro = & { try { & $passos; '' } catch { $_.Exception.Message } }
         Assert ($erro -like 'FALHA: Nao consegui baixar Painel.ps1*') "$($modo): '$erro'"
         Assert ([IO.File]::ReadAllText($painel) -eq '# painel que funcionava') "$($modo): estragou o painel que funcionava"
         Assert (-not (Test-Path "$painel.baixando")) "$($modo): sobrou o temporario"
     }
-    $script:painel = $null
+    $script:modoPainel = $null
 
     # Sem resposta do GitHub: para com uma mensagem, sem baixar nada nem mexer no Linux.
     $script:urls.Clear(); $script:linux.Clear(); $script:apiFalha = $true
