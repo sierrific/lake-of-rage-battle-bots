@@ -296,7 +296,7 @@ index 0000000..b3a9a8f
 +    def pause_seconds(self) -> float:
 +        return self.rng.triangular(*self.profile.pause)
 diff --git a/src/ai_vgc/nn/player.py b/src/ai_vgc/nn/player.py
-index eb60a97..3771edd 100644
+index eb60a97..e3f5589 100644
 --- a/src/ai_vgc/nn/player.py
 +++ b/src/ai_vgc/nn/player.py
 @@ -7,7 +7,8 @@
@@ -1139,7 +1139,18 @@ index eb60a97..3771edd 100644
      ap.add_argument("--search", action="store_true", help="pick move-turn actions by one-turn search (search.py)")
      ap.add_argument("--opp-model", default=None,
                      help="checkpoint with the opponent-action head (--aux) for --search; without one, "
-@@ -857,6 +1538,17 @@ def main() -> None:
+@@ -840,6 +1521,10 @@ def main() -> None:
+                     help="closed team sheets: score each play against this many guesses at the opponent's "
+                          "hidden sets (common sets that fit what they've shown), weighted by how likely each is")
+     ap.add_argument("--search-prior", type=float, default=0.0, help="weight on the policy's log-probability")
++    ap.add_argument("--search-risk", type=float, default=0.0,
++                    help="lower each candidate's value by this share of its gap to the worst likely reply (0 = mean)")
++    ap.add_argument("--search-risk-tau", type=float, default=0.08,
++                    help="probability a reply needs to count as likely for --search-risk")
+     ap.add_argument("--speed-inference", action="store_true",
+                     help="narrow opposing Speed stats from turn order into the features (ai_vgc.speed); "
+                          "for models trained with it (rl.py --speed-inference)")
+@@ -857,6 +1542,17 @@ def main() -> None:
      ap.add_argument("--search-k2", type=int, default=3, help="depth 2: our candidates on turn 2")
      ap.add_argument("--search-opp-k2", type=int, default=3, help="depth 2: the opponent's candidates on turn 2")
      ap.add_argument("--search-seeds2", type=int, default=1, help="depth 2: simulations per turn-2 pairing")
@@ -1157,7 +1168,7 @@ index eb60a97..3771edd 100644
      ap.add_argument("--adapt", action="store_true",
                      help="Bo3: pick games 2-3 previews against the opponent's last leads (bo3.py)")
      ap.add_argument("--adapt-k", type=int, default=8, help="our candidate previews for --adapt")
-@@ -882,6 +1574,9 @@ def main() -> None:
+@@ -882,6 +1578,9 @@ def main() -> None:
                      help="draw each match's team at random from just these --teams files (stems)")
      ap.add_argument("--no-timer", action="store_true",
                      help="on Showdown, don't turn the battle timer on at the start of each game")
@@ -1167,7 +1178,7 @@ index eb60a97..3771edd 100644
      ap.add_argument("--no-munchstats", action="store_true",
                      help="--search on Showdown: don't fetch MunchStats usage for unknown opposing species")
      ap.add_argument("--closed-sheets", action="store_true",
-@@ -896,6 +1591,7 @@ def main() -> None:
+@@ -896,6 +1595,7 @@ def main() -> None:
                      help="team folder search and --adapt read EV spreads from (default: --teams). Use the full "
                           "pool when --teams is small, or opponents' spreads fall back to 0 EVs")
      args = ap.parse_args()
@@ -1175,7 +1186,7 @@ index eb60a97..3771edd 100644
      torch.set_num_threads(1)
      if args.search_team_mass is not None:
          from ai_vgc.nn import search as _search
-@@ -913,17 +1609,24 @@ def main() -> None:
+@@ -913,17 +1613,24 @@ def main() -> None:
                                           cycle=bool(args.cycle))
          return RandomPoolTeambuilder(args.teams) if args.teams else RandomPoolTeambuilder()
  
@@ -1203,7 +1214,7 @@ index eb60a97..3771edd 100644
              f"ws://localhost:{args.port}/showdown/websocket", "https://play.pokemonshowdown.com/action.php?"),
      )
      try:
-@@ -932,9 +1635,21 @@ def main() -> None:
+@@ -932,9 +1639,21 @@ def main() -> None:
              common.update(max_concurrent_battles=1)
              del common["battle_format"]
              password = None
@@ -1226,17 +1237,18 @@ index eb60a97..3771edd 100644
              acct = AccountConfiguration(args.accept, password)
              kw = dict(rules=not args.no_rules, team=teams(), account_configuration=acct, **common)
              if args.search:
-@@ -949,7 +1664,8 @@ def main() -> None:
+@@ -949,7 +1668,9 @@ def main() -> None:
                                              showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                              opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                              depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
 -                                            seeds2=args.search_seeds2, prior=args.search_prior, **kw)
 +                                            seeds2=args.search_seeds2, prior=args.search_prior, protect=args.search_protect, escape=args.search_escape,
-+                              charge=args.search_charge, field=args.search_field, series=args.search_series, **kw)
++                              charge=args.search_charge, field=args.search_field, series=args.search_series,
++                              risk=args.search_risk, risk_tau=args.search_risk_tau, **kw)
                  bot.formats = formats
                  bot.counter_t1 = args.counter_t1
                  if public and not args.no_munchstats:
-@@ -958,6 +1674,7 @@ def main() -> None:
+@@ -958,6 +1679,7 @@ def main() -> None:
                      bot.refresher = Refresher()
              else:
                  bot = ChallengeNNPlayer(args.model, args.rating, args.greedy, formats=formats, **kw)
@@ -1244,7 +1256,7 @@ index eb60a97..3771edd 100644
              if public:
                  _public_login(bot, password)
              bot.vary, bot.vary_k, bot.vary_margin = args.vary, args.vary_k, args.vary_margin
-@@ -966,9 +1683,15 @@ def main() -> None:
+@@ -966,9 +1688,15 @@ def main() -> None:
              bot.set_guess = (str(args.sets or args.teams or TEAMS_DIR), formats[0]) if args.set_guess else None
              bot.change_after_loss = args.change_after_loss
              bot.save_dir = args.save_dir / time.strftime("%Y-%m-%d")
@@ -1261,7 +1273,7 @@ index eb60a97..3771edd 100644
              bot.timer = public and not args.no_timer
              if public:
                  import threading
-@@ -976,42 +1699,53 @@ def main() -> None:
+@@ -976,42 +1704,53 @@ def main() -> None:
                  def watchdog():
                      # poke-env's listener just ends when the server drops the connection, leaving the
                      # bot waiting forever; exit with 75 instead so scripts/bot.sh logs in again.
@@ -1333,17 +1345,18 @@ index eb60a97..3771edd 100644
                  bot._format = args.format
                  print(f"'{args.accept}' laddering {args.format} at {where}: {args.n} games", flush=True)
                  asyncio.run(bot.ladder(args.n))
-@@ -1035,7 +1769,8 @@ def main() -> None:
+@@ -1035,7 +1774,9 @@ def main() -> None:
                                showdown=args.showdown or "pokemon-showdown", k=args.search_k,
                                opp_k=args.search_opp_k, seeds=args.search_seeds, worlds=args.search_worlds,
                                depth=args.search_depth, k2=args.search_k2, opp_k2=args.search_opp_k2,
 -                              seeds2=args.search_seeds2, prior=args.search_prior, **kw)
 +                              seeds2=args.search_seeds2, prior=args.search_prior, protect=args.search_protect, escape=args.search_escape,
-+                              charge=args.search_charge, field=args.search_field, series=args.search_series, **kw)
++                              charge=args.search_charge, field=args.search_field, series=args.search_series,
++                              risk=args.search_risk, risk_tau=args.search_risk_tau, **kw)
              me.counter_t1 = args.counter_t1
          else:
              me = NNPlayer(args.model, args.rating, args.greedy, rules=not args.no_rules,
-@@ -1093,6 +1828,9 @@ def main() -> None:
+@@ -1093,6 +1834,9 @@ def main() -> None:
              extra = (f"  search: {me.searched} decisions, {me.search_time / max(me.searched, 1):.2f}s each, "
                       f"{me.fallbacks} by policy, {me.sim_errors}/{me.sims} sims failed, "
                       f"{me.countered} turn 1s countered")
@@ -1665,7 +1678,7 @@ index cf62665..d8b9c3b 100644
 +                out[pos, a] = False
 +                break
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
-index 9d7a515..ba41526 100644
+index 9d7a515..277cefa 100644
 --- a/src/ai_vgc/nn/search.py
 +++ b/src/ai_vgc/nn/search.py
 @@ -30,6 +30,7 @@ Search only runs on ordinary move turns; forced switches and team preview use th
@@ -2244,13 +2257,30 @@ index 9d7a515..ba41526 100644
          lv = values(model, leaves, rating)
          for (n, j), x in zip(where, lv):
              if j is None:
-@@ -780,16 +1123,32 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
+@@ -777,19 +1120,50 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.errors = 0
+ 
+ 
++def risk_adjusted(M: np.ndarray, q: np.ndarray, risk: float = 0.0, tau: float = 0.08) -> np.ndarray:
++    """Each of our candidates' value against the opponent's replies: the mean by their probabilities
++    `q`, lowered by `risk` times the gap to the worst reply that has at least `tau` of the probability.
++    A line that wins on average but loses outright to a reply they pick one time in ten is a bad bet
++    (2026-11-06 diagnosis of lost games: in half of the turns where the value fell most, the
++    simulator itself had our pick losing to a listed 10-20% reply). `risk` 0 is the plain mean."""
++    mean = M @ q
++    likely = q >= tau
++    if not risk or not likely.any():
++        return mean
++    return mean - risk * np.maximum(mean - M[:, likely].min(1), 0.0)  # a penalty, never a bonus
++
++
  def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: DoubleBattle,
             mask: np.ndarray, fmt: str, teams_dir: str, rating: float, k: int = 6, opp_k: int = 6,
             seeds: int = 2, prior: float = 0.0, n_worlds: int = 1, depth: int = 1, k2: int = 3,
 -           opp_k2: int = 3, seeds2: int = 1) -> tuple[np.ndarray, dict] | None:
 +           opp_k2: int = 3, seeds2: int = 1, protect: bool = False, escape: bool = False,
-+           charge: bool = False, field: bool = False, series: float = 0.0) -> tuple[np.ndarray, dict] | None:
++           charge: bool = False, field: bool = False, series: float = 0.0, risk: float = 0.0,
++           risk_tau: float = 0.08) -> tuple[np.ndarray, dict] | None:
      """(our chosen action, details) by one-turn search, or None when the position can't be
      rebuilt. With closed team sheets the opponent's hidden sets are guessed `n_worlds` ways
      (`worlds`); each candidate is scored in every world and the scores averaged by how likely
@@ -2264,6 +2294,7 @@ index 9d7a515..ba41526 100644
 +    out of rain) is scored after the next turn, when the move fires, as at depth 2: the charge's
 +    +1 is worth nothing if the Pokemon falls before firing (arrdamoin G1 T7).
 +    `field` and `series` shape the opponent's candidates (`opp_candidates`).
++    `risk` and `risk_tau` score each candidate by `risk_adjusted` instead of the plain mean.
      `M` and `q` in the details are the most likely world's."""
 +    check_live(battle)
      obs = encode(battle, rating)
@@ -2278,7 +2309,7 @@ index 9d7a515..ba41526 100644
      if len(ours) < 2:
          return None
      choices = [DoublesEnv.action_to_order(a, battle, strict=False).message.removeprefix("/choose ")
-@@ -797,29 +1156,47 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -797,32 +1171,50 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      seed_list = [int(s) for s in np.random.randint(1, 2**30, seeds)]
      value, first, errors, sims = np.zeros(len(ours)), None, [], 0
      for world, w in worlds(battle, teams_dir, n_worlds, fmt):
@@ -2329,8 +2360,12 @@ index 9d7a515..ba41526 100644
 +        check_live(battle)
          M = v.reshape(len(ours), len(theirs), seeds).mean(-1)
          q = np.array([p for _, p in theirs])
-         value += w * (M @ q)
-@@ -830,6 +1207,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+-        value += w * (M @ q)
++        value += w * risk_adjusted(M, q, risk, risk_tau)
+         errors += [r["err"] for r in res if r["err"]]
+         sims += len(res)
+         if first is None:
+@@ -830,6 +1222,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      M, q, their_choices = first
      score = value + prior * np.array([lp for _, lp in ours])
      best = int(score.argmax())
@@ -2338,20 +2373,22 @@ index 9d7a515..ba41526 100644
      return ours[best][0], {"M": M, "q": q, "ours": choices, "theirs": their_choices,
                             "actions": np.stack([a for a, _ in ours]), "value": value,
                             "logp": np.array([lp for _, lp in ours]), "obs": obs | {"mask": mask},
-@@ -842,8 +1220,11 @@ class SearchPlayer(NNPlayer):
+@@ -842,8 +1235,13 @@ class SearchPlayer(NNPlayer):
      def __init__(self, *args, opp_model: Policy | str | Path | None = None, fmt: str,
                   teams_dir: str | Path, showdown: str | Path = "pokemon-showdown", k: int = 6,
                   opp_k: int = 6, seeds: int = 2, prior: float = 0.0, worlds: int = 1, depth: int = 1,
 -                 k2: int = 3, opp_k2: int = 3, seeds2: int = 1, **kwargs):
 +                 k2: int = 3, opp_k2: int = 3, seeds2: int = 1, protect: bool = False, escape: bool = False,
-+                 charge: bool = False, field: bool = False, series: float = 0.0, **kwargs):
++                 charge: bool = False, field: bool = False, series: float = 0.0, risk: float = 0.0,
++                 risk_tau: float = 0.08, **kwargs):
          super().__init__(*args, battle_format=fmt, **kwargs)
++        self.risk, self.risk_tau = risk, risk_tau
 +        self.protect = protect
 +        self.escape, self.charge, self.field, self.series = escape, charge, field, series
          self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
          self.fmt, self.teams_dir = fmt, str(teams_dir)
          self.bridge = Bridge(showdown)
-@@ -877,7 +1258,10 @@ class SearchPlayer(NNPlayer):
+@@ -877,7 +1275,10 @@ class SearchPlayer(NNPlayer):
              self.leads[battle.battle_tag] = (
                  tuple(m.species for m in battle.active_pokemon if m),
                  tuple(m.species for m in battle.opponent_active_pokemon if m))
@@ -2363,19 +2400,19 @@ index 9d7a515..ba41526 100644
              return await super().choose_move(battle)
          mask = action_mask(battle)
          if self.rules:
-@@ -889,7 +1273,10 @@ class SearchPlayer(NNPlayer):
+@@ -889,7 +1290,10 @@ class SearchPlayer(NNPlayer):
              out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
                                            self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
                                            self.seeds, self.prior, self.worlds, self.depth, self.k2,
 -                                          self.opp_k2, self.seeds2)
 +                                          self.opp_k2, self.seeds2, self.protect, self.escape,
-+                                          self.charge, self.field, self.series)
++                                          self.charge, self.field, self.series, self.risk, self.risk_tau)
 +        except SearchStopped:
 +            raise asyncio.CancelledError() from None
          except Exception as e:  # a position the bridge can't handle: play the policy
              self.logger.warning("search failed on turn %s: %r", battle.turn, e)
              out = None
-@@ -902,6 +1289,8 @@ class SearchPlayer(NNPlayer):
+@@ -902,6 +1306,8 @@ class SearchPlayer(NNPlayer):
          else:
              self.failed_in_a_row = 0
          self.search_time += time.time() - t
@@ -2384,6 +2421,15 @@ index 9d7a515..ba41526 100644
          if out is None:
              self.fallbacks += 1
              return await super().choose_move(battle)
+@@ -916,7 +1322,7 @@ class SearchPlayer(NNPlayer):
+         if key and self.counter_t1 and self.last_t1.get(key) in d["ours"]:
+             q = (1 - self.counter_t1) * d["q"]
+             q[int(d["M"][d["ours"].index(self.last_t1[key])].argmin())] += self.counter_t1
+-            d["score"] = d["M"] @ q + self.prior * d["logp"]
++            d["score"] = risk_adjusted(d["M"], q, self.risk, self.risk_tau) + self.prior * d["logp"]
+             action = d["actions"][int(d["score"].argmax())]
+             self.countered += 1
+         if self.vary and self.later_game(battle):
 diff --git a/src/ai_vgc/nn/sim_bridge.js b/src/ai_vgc/nn/sim_bridge.js
 index bf07ddc..4d0828f 100644
 --- a/src/ai_vgc/nn/sim_bridge.js

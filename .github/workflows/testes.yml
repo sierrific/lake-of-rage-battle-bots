@@ -146,6 +146,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/atributos_sets.py" src/ai_vgc/nn/search.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/golpe_dominado_casos.py" src/ai_vgc/nn/rules.py
           python3 "$GITHUB_WORKSPACE/tests/ai_vgc/mecanicas_prioridade.py" src/ai_vgc/nn/rules.py
+          python3 "$GITHUB_WORKSPACE/tests/ai_vgc/busca_risco.py" src/ai_vgc/nn/search.py src/ai_vgc/nn/player.py
           node "$GITHUB_WORKSPACE/tests/ai_vgc/reposicao_fim.cjs" src/ai_vgc/nn/sim_bridge.js
           node "$GITHUB_WORKSPACE/tests/ai_vgc/reposicao_pendente.cjs" src/ai_vgc/nn/sim_bridge.js
 
