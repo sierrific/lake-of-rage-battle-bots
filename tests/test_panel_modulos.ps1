@@ -18,9 +18,10 @@ $e = @{ versao = '2026.11.04.1'; modelo = 'mc-bo3-rnad-v6'; oponente = 'lor-opp-
     esperar_colmeia = 'nao'; pausa = 'sim'; esperar_bots = 'sim'; decisoes_instantaneas = 'nao' }
 $Ramo = 'claude/v041-pausa'
 $r = Resumo-Modulos $e
-Assert ($r.Curto -like '*2026.11.04.1 * claude/v041-pausa * modelo v6 * oponente v4') "curto: $($r.Curto)"
+Assert ($r.Curto -like '*2026.11.04.1 * v041-pausa * mod. v6 * op. v4') "curto: $($r.Curto)"
+Assert (-not $r.Curto.Contains('claude') -and -not $r.Detalhe.Contains('claude')) "prefixo da branch: $($r.Curto)"
 foreach ($trecho in @('mc-bo3-rnad-v6', 'lor-opp-v4-tudo', 'prior 0.03 protect', '0bd586d + patch 2d71164',
-        'branch claude/v041-pausa', 'abcdef012345', 'colmeia n')) {
+        'branch v041-pausa', 'abcdef012345', 'colmeia n')) {
     Assert ($r.Detalhe.Contains($trecho)) "detalhe sem '$trecho': $($r.Detalhe)"
 }
 
@@ -29,7 +30,7 @@ $Ramo = 'estavel'
 $e['oponente'] = ''
 $r = Resumo-Modulos $e
 Assert (-not $r.Curto.Contains('estavel')) "curto com a branch padrao: $($r.Curto)"
-Assert ($r.Curto -like '* oponente original') "curto: $($r.Curto)"
+Assert ($r.Curto -like '* op. original') "curto: $($r.Curto)"
 Assert ($r.Detalhe.Contains('all-bo3-opp-v2')) 'detalhe sem o oponente original'
 
 # Linux de versao antiga (sem as chaves novas): so a versao, sem inventar modelo.

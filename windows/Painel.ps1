@@ -2769,15 +2769,18 @@ function Nome-Curto($modelo) {
 }
 function Resumo-Modulos($e) {
     $sn = { param($v) if ($v -eq 'sim') { 'sim' } elseif ($v -eq 'nao') { 'não' } else { '?' } }
+    # Só o nome da branch de teste, sem o prefixo de quem a criou (claude/v041-pausa -> v041-pausa).
+    $nomeRamo = $Ramo -replace '^[^/]+/', ''
     $curto = "Versão $($e['versao'])"
-    if ($Ramo -ne 'estavel') { $curto += " · $Ramo" }
+    if ($Ramo -ne 'estavel') { $curto += " · $nomeRamo" }
     if ($e.ContainsKey('modelo')) {
-        if ($e['modelo']) { $curto += " · modelo $(Nome-Curto $e['modelo'])" }
-        $curto += ' · oponente ' + $(if ($e['oponente']) { Nome-Curto $e['oponente'] } else { 'original' })
+        # Abreviado no rodapé (mod. = modelo de jogo, op. = modelo do oponente); por extenso no detalhe.
+        if ($e['modelo']) { $curto += " · mod. $(Nome-Curto $e['modelo'])" }
+        $curto += ' · op. ' + $(if ($e['oponente']) { Nome-Curto $e['oponente'] } else { 'original' })
     }
     $revisao = if ($e['revisao']) { ", revisão $($e['revisao'])" } else { '' }
     $linhas = @(
-        "Programa: $($e['versao']) (branch $Ramo$revisao) · painel $(Versao-Painel)"
+        "Programa: $($e['versao']) (branch $nomeRamo$revisao) · painel $(Versao-Painel)"
     )
     if ($e.ContainsKey('modelo')) {
         $linhas += 'Modelo de jogo: ' + $(if ($e['modelo']) { $e['modelo'] } else { 'nenhum (configure a conta)' })
