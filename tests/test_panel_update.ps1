@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
 $path = Join-Path (Split-Path $PSScriptRoot) 'windows\Painel.ps1'
 $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
-foreach ($name in @('Codigo-Coleta', 'Consultar-Atualizacao', 'Comando-Atualizacao', 'Atualizar-Painel')) {
+foreach ($name in @('Codigo-Coleta', 'Consultar-Atualizacao', 'Comando-Atualizacao', 'Atualizar-Painel', 'Auto-TrocarPainel', 'Versao-Painel')) {
     $f = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)
     . ([scriptblock]::Create($f.Extent.Text))
 }
@@ -32,7 +33,8 @@ function Manter-Vivo { }
 function Atualizar-Tela { }
 function Start-Process {
     param($FilePath, $ArgumentList, [switch]$PassThru)
-    if ($FilePath -ne 'wsl.exe') { return }
+    if ($FilePath -ne 'wsl.exe') { $script:relancado = "$FilePath $ArgumentList"; return }
+    $script:wsl++
     Assert ($ArgumentList -match 'echo ([A-Za-z0-9+/=]+) \| base64') 'Bootstrap sem script codificado'
     $bash = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Matches[1]))
     Assert ($bash.Contains("https://vps.teste/coleta/bots/$(('a' * 40))/linux/atualizar.sh")) 'Updater de outra revisao'
@@ -61,9 +63,11 @@ $timer | Add-Member ScriptMethod Start { }
 $trava = New-Object PSObject
 $trava | Add-Member ScriptMethod ReleaseMutex { }
 $form = New-Object PSObject
-$form | Add-Member ScriptMethod Close { }
+$form | Add-Member ScriptMethod Close { $script:fechado++ }
+$form | Add-Member NoteProperty WindowState 'Minimized'
+$form | Add-Member NoteProperty CanFocus $true
 $lAtualizar = [pscustomobject]@{ Text = ''; Enabled = $true }
-foreach ($name in @('bLigar','bVer','bDesligar','bAgora','bAplicar','bConta','bCodigo','xDiscord','xChat','xBloquearBots','xEsperarBots','xEsperarColmeia','xPausa','xDecisoesInstantaneas','bDesafiar')) {
+foreach ($name in @('bLigar','bVer','bDesligar','bAgora','bAplicar','bConta','bCodigo','xDiscord','xChat','xBloquearBots','xEsperarBots','xEsperarColmeia','xPausa','xDecisoesInstantaneas','xAutoAtualizar','bDesafiar')) {
     Set-Variable $name ([pscustomobject]@{ Enabled = $true })
 }
 try {
@@ -97,6 +101,37 @@ try {
         Assert ($script:urls.Count -eq 0) 'Pediu a VPS sem codigo'
     }
     Write-Host 'PASS SHA unico, branch mutada, falha Linux preserva painel e metadados invalidos'
+
+    # "Atualizar sozinho": o Linux ja se atualizou (versao 2, revisao aaaa...); o painel so troca o
+    # proprio arquivo, sem perguntar e sem rodar o atualizar.sh, e reabre minimizado como estava.
+    function Confirmar($texto) { throw 'auto perguntou' }
+    function Mensagem($texto) { throw "auto mostrou caixa: $texto" }
+    $script:codigoSalvo = 'codigo-teste'
+    $script:sha = 'a' * 40
+    $script:wsl = 0; $script:fechado = 0; $script:relancado = ''
+    $script:estado = @{ versao = '2'; revisao = ('a' * 12); auto_atualizar = 'sim'; auto_atualizando = 'nao' }
+    [IO.File]::WriteAllText((Join-Path $Pasta 'Painel.ps1'), '# anterior')
+    Set-Content $ArquivoVersao '1'
+    # Desligado, ou com o Linux ainda atualizando: nada.
+    $script:estado.auto_atualizar = 'nao'; Auto-TrocarPainel
+    $script:estado.auto_atualizar = 'sim'; $script:estado.auto_atualizando = 'sim'; Auto-TrocarPainel
+    Assert ($script:fechado -eq 0 -and $script:urls.Count -eq 0) 'trocou com a opcao desligada ou o Linux no meio'
+    # A VPS ja passou da versao do Linux: espera o Linux chegar nela.
+    $script:estado.auto_atualizando = 'nao'; $script:estado.versao = '1.9'
+    Set-Content $ArquivoVersao '1'
+    Auto-TrocarPainel
+    Assert ($script:fechado -eq 0) 'trocou o painel para uma versao que o Linux ainda nao tem'
+    $script:estado.versao = '2'
+    Auto-TrocarPainel
+    Assert ($script:wsl -eq 0) 'o auto rodou a atualizacao do Linux pelo painel'
+    Assert ($script:fechado -eq 1) 'o painel nao se reabriu'
+    Assert ((Get-Content (Join-Path $Pasta 'Painel.ps1') -Raw) -eq '# painel do commit a') 'auto nao trocou o painel'
+    Assert ((Get-Content $ArquivoVersao -Raw).Trim() -eq '2') 'auto nao gravou a versao'
+    Assert ($script:relancado -match '-Atualizado' -and $script:relancado -match '-Minimizado') "reabriu sem as opcoes: $($script:relancado)"
+    # Mesma versao: nao tenta de novo.
+    Auto-TrocarPainel
+    Assert ($script:fechado -eq 1) 'tentou trocar de novo na mesma versao'
+    Write-Host 'PASS atualizar sozinho troca so o painel, na revisao do Linux'
 } finally {
     $resolvido = [IO.Path]::GetFullPath($Pasta)
     if ($resolvido.StartsWith([IO.Path]::GetTempPath()) -and (Split-Path $resolvido -Leaf) -like 'lor-update-*') {

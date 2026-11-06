@@ -117,6 +117,13 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
   versão nova do bot e do painel. O bot que estava jogando termina a partida/série antes de reiniciar;
   quando a versão muda o próprio Ai-vgc ou o simulador, ele para antes da instalação e volta no fim.
   Se algo falhar no meio, a versão anterior é reinstalada e o bot volta como estava.
+- **Atualizar sozinho** (no rodapé; **desligado** por padrão, vale para o PC todo): a cada ~10 min
+  o Linux procura uma revisão nova da branch deste PC (`estavel`, ou a de teste com que ele foi
+  instalado) e instala como o **Atualizar**: numa partida ou série, o bot termina ela antes de
+  reiniciar; parado entre partidas, reinicia na hora. Depois o painel troca o próprio arquivo e se
+  reabre (minimizado, se estava). Uma revisão que falhou ao instalar não é tentada de novo sozinha.
+  Desligar não interrompe uma atualização já começada (`painel.sh auto-atualizar sim|nao`; o
+  progresso fica em `journalctl -u lor-auto-atualizar`).
 - **Postar no Discord** (em Ajustes, no cartão da coleta): desligado, as séries deste PC não aparecem
   no canal do Discord, mas as partidas continuam indo para a coleta e o treino. Vale já para a
   próxima partida, sem reiniciar o bot.

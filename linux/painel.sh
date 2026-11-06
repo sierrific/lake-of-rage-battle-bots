@@ -23,6 +23,8 @@
 #   painel.sh esperar-colmeia sim|nao   esperar a vez entre os bots do nosso time (padrão: sim)
 #   painel.sh pausa sim|nao             pausa aleatória (1 a 5 min) antes de cada nova busca no
 #                                       ladder (padrão: sim; nao também encerra uma pausa em curso)
+#   painel.sh auto-atualizar sim|nao    "Atualizar sozinho": procura versão nova a cada ~10 min e
+#                                       instala (o bot termina a partida/série antes; padrão: nao)
 #   painel.sh decisoes-instantaneas sim|nao   sim = enviar assim que calcular; nao = ritmo do perfil
 #   painel.sh discord sim|nao           as séries deste PC são postadas no Discord do time (padrão:
 #                                       sim); com nao, as partidas seguem indo para a coleta e o treino
@@ -96,6 +98,12 @@ COLETA_STATUS="$AIVGC/data/live_games/.coleta-status"
 # Existe = não postar no Discord: o enviar-partidas.py marca as partidas que manda com "discord":
 # false (vale para todos os bots deste PC; a coleta continua recebendo tudo).
 SEM_DISCORD="$ETC/sem-discord"
+# Presente = "Atualizar sozinho" (vale para o PC todo): o lor-auto-atualizar.timer roda o
+# auto-atualizar.sh, que instala cada revisão nova da branch deste PC. As units vêm do fonte/ da
+# versão instalada (o atualizar.sh as renova): não mexem no instalar.sh.
+AUTO_ATUALIZAR="$ETC/auto-atualizar"
+FONTE_LINUX="${LOR_FONTE:-/opt/lor-bots/fonte}/linux"
+UNITS_DIR="${LOR_SYSTEMD:-/etc/systemd/system}"
 # Ausente = /blockbots; presente = /allowbots. O bot relê antes de cada busca no ladder.
 PERMITIR_BOTS="$ETC/$BOT_ID.permitir-bots"
 # Presente = pular a espera por adversários conhecidos; não altera a fila dos bots do time.
@@ -433,6 +441,8 @@ estado)
 	echo "esperar_colmeia=$([ -e "$SEM_ESPERA_COLMEIA" ] && echo nao || echo sim)"
 	echo "pausa=$([ -e "$SEM_PAUSA" ] && echo nao || echo sim)"
 	echo "decisoes_instantaneas=$([ -e "$DECISOES_RAPIDAS" ] && echo sim || echo nao)"
+	echo "auto_atualizar=$([ -e "$AUTO_ATUALIZAR" ] && echo sim || echo nao)"
+	echo "auto_atualizando=$([ "$(estado_unit lor-auto-atualizar.service)" = activating ] && echo sim || echo nao)"
 	modulos
 	mem=$(systemctl show -p MemoryCurrent --value "$UNIT" 2>/dev/null || true)
 	# MemoryCurrent soma o cache de arquivos do Linux, que é descartável: o painel mostra só o que é do bot.
@@ -657,6 +667,30 @@ pausa)
 	esac
 	echo ok=pausa
 	;;
+auto-atualizar)
+	case "${1:-}" in
+	sim)
+		if [ ! -f "$FONTE_LINUX/lor-auto-atualizar.timer" ]; then
+			echo "erro=esta instalação ainda não tem a atualização automática: clique em Atualizar uma vez"
+			exit 1
+		fi
+		install -m 644 "$FONTE_LINUX/lor-auto-atualizar.service" "$FONTE_LINUX/lor-auto-atualizar.timer" "$UNITS_DIR/"
+		touch "$AUTO_ATUALIZAR" && chmod 644 "$AUTO_ATUALIZAR"
+		systemctl daemon-reload || true
+		systemctl enable --now lor-auto-atualizar.timer >/dev/null 2>&1 || true
+		# A primeira procura já agora, sem esperar os 10 min do timer.
+		systemctl start --no-block lor-auto-atualizar.service || true
+		;;
+	nao)
+		# Uma atualização já em andamento termina (pará-la no meio da instalação deixaria o bot
+		# pela metade); só as próximas procuras deixam de acontecer.
+		rm -f "$AUTO_ATUALIZAR"
+		systemctl disable --now lor-auto-atualizar.timer >/dev/null 2>&1 || true
+		;;
+	*) echo "erro=use sim ou nao"; exit 1 ;;
+	esac
+	echo ok=auto-atualizar
+	;;
 decisoes-instantaneas)
 	case "${1:-}" in
 	sim) touch "$DECISOES_RAPIDAS" && chmod 644 "$DECISOES_RAPIDAS" ;;
@@ -855,7 +889,7 @@ backup)
 	echo "ok=backup em $pasta (primeira cópia começando; depois uma vez por dia)"
 	;;
 *)
-	sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'
 	exit 1
 	;;
 esac
