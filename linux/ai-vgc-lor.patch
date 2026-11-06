@@ -1354,7 +1354,7 @@ index eb60a97..3771edd 100644
                f"{wins}/{n} = {wins / max(n, 1):.1%}  95% CI [{lo:.1%}, {hi:.1%}]  {time.time() - t:.0f}s{extra}")
          if me.games:
 diff --git a/src/ai_vgc/nn/rules.py b/src/ai_vgc/nn/rules.py
-index cf62665..d8b9c3b 100644
+index cf62665..5227354 100644
 --- a/src/ai_vgc/nn/rules.py
 +++ b/src/ai_vgc/nn/rules.py
 @@ -39,6 +39,7 @@ from poke_env.battle import (
@@ -1392,7 +1392,19 @@ index cf62665..d8b9c3b 100644
      if move.status is not None:
          if target.status is not None:
              return True
-@@ -342,9 +356,238 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
+@@ -313,6 +327,11 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
+         tgt = ally
+     status = move.category == MoveCategory.STATUS
+ 
++    if target in (battle.POKEMON_1_POSITION, battle.POKEMON_2_POSITION) and -target - 1 != pos and ally is None:
++        # Our partner's slot with nobody in it (fainted, no replacement left): Showdown sends a
++        # move there nowhere ("[notarget]") instead of redirecting it to a foe as it does for an
++        # empty foe slot (Last Respects into the fainted partner, 2026-11-06 review).
++        return "no partner in that slot"
+     if move.id in FIRST_TURN_ONLY and not user.first_turn:
+         return "not the first turn out"
+     if move.id in SELF_KO and not _ignores_abilities(user) and \
+@@ -342,9 +361,238 @@ def move_fails(battle: DoubleBattle, pos: int, move: Move, target: int) -> str |
          return "Life Dew at full HP"
      if move.id in ("healpulse", "floralhealing") and tgt is not None and tgt.current_hp_fraction == 1:
          return "heal at full HP"
@@ -1631,7 +1643,36 @@ index cf62665..d8b9c3b 100644
  def slot_moves(battle: DoubleBattle, pos: int) -> list[Move]:
      """The move list that DoublesEnv's action ids index into."""
      mon = battle.active_pokemon[pos]
-@@ -382,6 +625,32 @@ def _apply_rules(battle: DoubleBattle, mask: np.ndarray) -> np.ndarray:
+@@ -353,6 +601,28 @@ def slot_moves(battle: DoubleBattle, pos: int) -> list[Move]:
+     return avail if len(avail) == 1 and avail[0].id not in {m.id for m in known} else known
+ 
+ 
++# Field moves that only one of our two slots should use in a turn: the second copy fails
++# (Tailwind, screens, the same weather or terrain) or undoes the first (Trick Room). Only the SAME
++# move is a duplicate: Reflect next to Light Screen is fine.
++FIELD_ONCE = set(SCREENS) | set(WEATHERS) | set(TERRAINS) | {"trickroom"}
++
++
++def same_field_move(battle: DoubleBattle, action) -> bool:
++    """Both slots of the joint `action` (DoublesEnv ids) use the same move from FIELD_ONCE: the
++    second one is wasted (double Tailwind, 2026-11-06 review)."""
++    ids = []
++    for pos in (0, 1):
++        a = int(action[pos])
++        if a < 7:
++            return False
++        mvs = slot_moves(battle, pos)
++        i = (a - 7) % 20 // 5
++        if i >= len(mvs):
++            return False
++        ids.append(mvs[i].id)
++    return ids[0] == ids[1] and ids[0] in FIELD_ONCE
++
++
+ def apply_rules(battle: DoubleBattle, mask: np.ndarray) -> np.ndarray:
+     """Copy of the [2, 107] action mask without actions that are sure to fail."""
+     token = _GUESS.set(True)
+@@ -382,6 +652,32 @@ def _apply_rules(battle: DoubleBattle, mask: np.ndarray) -> np.ndarray:
                  _MEGA_NOW.reset(token)
              if fails:
                  out[pos, a] = False
@@ -1665,7 +1706,7 @@ index cf62665..d8b9c3b 100644
 +                out[pos, a] = False
 +                break
 diff --git a/src/ai_vgc/nn/search.py b/src/ai_vgc/nn/search.py
-index 9d7a515..ba41526 100644
+index 9d7a515..ffa7da8 100644
 --- a/src/ai_vgc/nn/search.py
 +++ b/src/ai_vgc/nn/search.py
 @@ -30,6 +30,7 @@ Search only runs on ordinary move turns; forced switches and team preview use th
@@ -1681,7 +1722,7 @@ index 9d7a515..ba41526 100644
  from ai_vgc.nn.model import Policy, masked, slot_b_mask
  from ai_vgc.nn.player import NNPlayer, action_mask, load_policy
 -from ai_vgc.nn.rules import apply_rules
-+from ai_vgc.nn.rules import apply_rules, mega_stones
++from ai_vgc.nn.rules import apply_rules, mega_stones, same_field_move
  
  BRIDGE = Path(__file__).with_name("sim_bridge.js")
 -STATS = ["hp", "atk", "def", "spa", "spd", "spe"]
@@ -2226,7 +2267,15 @@ index 9d7a515..ba41526 100644
          if r["winner"]:
              v[i] = {"us": 1.0, "them": 0.0}.get(r["winner"], 0.5)
              continue
-@@ -740,7 +1081,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+@@ -725,6 +1066,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+                 mask = apply_rules(b2, action_mask(b2))
+                 obs = encode(b2, rating)
+                 ours = our_candidates(model, obs | {"mask": mask}, mask, k2)
++                ours = [c for c in ours if not same_field_move(b2, c[0])] or ours
+                 state = position(b2, fmt, teams_dir, world)
+                 if ours and state is not None:
+                     choices = [DoublesEnv.action_to_order(a, b2, strict=False).message.removeprefix("/choose ")
+@@ -740,7 +1082,8 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
      _second_turn.expanded += len(conts)
      _second_turn.nodes += len(res)
      if conts:
@@ -2236,7 +2285,7 @@ index 9d7a515..ba41526 100644
      leaves, where = [], []
      for n, (i, b, k, q) in enumerate(nodes):
          if not k:
-@@ -759,6 +1101,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
+@@ -759,6 +1102,7 @@ def _second_turn(model: Policy, opp_model: Policy | None, bridge: Bridge, battle
                  where.append((n, j))
          nodes[n] = (i, b, k, q, vals)
      if leaves:
@@ -2244,7 +2293,7 @@ index 9d7a515..ba41526 100644
          lv = values(model, leaves, rating)
          for (n, j), x in zip(where, lv):
              if j is None:
-@@ -780,16 +1123,32 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
+@@ -780,16 +1124,37 @@ _second_turn.expanded = _second_turn.nodes = _second_turn.sims = _second_turn.er
  def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: DoubleBattle,
             mask: np.ndarray, fmt: str, teams_dir: str, rating: float, k: int = 6, opp_k: int = 6,
             seeds: int = 2, prior: float = 0.0, n_worlds: int = 1, depth: int = 1, k2: int = 3,
@@ -2271,6 +2320,11 @@ index 9d7a515..ba41526 100644
      ours = our_candidates(model, obs | {"mask": mask}, mask, k)
 +    if protect:
 +        ours += protective_candidates(model, battle, obs | {"mask": mask}, mask, ours)
++    # Both slots on the same field move (two Tailwinds, two Trick Rooms): the second is wasted.
++    kept = [c for c in ours if not same_field_move(battle, c[0])]
++    if len(kept) >= 2:
++        SEARCH_STATS["field_duplicates_dropped"] += len(ours) - len(kept)
++        ours = kept
 +    first_escape = len(ours)
 +    if escape:
 +        ours += escape_candidates(model, obs | {"mask": mask}, mask, ours)
@@ -2278,7 +2332,7 @@ index 9d7a515..ba41526 100644
      if len(ours) < 2:
          return None
      choices = [DoublesEnv.action_to_order(a, battle, strict=False).message.removeprefix("/choose ")
-@@ -797,29 +1156,47 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -797,29 +1162,47 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      seed_list = [int(s) for s in np.random.randint(1, 2**30, seeds)]
      value, first, errors, sims = np.zeros(len(ours)), None, [], 0
      for world, w in worlds(battle, teams_dir, n_worlds, fmt):
@@ -2330,7 +2384,7 @@ index 9d7a515..ba41526 100644
          M = v.reshape(len(ours), len(theirs), seeds).mean(-1)
          q = np.array([p for _, p in theirs])
          value += w * (M @ q)
-@@ -830,6 +1207,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
+@@ -830,6 +1213,7 @@ def search(model: Policy, opp_model: Policy | None, bridge: Bridge, battle: Doub
      M, q, their_choices = first
      score = value + prior * np.array([lp for _, lp in ours])
      best = int(score.argmax())
@@ -2338,7 +2392,7 @@ index 9d7a515..ba41526 100644
      return ours[best][0], {"M": M, "q": q, "ours": choices, "theirs": their_choices,
                             "actions": np.stack([a for a, _ in ours]), "value": value,
                             "logp": np.array([lp for _, lp in ours]), "obs": obs | {"mask": mask},
-@@ -842,8 +1220,11 @@ class SearchPlayer(NNPlayer):
+@@ -842,8 +1226,11 @@ class SearchPlayer(NNPlayer):
      def __init__(self, *args, opp_model: Policy | str | Path | None = None, fmt: str,
                   teams_dir: str | Path, showdown: str | Path = "pokemon-showdown", k: int = 6,
                   opp_k: int = 6, seeds: int = 2, prior: float = 0.0, worlds: int = 1, depth: int = 1,
@@ -2351,7 +2405,7 @@ index 9d7a515..ba41526 100644
          self.opp_model = load_policy(opp_model) if isinstance(opp_model, (str, Path)) else opp_model
          self.fmt, self.teams_dir = fmt, str(teams_dir)
          self.bridge = Bridge(showdown)
-@@ -877,7 +1258,10 @@ class SearchPlayer(NNPlayer):
+@@ -877,7 +1264,10 @@ class SearchPlayer(NNPlayer):
              self.leads[battle.battle_tag] = (
                  tuple(m.species for m in battle.active_pokemon if m),
                  tuple(m.species for m in battle.opponent_active_pokemon if m))
@@ -2363,7 +2417,7 @@ index 9d7a515..ba41526 100644
              return await super().choose_move(battle)
          mask = action_mask(battle)
          if self.rules:
-@@ -889,7 +1273,10 @@ class SearchPlayer(NNPlayer):
+@@ -889,7 +1279,10 @@ class SearchPlayer(NNPlayer):
              out = await asyncio.to_thread(search, self.model, self.opp_model, self.bridge, battle, mask,
                                            self.fmt, self.teams_dir, self.rating, self.k, self.opp_k,
                                            self.seeds, self.prior, self.worlds, self.depth, self.k2,
@@ -2375,7 +2429,7 @@ index 9d7a515..ba41526 100644
          except Exception as e:  # a position the bridge can't handle: play the policy
              self.logger.warning("search failed on turn %s: %r", battle.turn, e)
              out = None
-@@ -902,6 +1289,8 @@ class SearchPlayer(NNPlayer):
+@@ -902,6 +1295,8 @@ class SearchPlayer(NNPlayer):
          else:
              self.failed_in_a_row = 0
          self.search_time += time.time() - t

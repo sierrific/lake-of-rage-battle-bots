@@ -274,5 +274,83 @@ class TestPranksterEDark(unittest.TestCase):
         self.assertGreater(prio(comum, PROTECT), prio(prankster, FAKE_OUT))
 
 
+class TestAlvoNoParceiroDesmaiado(unittest.TestCase):
+    """Golpe de um alvo no slot do parceiro quando o parceiro já desmaiou e não há reposição: o
+    Showdown manda o golpe para lugar nenhum ([notarget]); só um slot adversário vazio é
+    redirecionado. A regra tem de tirar esse alvo, sem mexer nos alvos adversários."""
+
+    def setUp(self):
+        self.basculegion = mon("basculegion", [TY.WATER, TY.GHOST], "adaptability")
+        caido = mon("archaludon", [TY.STEEL, TY.DRAGON], "stamina")
+        caido.fainted = True
+        self.b = battle(self.basculegion, [mon("gardevoir", [TY.PSYCHIC, TY.FAIRY], "trace"),
+                                           mon("raichu", [TY.ELECTRIC], "lightningrod")], ally=caido)
+        # O nosso Pokémon vivo está no slot b (posição 1); o parceiro desmaiado ficou no slot a.
+        self.b.active_pokemon = [caido, self.basculegion]
+        self.golpe = move("lastrespects", TY.GHOST, power=50)
+
+    def test_slot_do_parceiro_desmaiado_e_bloqueado(self):
+        self.assertEqual(R["move_fails"](self.b, 1, self.golpe, -1), "no partner in that slot")
+
+    def test_slot_vazio_tambem(self):
+        self.b.active_pokemon = [None, self.basculegion]
+        self.assertEqual(R["move_fails"](self.b, 1, self.golpe, -1), "no partner in that slot")
+
+    def test_alvos_adversarios_continuam(self):
+        for alvo in (1, 2):
+            self.assertIsNone(R["move_fails"](self.b, 1, self.golpe, alvo), alvo)
+
+    def test_parceiro_vivo_continua_alvo_valido(self):
+        vivo = mon("archaludon", [TY.STEEL, TY.DRAGON], "stamina")
+        self.b.active_pokemon = [vivo, self.basculegion]
+        self.assertIsNone(R["move_fails"](self.b, 1, move("pollenpuff", TY.BUG, category=C.SPECIAL), -1))
+
+
+class TestGolpeDeCampoDuplicado(unittest.TestCase):
+    """Os dois slots no MESMO golpe de campo no mesmo turno (dois Tailwind, dois Trick Room): o
+    segundo falha ou desfaz o primeiro. Golpes de campo diferentes, ou um golpe de campo com um
+    ataque, continuam."""
+
+    TAILWIND = move("tailwind", TY.FLYING, category=C.STATUS, target=T.ALLIES)
+    TRICK_ROOM = move("trickroom", TY.PSYCHIC, category=C.STATUS, priority=-7, target=T.ALL)
+    REFLECT = move("reflect", TY.PSYCHIC, category=C.STATUS, target=T.ALLIES)
+    LIGHT_SCREEN = move("lightscreen", TY.PSYCHIC, category=C.STATUS, target=T.ALLIES)
+    HURRICANE = move("hurricane", TY.FLYING, category=C.SPECIAL, power=110)
+
+    def b(self, golpes_a, golpes_b):
+        a = mon("salamence", [TY.DRAGON, TY.FLYING], "intimidate")
+        b = mon("pelipper", [TY.WATER, TY.FLYING], "drizzle")
+        a.moves = {m.id: m for m in golpes_a}
+        b.moves = {m.id: m for m in golpes_b}
+        bt = battle(a, [rillaboom()], ally=b)
+        bt.available_moves = [list(golpes_a), list(golpes_b)]
+        return bt
+
+    @staticmethod
+    def acao(i_a, i_b):
+        # DoublesEnv: 7 + 20 x bloco (0 = sem Mega) + 5 x golpe + alvo.
+        return (7 + 5 * i_a + 2, 7 + 5 * i_b + 2)
+
+    def test_dois_tailwind_bloqueado(self):
+        bt = self.b([self.TAILWIND, self.HURRICANE], [self.HURRICANE, self.TAILWIND])
+        self.assertTrue(R["same_field_move"](bt, self.acao(0, 1)))
+
+    def test_tailwind_mais_ataque_permitido(self):
+        bt = self.b([self.TAILWIND, self.HURRICANE], [self.HURRICANE, self.TAILWIND])
+        self.assertFalse(R["same_field_move"](bt, self.acao(0, 0)))
+
+    def test_reflect_mais_light_screen_permitido(self):
+        bt = self.b([self.REFLECT], [self.LIGHT_SCREEN])
+        self.assertFalse(R["same_field_move"](bt, self.acao(0, 0)))
+
+    def test_dois_trick_room_bloqueado(self):
+        bt = self.b([self.TRICK_ROOM], [self.TRICK_ROOM])
+        self.assertTrue(R["same_field_move"](bt, self.acao(0, 0)))
+
+    def test_troca_nao_conta(self):
+        bt = self.b([self.TAILWIND], [self.TAILWIND])
+        self.assertFalse(R["same_field_move"](bt, (1, self.acao(0, 0)[1])))
+
+
 if __name__ == "__main__":
     unittest.main()
