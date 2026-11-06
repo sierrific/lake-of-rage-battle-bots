@@ -5,12 +5,17 @@ Caso real (2026-11-05): o G1 contra um oponente acabou ~00:09 e o G2 só começo
 antiga de 2 minutos o bot buscou outra partida, jogou duas séries ao mesmo tempo, chegou a 5 s no
 relógio e gravou o time do último sorteio nos jogos da outra série."""
 import ast
+import re
 import sys
 import types
 import unittest
 from pathlib import Path
 
-from poke_env.data import to_id_str
+
+def to_id_str(s: str) -> str:
+    """O mesmo de poke_env.data.to_id_str (a CI roda sem poke_env)."""
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
 
 source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
 mixin = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == "ChallengeMixin")
