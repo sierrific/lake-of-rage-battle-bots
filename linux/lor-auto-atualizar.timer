@@ -1,0 +1,11 @@
+[Unit]
+Description=Procura versão nova dos bots LoR a cada ~10 minutos
+
+[Timer]
+OnBootSec=3min
+# Contado do fim da última rodada: uma atualização longa (esperando a série) nunca se sobrepõe.
+OnUnitInactiveSec=10min
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Atualização automática dos bots LoR (opção "Atualizar sozinho" do painel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Do fonte/ da versão instalada: assim ele chega sem mudar o instalar.sh (que faria os bots
+# pararem para reinstalar o Ai-vgc). Numa versão que muda o Ai-vgc o atualizar.sh espera a
+# série acabar antes de parar os bots: pode levar ~45 min, mais a instalação.
+ExecStart=/bin/bash /opt/lor-bots/fonte/linux/auto-atualizar.sh
+TimeoutStartSec=3h

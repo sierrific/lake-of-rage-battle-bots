@@ -75,6 +75,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_panel_update.ps1
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_panel_modulos.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Painel nativo (PowerShell 5.1, C# 5, layouts, temas e comandos simulados)
         shell: powershell
         run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/test_panel_ui.ps1 -OutputDirectory "$env:RUNNER_TEMP/lor-panel-ui"

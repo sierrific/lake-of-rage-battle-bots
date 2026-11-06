@@ -618,6 +618,39 @@ class TestPainelEsperarColmeia(TestPainelDesafio):
         self.assertIn("esperar_colmeia=sim", self.painel("estado").splitlines())
 
 
+class TestPainelModulos(TestPainelDesafio):
+    """estado: as peças com que o bot joga (modelo, oponente, busca, branch, Ai-vgc), para o rodapé do painel."""
+
+    def modulos(self) -> dict:
+        return dict(x.split("=", 1) for x in self.painel("estado").splitlines()
+                    if x.split("=", 1)[0] in ("modelo", "oponente", "busca", "ramo", "revisao", "aivgc", "patch"))
+
+    def test_sem_env_nem_instalacao(self):
+        self.assertEqual(self.modulos(), {"modelo": "", "oponente": "", "busca": "", "ramo": "", "revisao": "",
+                                          "aivgc": "", "patch": ""})
+
+    def test_do_env_e_da_instalacao(self):
+        self.painel("formato", "bo3")  # gera o bot.env com o MODO do painel
+        m = self.modulos()
+        self.assertEqual(m["modelo"], "mc-bo3-rnad-v5")
+        self.assertEqual(m["oponente"], "")  # sem lor-opp-v*: o original do bot.sh
+        self.assertTrue(m["busca"].startswith("change-after-loss counter-t1 0.5 prior 0.03 protect escape"), m["busca"])
+        self.assertNotIn("--", m["busca"])
+        modelos = self.d / "ai" / "data" / "models"
+        modelos.mkdir(parents=True)
+        (modelos / "lor-opp-v4-tudo.pt").touch()
+        (self.d / "ai" / ".git").mkdir()
+        (self.d / "ai" / ".git" / "HEAD").write_text("0bd586d4b2c2cbca9e06d52dada06c46649a32a5\n")
+        (self.d / "ai-vgc-lor.patch").write_text("x")
+        (self.d / "RAMO").write_text("claude/v041-pausa\n")
+        (self.d / "REVISION").write_text("abcdef0123456789" * 2 + "\n")
+        self.painel("formato", "bo3")
+        m = self.modulos()
+        self.assertEqual(m["oponente"], "lor-opp-v4-tudo")
+        self.assertEqual((m["ramo"], m["revisao"], m["aivgc"], m["patch"]),
+                         ("claude/v041-pausa", "abcdef012345", "0bd586d", "2d71164"))
+
+
 class TestPainelPausa(TestPainelDesafio):
     def test_padrao_ligado_e_toggle_persistente_independente_sem_reiniciar(self):
         self.assertIn("pausa=sim", self.painel("estado").splitlines())
@@ -1214,3 +1247,144 @@ class TestAtualizar(unittest.TestCase):
         self.assertIn(conta, (RAIZ_REPO / "linux" / "instalar.sh").read_text())
         self.assertIn(conta.replace("$SRC", "$1"), (RAIZ_REPO / "linux" / "atualizar.sh").read_text())
         self.assertIn('"$DIR/.lor-runtime"', (RAIZ_REPO / "linux" / "instalar.sh").read_text())
+
+
+class TestPainelAutoAtualizar(TestPainelDesafio):
+    """painel.sh auto-atualizar: desligado por padrão; ligado instala o timer a partir do fonte/."""
+
+    def setUp(self):
+        super().setUp()
+        self.fonte = self.d / "fonte" / "linux"
+        self.fonte.mkdir(parents=True)
+        self.units = self.d / "systemd"
+        self.units.mkdir()
+        self.env.update(LOR_FONTE=str(self.d / "fonte"), LOR_SYSTEMD=str(self.units))
+
+    def test_padrao_desligado_e_toggle(self):
+        estado = self.painel("estado").splitlines()
+        self.assertIn("auto_atualizar=nao", estado)
+        self.assertIn("auto_atualizando=nao", estado)
+        # Instalação antiga, sem as units no fonte/: não liga pela metade.
+        self.assertIn("erro=", self.painel("auto-atualizar", "sim", ok=False))
+        self.assertFalse((self.d / "auto-atualizar").exists())
+        for nome in ("lor-auto-atualizar.service", "lor-auto-atualizar.timer"):
+            shutil.copyfile(RAIZ_REPO / "linux" / nome, self.fonte / nome)
+        self.assertIn("ok=auto-atualizar", self.painel("auto-atualizar", "sim"))
+        self.assertTrue((self.units / "lor-auto-atualizar.timer").exists())
+        self.assertIn("auto_atualizar=sim", self.painel("estado").splitlines())
+        c = self.chamadas()
+        self.assertIn("systemctl enable --now lor-auto-atualizar.timer", c)
+        self.assertIn("systemctl start --no-block lor-auto-atualizar.service", c)
+        # Não mexe no bot: a atualização (se houver) é que decide quando reiniciar.
+        self.assertFalse(any("lor-bot@" in x and ("start" in x or "stop" in x) for x in c), c)
+        self.assertIn("erro=", self.painel("auto-atualizar", "talvez", ok=False))
+        self.painel("auto-atualizar", "nao")
+        self.assertFalse((self.d / "auto-atualizar").exists())
+        self.assertIn("systemctl disable --now lor-auto-atualizar.timer", self.chamadas())
+        # Desligar não interrompe uma atualização já em andamento.
+        self.assertNotIn("systemctl stop lor-auto-atualizar.service", self.chamadas())
+        self.assertIn("auto_atualizar=nao", self.painel("estado").splitlines())
+
+    def test_units_rodam_o_script_do_fonte(self):
+        servico = (RAIZ_REPO / "linux" / "lor-auto-atualizar.service").read_text()
+        self.assertIn("ExecStart=/bin/bash /opt/lor-bots/fonte/linux/auto-atualizar.sh", servico)
+        self.assertIn("Type=oneshot", servico)
+        timer = (RAIZ_REPO / "linux" / "lor-auto-atualizar.timer").read_text()
+        self.assertIn("OnUnitInactiveSec=10min", timer)
+        # Fora do instalar.sh: mudar ele faria todos os bots pararem para reinstalar o Ai-vgc.
+        self.assertNotIn("auto-atualizar", (RAIZ_REPO / "linux" / "instalar.sh").read_text())
+
+
+CURL_AUTO = r'''#!/usr/bin/env bash
+url="${@: -1}"
+echo "$url" >>"$D/downloads"
+[[ " $* " == *" Authorization: Bearer codigo-do-membro "* ]] || exit 22
+case "$url" in
+  */ramo/*) [ -f "$D/fora" ] && exit 7; printf '{"sha":"%s"}' "$(cat "$D/sha")" ;;
+  *) exit 22 ;;
+esac
+'''
+
+ATUALIZAR_AUTO = r'''#!/usr/bin/env bash
+echo "atualizar rev=$LOR_REVISION ramo=$LOR_RAMO vps=$LOR_VPS" >>"$D/log"
+[ ! -f "$D/falhar" ] || exit 3
+echo "$LOR_REVISION" >"$LOR_DIR/REVISION"
+'''
+
+
+class TestAutoAtualizar(unittest.TestCase):
+    """auto-atualizar.sh: roda o atualizar.sh de cada revisão nova da branch do PC, só com a opção ligada."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        (d / "curl").write_text(CURL_AUTO)
+        (d / "curl").chmod(0o755)
+        (d / "atualizar.sh").write_text(ATUALIZAR_AUTO)
+        for p in ("opt", "etc"):
+            (d / p).mkdir()
+        (d / "etc" / "coleta.env").write_text("COLETA_CODIGO=codigo-do-membro\n")
+        (d / "etc" / "auto-atualizar").touch()
+        (d / "opt" / "REVISION").write_text("a" * 40 + "\n")
+        (d / "sha").write_text("b" * 40)
+        self.d = d
+        self.env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "D": str(d),
+                    "LOR_DIR": str(d / "opt"), "LOR_ETC": str(d / "etc"),
+                    "LOR_ATUALIZAR": str(d / "atualizar.sh")}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def rodar(self) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(RAIZ_REPO / "linux" / "auto-atualizar.sh")],
+                              env=self.env, capture_output=True, text=True)
+
+    def ler(self, nome: str) -> list[str]:
+        f = self.d / nome
+        return f.read_text().splitlines() if f.exists() else []
+
+    def test_desligado_nem_consulta(self):
+        (self.d / "etc" / "auto-atualizar").unlink()
+        self.assertEqual(self.rodar().returncode, 0)
+        self.assertEqual(self.ler("downloads"), [])
+        self.assertEqual(self.ler("log"), [])
+
+    def test_revisao_nova_atualiza_e_depois_nao_repete(self):
+        r = self.rodar()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.ler("log"), [
+            f"atualizar rev={'b' * 40} ramo=estavel vps=https://showdown.sierverso.com.br/coleta"])
+        self.assertEqual(self.ler("downloads"), ["https://showdown.sierverso.com.br/coleta/bots/ramo/estavel"])
+        self.rodar()
+        self.assertEqual(len(self.ler("log")), 1)  # já está na revisão mais nova
+
+    def test_segue_a_branch_do_pc(self):
+        # PC de teste (instalado de outra branch): segue ela, nunca troca sozinho para a estavel.
+        (self.d / "opt" / "RAMO").write_text("claude/v041-pausa\n")
+        self.rodar()
+        self.assertTrue(self.ler("downloads")[0].endswith("/ramo/claude%2Fv041-pausa"))
+        self.assertIn("ramo=claude/v041-pausa", self.ler("log")[0])
+        (self.d / "opt" / "RAMO").write_text("main\n")  # instalações antigas: main vira estavel
+        (self.d / "sha").write_text("c" * 40)
+        self.rodar()
+        self.assertTrue(self.ler("downloads")[-1].endswith("/ramo/estavel"))
+
+    def test_falha_nao_tenta_a_mesma_revisao_de_novo(self):
+        (self.d / "falhar").touch()
+        self.assertEqual(self.rodar().returncode, 3)
+        self.assertEqual(self.rodar().returncode, 0)
+        self.assertEqual(len(self.ler("log")), 1)
+        # Outra revisão publicada: tenta de novo, e o sucesso limpa a marca.
+        (self.d / "falhar").unlink()
+        (self.d / "sha").write_text("c" * 40)
+        self.assertEqual(self.rodar().returncode, 0)
+        self.assertEqual(len(self.ler("log")), 2)
+        self.assertFalse((self.d / "opt" / ".auto-atualizar-falhou").exists())
+
+    def test_sem_rede_ou_sem_codigo_nao_falha(self):
+        (self.d / "fora").touch()
+        self.assertEqual(self.rodar().returncode, 0)
+        (self.d / "fora").unlink()
+        (self.d / "etc" / "coleta.env").write_text("")
+        self.assertEqual(self.rodar().returncode, 0)
+        self.assertEqual(self.ler("log"), [])

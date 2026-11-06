@@ -162,5 +162,13 @@ if ! bash "$FONTE/linux/instalar.sh"; then
 	religar
 	exit 1
 fi
+# A branch de onde veio (estavel ou uma de teste), para o painel e a página de admin mostrarem. Fica
+# fora do instalar.sh: mudar ele faz os bots pararem para reinstalar o Ai-vgc.
+printf '%s\n' "$RAMO" >"$DIR/RAMO" || true
+# "Atualizar sozinho" ligado: as units dele vêm do fonte/ (painel.sh auto-atualizar), renovadas aqui.
+if [ -e "$ETC/auto-atualizar" ] && [ -f "$FONTE/linux/lor-auto-atualizar.timer" ]; then
+	install -m 644 "$FONTE/linux/lor-auto-atualizar.service" "$FONTE/linux/lor-auto-atualizar.timer" \
+		"${LOR_SYSTEMD:-/etc/systemd/system}/" && systemctl daemon-reload || true
+fi
 religar
 echo "Atualizado para $nova."

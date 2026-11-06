@@ -21,6 +21,7 @@ SEM_DISCORD), as partidas vão com "discord": false: a coleta guarda para o trei
 Só biblioteca padrão.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -40,6 +41,7 @@ TAG = re.compile(r"^battle-[a-z0-9-]{1,120}$")  # o mesmo que a coleta exige em 
 SEM_DISCORD = Path(os.environ.get("LOR_SEM_DISCORD", "/etc/lor-bots/sem-discord"))  # painel.sh discord
 ETC = Path(os.environ.get("LOR_ETC", "/etc/lor-bots"))  # um <bot>.env por bot (BOT=conta, SERVIDOR=...)
 VERSAO = Path(os.environ.get("LOR_VERSAO", "/opt/lor-bots/VERSION"))
+INSTALACAO = VERSAO.parent  # RAMO, REVISION, ai-vgc-lor.patch e o checkout ai-vgc/
 SINAL_A_CADA = 60  # segundos entre sinais de vida; a página considera offline depois de 3 min sem
 SINAL_EM_PARTIDA = 30  # com uma partida em andamento: o placar da página ao vivo fica mais em dia
 PLACAR_VALIDO = 15 * 60  # um placar-<conta>.json mais velho que isto não é da partida de agora
@@ -144,6 +146,52 @@ def modelo_do_modo(modo: str) -> str:
     return re.sub(r"\.pt$", "", m.group(1).rsplit("/", 1)[-1])[:40] if m else ""
 
 
+def _nome(caminho: str) -> str:
+    return re.sub(r"\.pt$", "", caminho.rsplit("/", 1)[-1])[:40]
+
+
+def modulos_do_modo(modo: str) -> dict:
+    """O que mais o MODO diz sobre como o bot joga (o mesmo que o painel.sh estado mostra): o modelo
+    do oponente da busca ("" = o all-bo3-opp-v2 do bot.sh), as opções da busca e o formato."""
+    p = (modo or "").split()
+    oponente, busca = "", []
+    for i, palavra in enumerate(p):
+        prox = p[i + 1] if i + 1 < len(p) else ""
+        if palavra == "--opp-model" and prox:
+            oponente = _nome(prox)
+        elif palavra.startswith("--search-") or palavra in ("--change-after-loss", "--counter-t1"):
+            busca.append(palavra.removeprefix("--search-").removeprefix("--"))
+            if re.fullmatch(r"[0-9.]+", prox):
+                busca.append(prox)
+    return {"oponente": oponente, "busca": " ".join(busca)[:200], "formato": "bo1" if "--bo1" in p else "bo3",
+            "timer": "--no-timer" not in p}
+
+
+def opcoes_do_bot(conf: dict) -> dict:
+    """As chaves do painel que mudam o ritmo do bot (os arquivos-bandeira do .env): True = ligada."""
+    def sem(chave: str) -> bool:  # ligada quando o arquivo "sem-..." não existe
+        return not (conf.get(chave) and Path(conf[chave]).exists())
+    return {"colmeia": sem("SEM_ESPERA_COLMEIA_ARQUIVO"), "pausa": sem("SEM_PAUSA_ARQUIVO"),
+            "esperar_bots": sem("SEM_ESPERA_BOTS_ARQUIVO"),
+            "decisoes_rapidas": bool(conf.get("DECISOES_RAPIDAS_ARQUIVO")
+                                     and Path(conf["DECISOES_RAPIDAS_ARQUIVO"]).exists())}
+
+
+def modulos_do_pc() -> dict:
+    """A branch, a revisão e o Ai-vgc (commit + impressão do patch) desta instalação; "" se não souber."""
+    def ler(arq: Path, n: int, permitido: str) -> str:
+        try:
+            return re.sub(f"[^{permitido}]", "", arq.read_text()[:n])
+        except OSError:
+            return ""
+    try:
+        patch = hashlib.sha256((INSTALACAO / "ai-vgc-lor.patch").read_bytes()).hexdigest()[:7]
+    except OSError:
+        patch = ""
+    return {"ramo": ler(INSTALACAO / "RAMO", 100, "A-Za-z0-9._/-"), "revisao": ler(INSTALACAO / "REVISION", 12, "0-9a-f"),
+            "aivgc": ler(INSTALACAO / "ai-vgc" / ".git" / "HEAD", 7, "0-9a-f"), "patch": patch}
+
+
 def partida_atual(log: str) -> str:
     """A última partida anunciada no log ("watch: <url>") se depois dela não veio o resultado
     dela (o mesmo que o painel.sh estado faz)."""
@@ -196,6 +244,7 @@ def bots_deste_pc(rodar=_rodar, raiz: Path | None = None) -> list[dict]:
         desafio = rodar(["systemctl", "show", "-p", "ActiveState", "--value", f"lor-desafio-{bot_id}"]).strip()
         bots.append({"conta": conf["BOT"], "estado": estado, "partida": partida,
                      "servidor": conf.get("SERVIDOR") or "oficial", "modelo": modelo_do_modo(conf.get("MODO", "")),
+                     **modulos_do_modo(conf.get("MODO", "")), "opcoes": opcoes_do_bot(conf),
                      "desafio": desafio in ("active", "activating", "deactivating"),
                      "placar": placar(raiz, conf["BOT"], partida)})
     return bots
@@ -213,7 +262,7 @@ def sinal(codigo: str, raiz: Path | None = None) -> bool:
     except OSError:
         versao = ""
     bots = bots_deste_pc(raiz=raiz)
-    corpo = json.dumps({"versao": versao, "bots": bots}).encode()
+    corpo = json.dumps({"versao": versao, **modulos_do_pc(), "bots": bots}).encode()
     req = urllib.request.Request(URL.rsplit("/", 1)[0] + "/sinal", data=corpo, headers={
         "Authorization": f"Bearer {codigo}", "Content-Type": "application/json", "User-Agent": "lor-bots-envio"})
     try:
