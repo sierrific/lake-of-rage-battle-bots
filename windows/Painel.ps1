@@ -1588,9 +1588,10 @@ $lAtualizar.Tamanho = 9.5
 $lAtualizar.FundoNome = 'fundo'
 $lAtualizar.Sublinhado = $true
 $lAtualizar.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
-$lVersao = Novo-Rotulo 'Versão' 519 651 254 32 $form 'suave' 9.5
+# Versão e módulos (modelo, oponente; o resto ao passar o mouse): mais largo, para caber a branch de teste.
+$lVersao = Novo-Rotulo 'Versão' 356 651 417 32 $form 'suave' 9.5
 $lVersao.FundoNome = 'fundo'
-$lVersao.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter'
+$lVersao.Alinhar = [System.Windows.Forms.TextFormatFlags]'Right, VerticalCenter, EndEllipsis'
 $divRodape = New-Object LoR.Divisor
 $divRodape.FundoNome = 'fundo'
 [void](Pos $divRodape 778 658 2 20 $form)
@@ -2203,7 +2204,10 @@ function Atualizar-EstadoTela($Resposta = $null) {
     }
     Arrumar-Status
     Mostrar-Placar $e
-    $lVersao.Text = "Versão $($e['versao'])"
+    $modulos = Resumo-Modulos $e
+    $lVersao.Text = $modulos.Curto
+    $ttTema.SetToolTip($lVersao, $modulos.Detalhe)
+    $lVersao.AccessibleDescription = $modulos.Detalhe
     if (Precisa-Atualizar) { $lAtualizar.Text = "Atualizar para $($script:versaoNova)"; $lAtualizar.Negrito = $true }
     else { $lAtualizar.Text = 'Verificar atualização'; $lAtualizar.Negrito = $false }
     if (-not $tUsuario.Caixa.Focused -and -not $tUsuario.Caixa.Modified) { $tUsuario.Caixa.Text = $e['conta'] }
@@ -2758,6 +2762,34 @@ function Versao-Painel {
     try { (Get-Content $ArquivoVersao -TotalCount 1).Trim() } catch { '' }
 }
 
+# As peças com que o bot joga (o "modulos" do painel.sh estado): uma linha curta no rodapé e o
+# detalhe ao passar o mouse. Serve para comparar dois PCs: versão, branch, modelos, busca e opções.
+function Nome-Curto($modelo) {
+    if ($modelo -cmatch '(?:^|-)(v\d+)(?:-[a-z]+)?$') { $Matches[1] } else { $modelo }
+}
+function Resumo-Modulos($e) {
+    $sn = { param($v) if ($v -eq 'sim') { 'sim' } elseif ($v -eq 'nao') { 'não' } else { '?' } }
+    $curto = "Versão $($e['versao'])"
+    if ($Ramo -ne 'estavel') { $curto += " · $Ramo" }
+    if ($e.ContainsKey('modelo')) {
+        if ($e['modelo']) { $curto += " · modelo $(Nome-Curto $e['modelo'])" }
+        $curto += ' · oponente ' + $(if ($e['oponente']) { Nome-Curto $e['oponente'] } else { 'original' })
+    }
+    $revisao = if ($e['revisao']) { ", revisão $($e['revisao'])" } else { '' }
+    $linhas = @(
+        "Programa: $($e['versao']) (branch $Ramo$revisao) · painel $(Versao-Painel)"
+    )
+    if ($e.ContainsKey('modelo')) {
+        $linhas += 'Modelo de jogo: ' + $(if ($e['modelo']) { $e['modelo'] } else { 'nenhum (configure a conta)' })
+        $linhas += 'Modelo do oponente: ' + $(if ($e['oponente']) { $e['oponente'] } else { 'original do Ai-vgc (all-bo3-opp-v2)' })
+        $linhas += 'Busca: ' + $(if ($e['busca']) { $e['busca'] } else { 'nenhuma opção' })
+        $patch = if ($e['patch']) { " + patch $($e['patch'])" } else { '' }
+        $linhas += "Ai-vgc: $(if ($e['aivgc']) { $e['aivgc'] } else { '?' })$patch"
+    }
+    $linhas += "Opções: $(([string]$e['formato']).ToUpper()), timer $(& $sn $e['timer']), esperar bots da colmeia $(& $sn $e['esperar_colmeia']), pausa entre partidas $(& $sn $e['pausa']), esperar bots conhecidos $(& $sn $e['esperar_bots']), decisões instantâneas $(& $sn $e['decisoes_instantaneas'])"
+    [pscustomobject]@{ Curto = $curto; Detalhe = ($linhas -join "`r`n") }
+}
+
 # Versão nova na VPS para o Linux ou para este painel (cada um pode ter ficado para trás).
 function Precisa-Atualizar {
     [bool]$script:versaoNova -and ($script:versaoNova -ne $script:estado['versao'] -or $script:versaoNova -ne (Versao-Painel))
@@ -2797,8 +2829,8 @@ script=$(mktemp)
 trap 'rm -f "$script"' EXIT
 codigo=$(sed -n 's/^COLETA_CODIGO=//p' /etc/lor-bots/coleta.env | head -n1)
 curl -fsSL --max-time 30 -H "Authorization: Bearer $codigo" '{2}/{0}/linux/atualizar.sh' -o "$script"
-LOR_REVISION='{0}' LOR_VERSION='{1}' LOR_VPS='{3}' bash "$script"
-'@ -f $versao.Sha, $versao.Versao, $Vps, ($Vps -replace '/bots$', '')
+LOR_REVISION='{0}' LOR_VERSION='{1}' LOR_RAMO='{4}' LOR_VPS='{3}' bash "$script"
+'@ -f $versao.Sha, $versao.Versao, $Vps, ($Vps -replace '/bots$', ''), $(if ($Ramo -cmatch '^[A-Za-z0-9._/-]+$') { $Ramo } else { 'estavel' })
     $codificado = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bash.Replace("`r", '')))
     "-d $Distro -u root -e bash -c `"echo $codificado | base64 -d | bash`""
 }
