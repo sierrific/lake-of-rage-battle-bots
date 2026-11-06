@@ -1056,6 +1056,22 @@ class TestAtualizar(unittest.TestCase):
         self.assertTrue(all(sha in u for u in urls if "/ramo/" not in u), urls)
         self.assertTrue(all(u.startswith("https://showdown.sierverso.com.br/coleta/bots/") for u in urls), urls)
 
+    def test_lor_vps_e_a_raiz_da_coleta_como_no_instalador(self):
+        # Instalador, painel e atualizar.sh aceitam o mesmo LOR_VPS: a raiz da coleta, com ou
+        # sem "/" no fim; o ".../coleta/bots" antigo também vale (revisão de código de 06/11).
+        for vps in ("https://showdown.sierverso.com.br/coleta", "https://showdown.sierverso.com.br/coleta/",
+                    "https://showdown.sierverso.com.br/coleta/bots"):
+            with self.subTest(vps=vps):
+                self.versao("2", patch="patch 2")
+                (self.d / "downloads").write_text("")
+                self.env["LOR_VPS"] = vps
+                r = self.atualizar()
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                urls = (self.d / "downloads").read_text().splitlines()
+                self.assertTrue(urls)
+                self.assertTrue(all(u.startswith("https://showdown.sierverso.com.br/coleta/bots/")
+                                    and "/bots/bots/" not in u and "//bots" not in u for u in urls), urls)
+
     def test_sha_do_painel_nao_consulta_branch(self):
         self.versao("2", patch="patch 2")
         sha = (self.d / "github" / "REVISION").read_text()

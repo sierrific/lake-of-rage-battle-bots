@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -310,6 +311,58 @@ class TestSinal(unittest.TestCase):
             self.assertFalse(enviar.sinal("codigo"))
         finally:
             enviar.URL, enviar.bots_deste_pc = url, bots
+
+
+    def test_sinal_nao_espera_o_envio_de_um_acumulo(self):
+        # Um acúmulo de partidas com a coleta lenta prende o ciclo de envio por minutos; o sinal de
+        # vida segue no próprio ritmo (revisão de código de 06/11).
+        chamadas, envio_preso, parar = [], threading.Event(), threading.Event()
+        sinal, ciclo, a_cada = enviar.sinal, enviar.ciclo, enviar.SINAL_A_CADA
+
+        def sinal_falso(codigo, raiz=None):
+            chamadas.append(time.monotonic())
+            return False
+
+        def ciclo_preso(*args):
+            envio_preso.wait(10)  # "a coleta demora": o envio fica parado aqui
+            parar.set()
+            raise SystemExit
+
+        enviar.sinal, enviar.ciclo, enviar.SINAL_A_CADA = sinal_falso, ciclo_preso, 0.05
+        try:
+            with tempfile.TemporaryDirectory() as d, \
+                    unittest.mock.patch.dict("os.environ", COLETA_CODIGO="codigo-teste"), \
+                    unittest.mock.patch.object(enviar, "testar", lambda codigo: None), \
+                    unittest.mock.patch("sys.argv", ["enviar-partidas.py", d]):
+                principal = threading.Thread(target=lambda: self.assertRaises(SystemExit, enviar.main))
+                principal.start()
+                prazo = time.monotonic() + 5
+                while len(chamadas) < 3 and time.monotonic() < prazo:
+                    time.sleep(0.01)
+                envio_preso.set()
+                principal.join(5)
+            self.assertGreaterEqual(len(chamadas), 3, "o sinal esperou o envio terminar")
+        finally:
+            envio_preso.set()
+            enviar.sinal, enviar.ciclo, enviar.SINAL_A_CADA = sinal, ciclo, a_cada
+
+    def test_sinal_continuo_sobrevive_a_um_erro(self):
+        sinal, a_cada = enviar.sinal, enviar.SINAL_A_CADA
+        parar, chamadas = threading.Event(), []
+
+        def sinal_falso(codigo, raiz=None):
+            chamadas.append(1)
+            if len(chamadas) == 1:
+                raise RuntimeError("journal quebrado")
+            parar.set()
+            return False
+
+        enviar.sinal, enviar.SINAL_A_CADA = sinal_falso, 0.01
+        try:
+            enviar.sinal_continuo("codigo", Path("."), parar)
+        finally:
+            enviar.sinal, enviar.SINAL_A_CADA = sinal, a_cada
+        self.assertEqual(len(chamadas), 2)
 
 
 if __name__ == "__main__":

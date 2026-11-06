@@ -23,7 +23,9 @@ $ProgressPreference = 'SilentlyContinue'  # o Invoke-WebRequest fica 10x mais le
 
 # estavel = a main depois que os testes do GitHub passaram nela; outra branch so para testes
 $Ramo = if ($env:LOR_RAMO) { $env:LOR_RAMO } else { 'estavel' }
-$Vps = if ($env:LOR_VPS) { $env:LOR_VPS } else { 'https://showdown.sierverso.com.br/coleta' }
+# LOR_VPS (outra VPS, para testes): a raiz da coleta, a mesma que o painel e o atualizar.sh aceitam
+# (um ".../coleta/bots" antigo tambem vale). Ela segue para o Linux na instalacao.
+$Vps = if ($env:LOR_VPS) { ($env:LOR_VPS.TrimEnd('/') -replace '/bots$', '') } else { 'https://showdown.sierverso.com.br/coleta' }
 $Distro = 'LoRBots'
 # Painel, versao e marcas (poucos KB) ficam sempre aqui; o Linux dos bots pode ir para outro disco.
 $Pasta = Join-Path $env:LOCALAPPDATA 'LoRBots'
@@ -180,6 +182,25 @@ function RevisaoDoRamo([string]$ramo) {
         if ($tentativa -lt 3) { Start-Sleep -Seconds (5 * $tentativa) }
     }
     Falha "Nao consegui consultar a versao do bot no servidor do time (branch $ramo). Confira a internet e rode o instalador de novo em alguns minutos."
+}
+# Baixa para um temporario ao lado e so depois troca: uma reinstalacao interrompida no meio do
+# download nao deixa pela metade o painel que ja funcionava (revisao de codigo de 06/11). Com
+# -Script, o arquivo baixado ainda tem de ser um PowerShell inteiro (o mesmo teste do Atualizar).
+function BaixarSubstituindo([string]$url, [string]$destino, [switch]$Script) {
+    $tmp = "$destino.baixando"
+    try {
+        Invoke-WebRequest -UseBasicParsing -Headers $Autorizacao -Uri $url -OutFile $tmp
+        if (-not (Test-Path $tmp) -or (Get-Item $tmp).Length -eq 0) { throw 'veio vazio' }
+        if ($Script) {
+            $erros = $null
+            [void][System.Management.Automation.PSParser]::Tokenize((Get-Content $tmp -Raw -Encoding UTF8), [ref]$erros)
+            if ($erros.Count -gt 0) { throw 'veio incompleto ou com erro' }
+        }
+        Move-Item -Force $tmp $destino
+    } catch {
+        Remove-Item $tmp -ErrorAction SilentlyContinue
+        Falha "Nao consegui baixar $(Split-Path $destino -Leaf) ($($_.Exception.Message)). O que ja estava instalado continua como estava: rode o instalador de novo."
+    }
 }
 function NoLinux([string]$comando) {
     Wsl -d $Distro -u root -e bash -lc $comando
@@ -439,15 +460,15 @@ if ($pid1 -ne 'systemd') { Falha "O WSL deste PC nao ligou o systemd (achei '$pi
 Passo 'Instalando o bot no Linux (Node, Python, PyTorch, simulador; a primeira vez leva uns 10-20 min)'
 $Revisao = RevisaoDoRamo $Ramo
 $RawFixo = "$Vps/bots/$Revisao"
-NoLinux "curl -fsSL -H 'Authorization: Bearer $Codigo' $RawFixo/linux/atualizar.sh -o /tmp/lor-atualizar.sh && LOR_CODIGO=$Codigo LOR_RAMO=$Ramo LOR_REVISION=$Revisao bash /tmp/lor-atualizar.sh --forcar"
+NoLinux "curl -fsSL -H 'Authorization: Bearer $Codigo' $RawFixo/linux/atualizar.sh -o /tmp/lor-atualizar.sh && LOR_CODIGO=$Codigo LOR_RAMO=$Ramo LOR_REVISION=$Revisao LOR_VPS=$Vps bash /tmp/lor-atualizar.sh --forcar"
 # O codigo fica salvo no Linux como se tivesse sido colocado no painel (envio das partidas e
 # atualizacoes). Rodar de novo com o mesmo codigo nao muda nada.
 NoLinux "printf '%s\n' $Codigo | /opt/lor-bots/painel.sh codigo"
 
 # 4. Painel (do mesmo commit do bot)
 Passo 'Instalando o painel'
-Invoke-WebRequest -UseBasicParsing -Headers $Autorizacao -Uri "$RawFixo/windows/Painel.ps1" -OutFile (Join-Path $Pasta 'Painel.ps1')
-Invoke-WebRequest -UseBasicParsing -Headers $Autorizacao -Uri "$RawFixo/VERSION" -OutFile (Join-Path $Pasta 'VERSION')
+BaixarSubstituindo "$RawFixo/windows/Painel.ps1" (Join-Path $Pasta 'Painel.ps1') -Script
+BaixarSubstituindo "$RawFixo/VERSION" (Join-Path $Pasta 'VERSION')
 # Icone dos atalhos (Gyarados vermelho). Se nao baixar, fica o padrao e o painel grava o dele ao abrir.
 $iconeAtalho = 'shell32.dll,137'
 try {

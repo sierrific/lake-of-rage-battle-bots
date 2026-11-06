@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -96,13 +97,25 @@ def main() -> None:
         print("primeira execução: enviando também as partidas que já existiam", flush=True)
         estado = {"desde": time.strftime("%Y-%m-%d %H:%M:%S"), "enviados": {}}
         _gravar(estado_arq, estado)
-    ultimo_sinal, em_partida = 0.0, False
+    # O sinal de vida tem o próprio ritmo: um acúmulo de partidas para enviar (vários lotes, cada
+    # um com até 60 s de prazo) ou a espera depois de um código recusado não o atrasam, e a página
+    # não mostra como offline um bot que está jogando (revisão de código de 06/11).
+    threading.Thread(target=sinal_continuo, args=(codigo, raiz), name="sinal", daemon=True).start()
     while True:
         ciclo(codigo, raiz, estado_arq, estado)
-        if time.monotonic() - ultimo_sinal >= (SINAL_EM_PARTIDA if em_partida else SINAL_A_CADA):
-            em_partida = sinal(codigo, raiz)
-            ultimo_sinal = time.monotonic()
         time.sleep(POLL)
+
+
+def sinal_continuo(codigo: str, raiz: Path, parar: "threading.Event | None" = None) -> None:
+    """Manda o sinal de vida a cada SINAL_A_CADA s (SINAL_EM_PARTIDA com partida), à parte do envio."""
+    parar = parar or threading.Event()
+    while not parar.is_set():
+        try:
+            em_partida = sinal(codigo, raiz)
+        except Exception as e:  # nunca deixa o sinal parar de vez
+            print(f"sinal de vida: {e!r}", flush=True)
+            em_partida = False
+        parar.wait(SINAL_EM_PARTIDA if em_partida else SINAL_A_CADA)
 
 
 def _rodar(cmd: list[str]) -> str:

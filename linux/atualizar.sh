@@ -18,7 +18,11 @@ DIR="${LOR_DIR:-/opt/lor-bots}"  # LOR_DIR e LOR_RUN: só para os testes
 exec 8>"${LOR_RUN:-/run}/lor-atualizar.lock"
 flock -n 8 || { echo "Já tem uma atualização rodando; esperando ela terminar..."; flock 8; }
 
-VPS="${LOR_VPS:-https://showdown.sierverso.com.br/coleta/bots}"
+# LOR_VPS (outra VPS, para testes): a raiz da coleta, como no instalador e no painel; um
+# ".../coleta/bots" antigo também vale (revisão de código de 06/11).
+VPS="${LOR_VPS:-https://showdown.sierverso.com.br/coleta}"
+VPS="${VPS%/}"
+VPS="${VPS%/bots}/bots"
 RAMO="${LOR_RAMO:-estavel}"  # outra branch (main, ou uma de teste) só para testar uma versão
 FONTE="$DIR/fonte"
 ETC="${LOR_ETC:-/etc/lor-bots}"
