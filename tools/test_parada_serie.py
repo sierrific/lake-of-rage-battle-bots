@@ -15,6 +15,9 @@ nn_callback = next(n for n in nn.body if isinstance(n, ast.FunctionDef) and n.na
 names = {'_busy', '_ladder', '_battle_finished_callback', '_cycle'}
 methods = [n for n in mixin.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
 assert len(methods) == len(names)
+# A espera entre jogos de uma série (SERIES_WAIT) vem junto: os prazos abaixo são relativos a ela.
+methods += [n for n in mixin.body if isinstance(n, ast.Assign) and any(getattr(t, 'id', '') == 'SERIES_WAIT' for t in n.targets)]
+assert len(methods) == len(names) + 1
 
 
 class TestSeriesStop(unittest.IsolatedAsyncioTestCase):
@@ -58,7 +61,7 @@ class TestSeriesStop(unittest.IsolatedAsyncioTestCase):
 
     def abandoned_then_two_zero(self):
         self.finish('battle-old-1', 'game-bestof3-old')
-        self.clock[0] += 130
+        self.clock[0] += self.bot.SERIES_WAIT + 10
         self.finish('battle-new-1', 'game-bestof3-new')
         self.clock[0] += 60
         self.finish('battle-new-2', 'game-bestof3-new', 2)
@@ -75,7 +78,7 @@ class TestSeriesStop(unittest.IsolatedAsyncioTestCase):
 
     def test_bo1_nao_renova_espera_de_serie_antiga(self):
         self.finish('battle-old-1', 'game-bestof3-old')
-        self.clock[0] += 130
+        self.clock[0] += self.bot.SERIES_WAIT + 10
         self.finish('battle-bo1')
         self.assertFalse(self.bot._busy())
 
@@ -95,7 +98,7 @@ class TestSeriesStop(unittest.IsolatedAsyncioTestCase):
 
     def test_serie_abandonada_ainda_tem_prazo_para_proximo_jogo(self):
         self.finish('battle-new-1', 'game-bestof3-new')
-        self.clock[0] += 119
+        self.clock[0] += self.bot.SERIES_WAIT - 1
         self.assertTrue(self.bot._busy())
         self.clock[0] += 1
         self.assertFalse(self.bot._busy())
@@ -103,7 +106,7 @@ class TestSeriesStop(unittest.IsolatedAsyncioTestCase):
 
     def test_retomada_tardia_renova_so_o_prazo_da_propria_serie(self):
         self.finish('battle-new-1', 'game-bestof3-new')
-        self.clock[0] += 130
+        self.clock[0] += self.bot.SERIES_WAIT + 10
         self.assertFalse(self.bot._busy())
         self.finish('battle-new-2', 'game-bestof3-new', 2, 'Rival')
         self.assertTrue(self.bot._busy())
@@ -117,13 +120,13 @@ class TestSeriesStop(unittest.IsolatedAsyncioTestCase):
         self.finish('battle-b-1', 'game-bestof3-b')
         self.finish('battle-b-2', 'game-bestof3-b', 2)
         self.assertTrue(self.bot._busy())
-        self.clock[0] = 1120
+        self.clock[0] = 10 + self.bot.SERIES_WAIT + 1000
         self.assertFalse(self.bot._busy())
 
     def test_partida_ativa_nao_e_interrompida_pelo_prazo_entre_jogos(self):
         self.finish('battle-new-1', 'game-bestof3-new')
         self.bot._battles['battle-new-2'] = types.SimpleNamespace(finished=False)
-        self.clock[0] += 600
+        self.clock[0] += self.bot.SERIES_WAIT + 10
         self.assertTrue(self.bot._busy())
 
     async def test_pedido_de_parada_entre_jogos_termina_a_serie(self):
