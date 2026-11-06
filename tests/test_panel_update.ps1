@@ -40,6 +40,8 @@ function Start-Process {
     Assert ($bash.Contains('/etc/lor-bots/coleta.env')) 'O Linux nao le o codigo salvo'
     Assert ($bash.Contains("LOR_REVISION='$(('a' * 40))' LOR_VERSION='2'")) 'Runtime recebeu outra revisao/versao'
     Assert ($bash.Contains('-o "$script"')) 'Script executado antes de completar download'
+    # A mesma raiz da coleta que o instalador passa (revisao de codigo de 06/11).
+    Assert ($bash.Contains("LOR_VPS='https://vps.teste/coleta' bash")) 'o Linux nao recebeu a VPS do painel'
     # Simula outra versao publicada enquanto o runtime atualiza.
     $script:versaoNova = '999'
     $p = [pscustomobject]@{ Handle = 1; HasExited = $true; ExitCode = $script:exitCode }

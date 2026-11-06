@@ -978,8 +978,10 @@ if ($env:LOR_RAMO) { $Ramo = $env:LOR_RAMO }
 elseif (Test-Path (Join-Path $Pasta 'ramo.txt')) { $Ramo = (Get-Content (Join-Path $Pasta 'ramo.txt') -TotalCount 1).Trim() }
 if (-not $Ramo -or $Ramo -eq 'main') { $Ramo = 'estavel' }
 # Bot e painel vêm da VPS do time, com o código da coleta (o repositório no GitHub é privado).
+# LOR_VPS (outra VPS, para testes) é a raiz da coleta, como no instalador e no atualizar.sh; um
+# ".../coleta/bots" antigo também vale (revisão de código de 06/11).
 $Vps = 'https://showdown.sierverso.com.br/coleta/bots'
-if ($env:LOR_VPS) { $Vps = $env:LOR_VPS }
+if ($env:LOR_VPS) { $Vps = ($env:LOR_VPS.TrimEnd('/') -replace '/bots$', '') + '/bots' }
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $ArquivoSkin = Join-Path $Pasta 'skin.txt'
 $ArquivoLayout = Join-Path $Pasta 'layout.txt'
@@ -2795,8 +2797,8 @@ script=$(mktemp)
 trap 'rm -f "$script"' EXIT
 codigo=$(sed -n 's/^COLETA_CODIGO=//p' /etc/lor-bots/coleta.env | head -n1)
 curl -fsSL --max-time 30 -H "Authorization: Bearer $codigo" '{2}/{0}/linux/atualizar.sh' -o "$script"
-LOR_REVISION='{0}' LOR_VERSION='{1}' bash "$script"
-'@ -f $versao.Sha, $versao.Versao, $Vps
+LOR_REVISION='{0}' LOR_VERSION='{1}' LOR_VPS='{3}' bash "$script"
+'@ -f $versao.Sha, $versao.Versao, $Vps, ($Vps -replace '/bots$', '')
     $codificado = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bash.Replace("`r", '')))
     "-d $Distro -u root -e bash -c `"echo $codificado | base64 -d | bash`""
 }

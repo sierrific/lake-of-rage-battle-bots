@@ -4,8 +4,11 @@ $ErrorActionPreference = 'Stop'
 $path = Join-Path (Join-Path (Split-Path $PSScriptRoot) 'windows') 'instalar.ps1'
 $source = [IO.File]::ReadAllText($path)
 $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
-$f = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'RevisaoDoRamo' }, $true)
-. ([scriptblock]::Create($f.Extent.Text))
+foreach ($nome in @('RevisaoDoRamo', 'BaixarSubstituindo')) {
+    $f = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $nome }, $true)
+    if (-not $f) { throw "funcao $nome nao encontrada" }
+    . ([scriptblock]::Create($f.Extent.Text))
+}
 $inicio = $source.IndexOf('# 3. Bot (dentro do Linux)')
 $fim = $source.IndexOf('# A branch escolhida', $inicio)
 if ($inicio -lt 0 -or $fim -lt 0) { throw 'trecho dos passos 3 e 4 nao encontrado' }
@@ -31,6 +34,13 @@ function Invoke-WebRequest {
         return [pscustomobject]@{ Content = ('{"sha":"' + $sha + '"}') }
     }
     Assert ($Uri -like "https://vps.teste/coleta/bots/$A/*") "baixou de outro lugar: $Uri"
+    if ($OutFile -and $Uri -like '*/windows/Painel.ps1') {
+        # Reinstalacao interrompida: metade do painel chega (string sem fim) ou a conexao cai.
+        if ($script:modoPainel -eq 'metade') { [IO.File]::WriteAllText($OutFile, "Write-Host 'metade do pai"); return }
+        if ($script:modoPainel -eq 'caiu') { [IO.File]::WriteAllText($OutFile, '# come'); throw 'a conexao caiu' }
+        [IO.File]::WriteAllText($OutFile, "# painel novo`nWrite-Host 'ok'")
+        return
+    }
     if ($OutFile) { [IO.File]::WriteAllText($OutFile, 'x') }
 }
 function NoLinux([string]$comando) { $script:linux.Add($comando) }
@@ -54,6 +64,20 @@ try {
         Assert ($script:urls -contains "https://vps.teste/coleta/bots/$A/$arq") "nao baixou $arq do commit fixado"
     }
     Assert (Test-Path (Join-Path $Pasta 'Painel.ps1')) 'nao gravou o painel'
+    Assert ($script:linux[0].Contains('LOR_VPS=https://vps.teste/coleta ')) "o Linux nao recebeu a VPS: $($script:linux[0])"
+
+    # Reinstalacao interrompida no meio do download do painel: o que funcionava fica inteiro
+    # (revisao de codigo de 06/11), sem temporario sobrando, e o instalador para com aviso.
+    $painel = Join-Path $Pasta 'Painel.ps1'
+    foreach ($modo in @('metade', 'caiu')) {
+        [IO.File]::WriteAllText($painel, '# painel que funcionava')
+        $script:modoPainel = $modo; $script:consultas = 0; $script:linux.Clear()
+        $erro = & { try { & $passos; '' } catch { $_.Exception.Message } }
+        Assert ($erro -like 'FALHA: Nao consegui baixar Painel.ps1*') "$($modo): '$erro'"
+        Assert ([IO.File]::ReadAllText($painel) -eq '# painel que funcionava') "$($modo): estragou o painel que funcionava"
+        Assert (-not (Test-Path "$painel.baixando")) "$($modo): sobrou o temporario"
+    }
+    $script:modoPainel = $null
 
     # Sem resposta do GitHub: para com uma mensagem, sem baixar nada nem mexer no Linux.
     $script:urls.Clear(); $script:linux.Clear(); $script:apiFalha = $true

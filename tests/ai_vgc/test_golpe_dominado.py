@@ -43,7 +43,12 @@ def turn_2():
 class TestGolpeDominado(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.battle = turn_2()
+        # Pelipper (Drizzle) on our bench: Incineroar could switch into it and bring rain before
+        # Weather Ball, so with it the rule keeps Heat Wave (code review 2026-11-06). The other
+        # tests use the same game without it.
+        cls.with_pelipper = turn_2()
+        cls.battle = copy.deepcopy(cls.with_pelipper)
+        cls.battle._team = {k: m for k, m in cls.battle._team.items() if m.species != "pelipper"}
 
     def with_weather(self, weather):
         b = copy.deepcopy(self.battle)
@@ -59,6 +64,9 @@ class TestGolpeDominado(unittest.TestCase):
         self.assertTrue(mask[0, heat_wave])
         self.assertFalse(out[0, heat_wave])
         self.assertTrue(out[0, 7 + 1 * 5:7 + 2 * 5].any())  # Weather Ball still there
+
+    def test_drizzle_on_our_bench_keeps_heat_wave(self):
+        self.assertFalse(move_dominated(self.with_pelipper, 0, HEAT_WAVE, WEATHER_BALL))
 
     def test_heat_wave_kept_without_sun(self):
         # No weather: Weather Ball is a 50 BP Normal move. Rain: a Water move.

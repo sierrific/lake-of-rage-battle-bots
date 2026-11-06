@@ -146,6 +146,42 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
         self.bot._ladder_pause.assert_awaited_once()
         self.assertEqual(self.actions(), ["pedir", "liberar"])
 
+    async def test_ladder_devolve_a_vez_quando_a_partida_comeca_nao_quando_termina(self):
+        # A fila do poke-env como ela é: max_concurrent_battles=1 deixa a Queue(1) cheia da
+        # criação da batalha até o |win| (na Bo3, até o fim da série). A vez do time tem de
+        # voltar para a coleta enquanto a partida ainda está rolando (revisão de 06/11).
+        self.bot.ps_client = types.SimpleNamespace(logged_in=types.SimpleNamespace(wait=AsyncMock()))
+        self.bot._wait_for_busy_bots = AsyncMock()
+        self.bot._ladder_pause = AsyncMock()
+        self.bot._battle_start_condition = asyncio.Condition()
+        self.bot._battle_end_condition = asyncio.Condition()
+        self.bot._battle_count_queue = asyncio.Queue(1)
+        self.bot._battle_semaphore = asyncio.Semaphore(0)
+        self.bot._busy = lambda: not self.bot._battle_count_queue.empty()
+        seen = {}
+
+        async def battle():
+            for _ in range(50):  # a partida "dura" 50 passos do loop
+                await asyncio.sleep(0)
+            seen["liberada_durante_a_partida"] = "liberar" in self.actions()
+            await self.bot._battle_count_queue.get()
+            self.bot._battle_count_queue.task_done()
+            async with self.bot._battle_end_condition:
+                self.bot._battle_end_condition.notify_all()
+
+        async def search():
+            await self.bot._battle_count_queue.put(None)  # o que o poke-env faz ao criar a batalha
+            self.bot._battle_semaphore.release()
+            seen["fim"] = asyncio.create_task(battle())
+            return True
+
+        self.bot._search_until_match = search
+        await asyncio.wait_for(self.bot._ladder(1), 5)
+        await seen["fim"]
+        self.assertTrue(seen["liberada_durante_a_partida"], self.actions())
+        self.assertEqual(self.actions().count("liberar"), 1, self.actions())
+        self.assertEqual(self.actions()[0], "pedir")
+
     async def test_desligado_ainda_registra_conta_e_exclui_colmeia_dos_adversarios(self):
         self.flag.touch()
         self.bot._turn = types.MethodType(self.ns["_turn"], self.bot)
