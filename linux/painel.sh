@@ -60,6 +60,8 @@ PADRAO="MC371 MC196"
 ADAPTA="--change-after-loss --counter-t1 0.5"
 # Peso da política na busca (o bot.sh usa 0.1). Com 0.1 a busca quase nunca contraria a jogada
 # favorita da rede; em 1200 partidas locais de cada lado, 0.03 ganhou 83,5% contra 80,9%.
+# 06/11: 0.01 no lugar de 0.03; com 0.03 a preferência da rede ainda vencia jogadas que a própria busca
+# avaliava como melhores. Testado contra um imitador de jogadores humanos antes de ir para a ladder.
 # --search-protect: a busca sempre avalia Protect/Wide Guard, que a rede quase nunca sugere (nos
 # replays de 24–29/10, Wide Guard contra Clanging Scales era a melhor jogada e nunca foi avaliado).
 # Neutro em 1200 partidas locais (81,9% contra 81,6%), ~12% mais lento por decisão.
@@ -73,7 +75,7 @@ ADAPTA="--change-after-loss --counter-t1 0.5"
 #                    (0.3 no turno 1, um terço disso depois).
 # Nos jogos da coleta, o acerto do turno 1 do adversário nos jogos 2 e 3 foi de 48,7% para 56,7%.
 # Local (Bo3 contra all-bo3-bc-v2, ~530 jogos cada): 92,7% contra 91,0%, ~0,9 s a mais por decisão.
-BUSCA="--search-prior 0.03 --search-protect --search-escape --search-charge --search-field --search-series 0.3"
+BUSCA="--search-prior 0.01 --search-protect --search-escape --search-charge --search-field --search-series 0.3"
 # Modelos do oponente da busca ajustados com os jogos da coleta (linux/treino-oponente.py), do mais
 # novo ao mais velho: vale o primeiro que existir. Só existem no PC onde foram treinados; nos outros a
 # busca segue com o all-bo3-opp-v2 do bot.sh. Nas 396 partidas mais novas (31/10, fora do treino),

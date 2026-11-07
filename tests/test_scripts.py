@@ -634,7 +634,7 @@ class TestPainelModulos(TestPainelDesafio):
         m = self.modulos()
         self.assertEqual(m["modelo"], "mc-bo3-rnad-v5")
         self.assertEqual(m["oponente"], "")  # sem lor-opp-v*: o original do bot.sh
-        self.assertTrue(m["busca"].startswith("change-after-loss counter-t1 0.5 prior 0.03 protect escape"), m["busca"])
+        self.assertTrue(m["busca"].startswith("change-after-loss counter-t1 0.5 prior 0.01 protect escape"), m["busca"])
         self.assertNotIn("--", m["busca"])
         modelos = self.d / "ai" / "data" / "models"
         modelos.mkdir(parents=True)
