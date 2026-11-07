@@ -117,7 +117,7 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
   versão nova do bot e do painel. O bot que estava jogando termina a partida/série antes de reiniciar;
   quando a versão muda o próprio Ai-vgc ou o simulador, ele para antes da instalação e volta no fim.
   Se algo falhar no meio, a versão anterior é reinstalada e o bot volta como estava.
-- **Atualizar sozinho** (no rodapé; **desligado** por padrão, vale para o PC todo): a cada ~10 min
+- **Atualizar sozinho** (no rodapé; **desligado** por padrão, vale para o PC todo): a cada ~30 min
   o Linux procura uma revisão nova da branch deste PC (`estavel`, ou a de teste com que ele foi
   instalado) e instala como o **Atualizar**: numa partida ou série, o bot termina ela antes de
   reiniciar; parado entre partidas, reinicia na hora. Depois o painel troca o próprio arquivo e se
