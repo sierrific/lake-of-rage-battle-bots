@@ -87,6 +87,8 @@ fica guardado ao lado como `ext4.vhdx.preservado-<data>` e a instalação segue.
   permitindo buscas simultâneas. Nossos bots poderão se enfrentar, conforme as regras do Showdown.
   A escolha fica salva, sem reiniciar. Religar vale na próxima busca; a partida atual continua.
   É independente de **Esperar bots conhecidos**, de `/blockbots` e da pausa entre partidas.
+  Se a coleta (VPS) não responde, o bot insiste por 2 min antes de buscar sem a vez; se perde a vez
+  no meio da busca (a coleta reiniciou ou parou de responder), cancela a busca e pede de novo.
 - **Pausa entre partidas** (em Ajustes; ligada por padrão): depois de cada partida do ladder (no
   Bo3, de cada série), espera de 1 a 5 minutos, conforme a personalidade, antes de buscar a próxima.
   Desligada, busca logo e encerra uma pausa em curso, sem reiniciar. A escolha fica salva. A vez

@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 
 source = ast.parse(Path(sys.argv.pop(1)).read_text(encoding="utf-8"))
 mixin = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == "ChallengeMixin")
-names = {"_team_wait_enabled", "_wait_turn", "_renew_turn", "_ladder", "_turn", "_known_bots"}
+names = {"_team_wait_enabled", "_wait_turn", "_renew_turn", "_ladder", "_turn", "_known_bots", "_search_until_match"}
 methods = [n for n in mixin.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
 assert len(methods) == len(names)
 
@@ -43,11 +43,13 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
                    "time": types.SimpleNamespace(time=lambda: 1_800_000_000 + self.elapsed,
                                                  monotonic=lambda: self.elapsed,
                                                  strftime=time.strftime, localtime=time.localtime),
-                   "asyncio": types.SimpleNamespace(sleep=sleep, to_thread=to_thread, create_task=asyncio.create_task),
+                   "asyncio": types.SimpleNamespace(sleep=sleep, to_thread=to_thread, create_task=asyncio.create_task,
+                                                 wait_for=asyncio.wait_for, TimeoutError=asyncio.TimeoutError),
                    "to_id_str": lambda s: re.sub(r"[^a-z0-9]", "", s.lower())}
         for method in methods:
             exec(compile(ast.Module(body=[method], type_ignores=[]), "player.py", "exec"), self.ns)
-        cls = type("Bot", (), {n: self.ns[n] for n in names})
+        cls = type("Bot", (), {**{n: self.ns[n] for n in names}, "TURN_DOWN_WAIT": 120, "TURN_RENEW_FAILS": 3,
+                               "SEARCH_RETRY": 600})
         self.bot = cls()
         self.bot.stop_after_match = False
         self.bot._turn = AsyncMock(return_value={"vez": True})
@@ -108,10 +110,68 @@ class TestTeamWait(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.actions(), ["pedir", "liberar"])
         self.assertNotIn("wait disabled", self.output.getvalue())
 
-    async def test_coleta_indisponivel_preserva_busca_sem_vez(self):
+    async def test_sem_codigo_busca_sem_vez_na_hora(self):
         self.bot._turn.return_value = None
         self.assertFalse(await self.bot._wait_turn())
         self.assertEqual(self.elapsed, 0)
+
+    async def test_coleta_fora_do_ar_insiste_2_min_antes_de_buscar_sem_vez(self):
+        # 06/11: dois bots do time se enfrentaram 5 vezes; buscar na hora quando a VPS não
+        # respondia era uma das portas. Agora insiste a cada 15 s e só desiste depois de 2 min.
+        self.bot._turn.return_value = {"falha": "URLError"}
+        self.assertFalse(await self.bot._wait_turn())
+        self.assertGreaterEqual(self.elapsed, 120)
+        self.assertLess(self.elapsed, 150)
+        self.assertIn("searching without a turn", self.output.getvalue())
+
+    async def test_coleta_volta_e_da_a_vez(self):
+        self.bot._turn.side_effect = [{"falha": "TimeoutError"}, {"falha": "TimeoutError"}, {"vez": True}]
+        self.assertTrue(await self.bot._wait_turn())
+        self.assertEqual(self.elapsed, 30)
+
+    async def test_renovacao_recusada_marca_vez_perdida_e_libera(self):
+        # a coleta reiniciou (ou a renovação chegou tarde) e outro bot do time ficou com a vez
+        self.bot._turn.side_effect = [{"vez": True}, {"vez": False, "com": "OutroBot", "posicao": 1}, {}]
+        self.bot._turn_lost = False
+        await self.bot._renew_turn()
+        self.assertTrue(self.bot._turn_lost)
+        self.assertEqual(self.actions(), ["pedir", "pedir", "liberar"])
+        self.assertEqual(self.elapsed, 60)
+        self.assertIn("OutroBot has it", self.output.getvalue())
+
+    async def test_renovacao_sem_resposta_3_vezes_marca_vez_perdida(self):
+        self.bot._turn.side_effect = [{"falha": "URLError"}, {"vez": True}, {"falha": "URLError"},
+                                      {"falha": "URLError"}, {"falha": "URLError"}, {}]
+        self.bot._turn_lost = False
+        await self.bot._renew_turn()
+        self.assertTrue(self.bot._turn_lost)
+        self.assertEqual(self.actions(), ["pedir"] * 5 + ["liberar"])
+
+    async def test_busca_cancelada_quando_a_vez_e_perdida(self):
+        sent = []
+        self.bot.ps_client = types.SimpleNamespace(search_ladder_game=AsyncMock(),
+                                                   send_message=AsyncMock(side_effect=lambda m: sent.append(m)))
+        self.bot._format, self.bot.next_team = "gen9test", None
+        self.bot._battle_start_condition = asyncio.Condition()
+        self.bot._turn_lost = True
+        async with self.bot._battle_start_condition:
+            self.assertIsNone(await self.bot._search_until_match())
+        self.assertEqual(sent, ["/cancelsearch"])
+
+    async def test_ladder_pede_a_vez_de_novo_sem_gastar_partida(self):
+        self.bot.ps_client = types.SimpleNamespace(logged_in=types.SimpleNamespace(wait=AsyncMock()))
+        self.bot._renew_turn = AsyncMock()
+        self.bot._wait_for_busy_bots = AsyncMock()
+        self.bot._search_until_match = AsyncMock(side_effect=[None, True])
+        self.bot._battle_start_condition = asyncio.Condition()
+        self.bot._battle_count_queue = types.SimpleNamespace(full=lambda: False)
+        self.bot._battle_semaphore = types.SimpleNamespace(acquire=AsyncMock())
+        self.bot._busy = lambda: False
+        self.bot._ladder_pause = AsyncMock()
+        await self.bot._ladder(1)
+        self.assertEqual(self.bot._search_until_match.await_count, 2)
+        self.assertEqual(self.actions().count("pedir"), 2)
+        self.bot._ladder_pause.assert_awaited_once()
 
     async def test_desligar_enquanto_tem_vez_interrompe_renovacao_e_libera(self):
         self.on_sleep = self.flag.touch
